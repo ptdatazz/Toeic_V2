@@ -1,0 +1,138 @@
+/* --- Khởi tạo chống tràn viền --- */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  background: linear-gradient(to right, #4facfe, #00f2fe);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh; 
+  margin: 0;
+  padding: 15px; 
+  
+  -webkit-touch-callout: none; 
+  -webkit-user-select: none; 
+  -khtml-user-select: none; 
+  -moz-user-select: none; 
+  -ms-user-select: none; 
+  user-select: none; 
+}
+
+.container {
+  background: white;
+  padding: 30px 20px;
+  border-radius: 15px;
+  text-align: center;
+  width: 100% !important;        
+  max-width: 450px !important;   
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
+}
+
+h1, h2, h3, p, span, div {
+  word-wrap: break-word; 
+  overflow-wrap: break-word;
+}
+
+.options button, .next {
+  display: block;
+  width: 100%;
+  margin: 10px 0;
+  padding: 15px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  transition: all 0.2s; 
+  word-wrap: break-word;
+  background-color: #f4f6f8; 
+  color: #333;
+}
+
+.options button:hover, .next:hover {
+  opacity: 0.9;
+  transform: translateY(-2px); 
+}
+
+.options button:disabled {
+  transform: none; 
+}
+
+.correct { background-color: #4caf50 !important; color: white !important; }
+.wrong { background-color: #f44336 !important; color: white !important; }
+.next { background-color: #2196f3; color: white; }
+
+/* ================================================= */
+/* 🔥 HIỆU ỨNG COMBO VISUALS (MỚI THÊM)              */
+/* ================================================= */
+@keyframes comboPop {
+  0% { transform: scale(0.5); opacity: 0; }
+  70% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes comboShake {
+  0%, 100% { transform: rotate(0deg) scale(1.05); }
+  25% { transform: rotate(-3deg) scale(1.05); }
+  50% { transform: rotate(3deg) scale(1.05); }
+  75% { transform: rotate(-3deg) scale(1.05); }
+}
+
+@keyframes comboGodlike {
+  0% { transform: scale(1.05); filter: hue-rotate(0deg); box-shadow: 0 0 10px gold; }
+  50% { transform: scale(1.1); filter: hue-rotate(180deg); box-shadow: 0 0 30px #ffeb3b; }
+  100% { transform: scale(1.05); filter: hue-rotate(360deg); box-shadow: 0 0 10px gold; }
+}
+
+.feedback-box {
+  margin-top: 15px;
+  padding: 15px;
+  border-radius: 12px;
+  font-weight: bold;
+  text-align: center;
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+  font-size: 20px;
+}
+
+/* Cấp độ màu sắc và hiệu ứng cho Combo */
+.combo-1 { background: linear-gradient(135deg, #4caf50, #81c784); animation: comboPop 0.4s forwards; }
+.combo-2 { background: linear-gradient(135deg, #03a9f4, #4dd0e1); animation: comboPop 0.4s forwards; font-size: 22px; }
+.combo-3 { background: linear-gradient(135deg, #9c27b0, #e040fb); animation: comboShake 0.4s forwards; font-size: 24px; text-transform: uppercase;}
+.combo-4 { background: linear-gradient(135deg, #ff9800, #ff5722); animation: comboShake 0.3s infinite alternate; font-size: 26px; text-transform: uppercase; }
+.combo-max { background: linear-gradient(135deg, #f44336, #ff9800); border: 3px solid gold; animation: comboGodlike 1s infinite linear; font-size: 28px; text-transform: uppercase; letter-spacing: 2px;}
+
+.feedback-wrong { 
+  background-color: #ffebee; 
+  color: #c62828; 
+  border: 1px solid #ffcdd2; 
+  text-shadow: none; 
+  font-size: 18px;
+  animation: comboPop 0.3s forwards;
+}
+
+/* ================================================= */
+/* 📱 CHẾ ĐỘ ĐIỆN THOẠI (Màn hình dưới 480px)        */
+/* ================================================= */
+@media screen and (max-width: 480px) {
+  body {
+    padding: 12px; 
+    align-items: flex-start; 
+  }
+  
+  .container {
+    padding: 20px 15px; 
+    margin-top: 10px;
+  }
+  
+  h1 { font-size: 1.8rem !important; }
+  h2 { font-size: 1.2rem !important; }
+  
+  .options button, .next {
+    font-size: 15px;
+    padding: 12px;
+  }
+}
