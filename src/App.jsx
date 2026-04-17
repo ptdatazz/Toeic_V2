@@ -5398,25 +5398,119 @@ return (
             {showProfileMenu && (
               <>
                 <div onClick={(e) => { e.stopPropagation(); setShowProfileMenu(false); }} style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 998 }}/>
-                <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "60px", left: "20px", right: "20px", backgroundColor: "white", borderRadius: "12px", boxShadow: "0 12px 32px rgba(0,0,0,0.2)", overflow: "hidden", zIndex: 999, animation: "popIn 0.2s ease-out" }}>
-                  <button onClick={() => { playSound("click"); setShowProfileMenu(false); setProfileNameInput(currentUser.displayName || ""); setProfileAvatarFile(null); setAvatarPreview(null); setShowProfileModal(true); }}
-                    style={{ width: "100%", padding: "12px 16px", textAlign: "left", backgroundColor: "transparent", border: "none", cursor: "pointer", fontSize: "14px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}
-                    onMouseOver={e => e.currentTarget.style.backgroundColor="#f5f5f5"} onMouseOut={e => e.currentTarget.style.backgroundColor="transparent"}>
-                    ⚙️ Chỉnh sửa hồ sơ
-                  </button>
-                  <div style={{ height: "1px", backgroundColor: "#eee" }}/>
+                <div onClick={e => e.stopPropagation()} style={{ 
+                  position: "absolute", 
+                  top: "72px", 
+                  left: "16px", 
+                  right: "16px", 
+                  backgroundColor: "white", 
+                  borderRadius: "16px", 
+                  boxShadow: "0 12px 32px rgba(0,0,0,0.15)", 
+                  overflow: "hidden", 
+                  zIndex: 999, 
+                  animation: "popIn 0.2s ease-out",
+                  border: "1px solid #eef2f6"
+                }}>
+                  
+                  {/* Header với email */}
+                  <div style={{ 
+                    padding: "16px", 
+                    borderBottom: "1px solid #f0f0f0",
+                    backgroundColor: "#fafbfc"
+                  }}>
+                    <div style={{ fontWeight: "bold", fontSize: "15px", color: "#1a237e", marginBottom: "4px" }}>
+                      {currentUser.displayName || currentUser.email.split('@')[0]}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#888" }}>
+                      {currentUser.email}
+                    </div>
+                  </div>
+
+                  {/* Menu items */}
                   <button 
-                    onClick={() => {
+                    onClick={() => { 
+                      playSound("click"); 
+                      setShowProfileMenu(false); 
+                      setProfileNameInput(currentUser.displayName || ""); 
+                      setProfileAvatarFile(null); 
+                      setAvatarPreview(null); 
+                      setShowProfileModal(true); 
+                    }}
+                    style={{ 
+                      width: "100%", 
+                      padding: "14px 16px", 
+                      textAlign: "left", 
+                      backgroundColor: "transparent", 
+                      border: "none", 
+                      cursor: "pointer", 
+                      fontSize: "14px", 
+                      color: "#333", 
+                      display: "flex", 
+                      alignItems: "center", 
+                      gap: "12px",
+                      transition: "background 0.2s"
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = "#f5f7fa"} 
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = "transparent"}
+                  >
+                    <span style={{ fontSize: "18px", width: "24px", textAlign: "center" }}>👤</span>
+                    <span>Hồ sơ</span>
+                  </button>
+
+                  <button 
+                    onClick={() => { 
+                      playSound("click"); 
+                      setShowProfileMenu(false); 
+                      setShowPlanModal(true); 
+                    }}
+                    style={{ 
+                      width: "100%", 
+                      padding: "14px 16px", 
+                      textAlign: "left", 
+                      backgroundColor: "transparent", 
+                      border: "none", 
+                      cursor: "pointer", 
+                      fontSize: "14px", 
+                      color: "#333", 
+                      display: "flex", 
+                      alignItems: "center", 
+                      gap: "12px",
+                      transition: "background 0.2s"
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = "#f5f7fa"} 
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = "transparent"}
+                  >
+                    <span style={{ fontSize: "18px", width: "24px", textAlign: "center" }}>📅</span>
+                    <span>Kế hoạch học</span>
+                  </button>
+
+                  <button 
+                    onClick={() => { 
                       playSound("click");
                       setShowProfileMenu(false);
                       document.getElementById('backgroundUploadInput').click();
                     }}
-                    style={{ width: "100%", padding: "12px 16px", textAlign: "left", backgroundColor: "transparent", border: "none", cursor: "pointer", fontSize: "14px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}
-                    onMouseOver={e => e.currentTarget.style.backgroundColor="#f5f5f5"} 
-                    onMouseOut={e => e.currentTarget.style.backgroundColor="transparent"}
+                    style={{ 
+                      width: "100%", 
+                      padding: "14px 16px", 
+                      textAlign: "left", 
+                      backgroundColor: "transparent", 
+                      border: "none", 
+                      cursor: "pointer", 
+                      fontSize: "14px", 
+                      color: "#333", 
+                      display: "flex", 
+                      alignItems: "center", 
+                      gap: "12px",
+                      transition: "background 0.2s"
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = "#f5f7fa"} 
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = "transparent"}
                   >
-                    🖼️ Đổi ảnh nền
+                    <span style={{ fontSize: "18px", width: "24px", textAlign: "center" }}>🖼️</span>
+                    <span>Đổi ảnh nền</span>
                   </button>
+
                   {backgroundImage && (
                     <button 
                       onClick={() => {
@@ -5424,18 +5518,54 @@ return (
                         handleRemoveBackground();
                         setShowProfileMenu(false);
                       }}
-                      style={{ width: "100%", padding: "12px 16px", textAlign: "left", backgroundColor: "transparent", border: "none", cursor: "pointer", fontSize: "14px", color: "#d32f2f", display: "flex", alignItems: "center", gap: "10px" }}
-                      onMouseOver={e => e.currentTarget.style.backgroundColor="#ffebee"} 
-                      onMouseOut={e => e.currentTarget.style.backgroundColor="transparent"}
+                      style={{ 
+                        width: "100%", 
+                        padding: "14px 16px", 
+                        textAlign: "left", 
+                        backgroundColor: "transparent", 
+                        border: "none", 
+                        cursor: "pointer", 
+                        fontSize: "14px", 
+                        color: "#d32f2f", 
+                        display: "flex", 
+                        alignItems: "center", 
+                        gap: "12px",
+                        transition: "background 0.2s"
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.backgroundColor = "#ffebee"} 
+                      onMouseLeave={e => e.currentTarget.style.backgroundColor = "transparent"}
                     >
-                      🗑️ Xóa ảnh nền
+                      <span style={{ fontSize: "18px", width: "24px", textAlign: "center" }}>🗑️</span>
+                      <span>Xóa ảnh nền</span>
                     </button>
                   )}
-                  <div style={{ height: "1px", backgroundColor: "#eee" }}/>
-                  <button onClick={() => { setShowProfileMenu(false); handleLogout(); }}
-                    style={{ width: "100%", padding: "12px 16px", textAlign: "left", backgroundColor: "transparent", border: "none", cursor: "pointer", fontSize: "14px", color: "#F44336", fontWeight: "bold", display: "flex", alignItems: "center", gap: "10px" }}
-                    onMouseOver={e => e.currentTarget.style.backgroundColor="#ffebee"} onMouseOut={e => e.currentTarget.style.backgroundColor="transparent"}>
-                    🚪 Đăng xuất
+
+                  {/* Divider */}
+                  <div style={{ height: "1px", backgroundColor: "#f0f0f0", margin: "0 16px" }} />
+
+                  {/* Logout button */}
+                  <button 
+                    onClick={() => { setShowProfileMenu(false); handleLogout(); }}
+                    style={{ 
+                      width: "100%", 
+                      padding: "14px 16px", 
+                      textAlign: "left", 
+                      backgroundColor: "transparent", 
+                      border: "none", 
+                      cursor: "pointer", 
+                      fontSize: "14px", 
+                      color: "#F44336", 
+                      fontWeight: "bold", 
+                      display: "flex", 
+                      alignItems: "center", 
+                      gap: "12px",
+                      transition: "background 0.2s"
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = "#ffebee"} 
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = "transparent"}
+                  >
+                    <span style={{ fontSize: "18px", width: "24px", textAlign: "center" }}>🚪</span>
+                    <span>Đăng xuất</span>
                   </button>
                 </div>
               </>
@@ -5509,25 +5639,176 @@ return (
                     </div>
                 }
                 {showProfileMenu && (
-                  <>
-                    <div onClick={(e) => { e.stopPropagation(); setShowProfileMenu(false); }} style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 998 }}/>
-                    <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "40px", right: 0, backgroundColor: "white", borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.2)", width: "180px", overflow: "hidden", zIndex: 999, animation: "popIn 0.2s" }}>
-                      <button onClick={() => { playSound("click"); setShowProfileMenu(false); setProfileNameInput(currentUser.displayName || ""); setProfileAvatarFile(null); setAvatarPreview(null); setShowProfileModal(true); }}
-                        style={{ width: "100%", padding: "11px 14px", textAlign: "left", backgroundColor: "transparent", border: "none", cursor: "pointer", fontSize: "13px", color: "#333" }}
-                        onMouseOver={e => e.currentTarget.style.backgroundColor="#f5f5f5"} onMouseOut={e => e.currentTarget.style.backgroundColor="transparent"}>
-                        ⚙️ Chỉnh sửa hồ sơ
-                      </button>
+                    <>
+                      <div onClick={(e) => { e.stopPropagation(); setShowProfileMenu(false); }} style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 998 }}/>
+                      <div onClick={e => e.stopPropagation()} style={{ 
+                        position: "absolute", 
+                        top: "44px", 
+                        right: 0, 
+                        backgroundColor: "white", 
+                        borderRadius: "16px", 
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.15)", 
+                        width: "200px", 
+                        overflow: "hidden", 
+                        zIndex: 999, 
+                        animation: "popIn 0.2s",
+                        border: "1px solid #eef2f6"
+                      }}>
+                        {/* Header */}
+                        <div style={{ 
+                          padding: "12px 16px", 
+                          borderBottom: "1px solid #f0f0f0",
+                          backgroundColor: "#fafbfc"
+                        }}>
+                          <div style={{ fontWeight: "bold", fontSize: "13px", color: "#1a237e" }}>
+                            {currentUser.displayName || currentUser.email.split('@')[0]}
+                          </div>
+                          <div style={{ fontSize: "10px", color: "#888" }}>
+                            {currentUser.email}
+                          </div>
+                        </div>
 
-                      
-                      <div style={{ height: "1px", backgroundColor: "#eee" }}/>
-                      <button onClick={() => { setShowProfileMenu(false); handleLogout(); }}
-                        style={{ width: "100%", padding: "11px 14px", textAlign: "left", backgroundColor: "transparent", border: "none", cursor: "pointer", fontSize: "13px", color: "#F44336", fontWeight: "bold" }}
-                        onMouseOver={e => e.currentTarget.style.backgroundColor="#ffebee"} onMouseOut={e => e.currentTarget.style.backgroundColor="transparent"}>
-                        🚪 Đăng xuất
-                      </button>
-                    </div>
-                  </>
-                )}
+                        <button 
+                          onClick={() => { 
+                            playSound("click"); 
+                            setShowProfileMenu(false); 
+                            setProfileNameInput(currentUser.displayName || ""); 
+                            setProfileAvatarFile(null); 
+                            setAvatarPreview(null); 
+                            setShowProfileModal(true); 
+                          }}
+                          style={{ 
+                            width: "100%", 
+                            padding: "12px 16px", 
+                            textAlign: "left", 
+                            backgroundColor: "transparent", 
+                            border: "none", 
+                            cursor: "pointer", 
+                            fontSize: "13px", 
+                            color: "#333", 
+                            display: "flex", 
+                            alignItems: "center", 
+                            gap: "10px",
+                            transition: "background 0.2s"
+                          }}
+                          onMouseOver={e => e.currentTarget.style.backgroundColor = "#f5f7fa"} 
+                          onMouseOut={e => e.currentTarget.style.backgroundColor = "transparent"}
+                        >
+                          <span style={{ fontSize: "16px", width: "22px", textAlign: "center" }}>👤</span>
+                          <span>Hồ sơ</span>
+                        </button>
+
+                        <button 
+                          onClick={() => { 
+                            playSound("click"); 
+                            setShowProfileMenu(false); 
+                            setShowPlanModal(true); 
+                          }}
+                          style={{ 
+                            width: "100%", 
+                            padding: "12px 16px", 
+                            textAlign: "left", 
+                            backgroundColor: "transparent", 
+                            border: "none", 
+                            cursor: "pointer", 
+                            fontSize: "13px", 
+                            color: "#333", 
+                            display: "flex", 
+                            alignItems: "center", 
+                            gap: "10px",
+                            transition: "background 0.2s"
+                          }}
+                          onMouseOver={e => e.currentTarget.style.backgroundColor = "#f5f7fa"} 
+                          onMouseOut={e => e.currentTarget.style.backgroundColor = "transparent"}
+                        >
+                          <span style={{ fontSize: "16px", width: "22px", textAlign: "center" }}>📅</span>
+                          <span>Kế hoạch học</span>
+                        </button>
+
+                        <button 
+                          onClick={() => {
+                            playSound("click");
+                            setShowProfileMenu(false);
+                            document.getElementById('backgroundUploadInput').click();
+                          }}
+                          style={{ 
+                            width: "100%", 
+                            padding: "12px 16px", 
+                            textAlign: "left", 
+                            backgroundColor: "transparent", 
+                            border: "none", 
+                            cursor: "pointer", 
+                            fontSize: "13px", 
+                            color: "#333", 
+                            display: "flex", 
+                            alignItems: "center", 
+                            gap: "10px",
+                            transition: "background 0.2s"
+                          }}
+                          onMouseOver={e => e.currentTarget.style.backgroundColor = "#f5f7fa"} 
+                          onMouseOut={e => e.currentTarget.style.backgroundColor = "transparent"}
+                        >
+                          <span style={{ fontSize: "16px", width: "22px", textAlign: "center" }}>🖼️</span>
+                          <span>Đổi ảnh nền</span>
+                        </button>
+
+                        {backgroundImage && (
+                          <button 
+                            onClick={() => {
+                              playSound("click");
+                              handleRemoveBackground();
+                              setShowProfileMenu(false);
+                            }}
+                            style={{ 
+                              width: "100%", 
+                              padding: "12px 16px", 
+                              textAlign: "left", 
+                              backgroundColor: "transparent", 
+                              border: "none", 
+                              cursor: "pointer", 
+                              fontSize: "13px", 
+                              color: "#d32f2f", 
+                              display: "flex", 
+                              alignItems: "center", 
+                              gap: "10px",
+                              transition: "background 0.2s"
+                            }}
+                            onMouseOver={e => e.currentTarget.style.backgroundColor = "#ffebee"} 
+                            onMouseOut={e => e.currentTarget.style.backgroundColor = "transparent"}
+                          >
+                            <span style={{ fontSize: "16px", width: "22px", textAlign: "center" }}>🗑️</span>
+                            <span>Xóa ảnh nền</span>
+                          </button>
+                        )}
+
+                        <div style={{ height: "1px", backgroundColor: "#f0f0f0", margin: "0 12px" }} />
+
+                        <button 
+                          onClick={() => { setShowProfileMenu(false); handleLogout(); }}
+                          style={{ 
+                            width: "100%", 
+                            padding: "12px 16px", 
+                            textAlign: "left", 
+                            backgroundColor: "transparent", 
+                            border: "none", 
+                            cursor: "pointer", 
+                            fontSize: "13px", 
+                            color: "#F44336", 
+                            fontWeight: "bold", 
+                            display: "flex", 
+                            alignItems: "center", 
+                            gap: "10px",
+                            transition: "background 0.2s"
+                          }}
+                          onMouseOver={e => e.currentTarget.style.backgroundColor = "#ffebee"} 
+                          onMouseOut={e => e.currentTarget.style.backgroundColor = "transparent"}
+                        >
+                          <span style={{ fontSize: "16px", width: "22px", textAlign: "center" }}>🚪</span>
+                          <span>Đăng xuất</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
               </div>
             </div>
           </div>
