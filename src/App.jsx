@@ -14,21 +14,53 @@ import {
 import { doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 
 // --- HỆ THỐNG TRẠM ĐIỆN TỔNG QUẢN LÝ API KEY CHỐNG SẬP QUOTA ---
+// --- HỆ THỐNG TRẠM ĐIỆN TỔNG QUẢN LÝ API KEY CHỐNG SẬP QUOTA (FIX) ---
 const RAW_KEYS = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GLOBAL_API_KEYS = RAW_KEYS.split(',').map(k => k.trim()).filter(k => k);
-let globalKeyIndex = 0; 
+let globalKeyIndex = 0;
+let isRotating = false;
 
-const getActiveKey = () => GLOBAL_API_KEYS[globalKeyIndex] || "";
-const rotateKey = () => {
-    if (globalKeyIndex < GLOBAL_API_KEYS.length - 1) {
-        globalKeyIndex++;
-        console.log(`[HỆ THỐNG] 🔄 Đã tự động chuyển toàn bộ App sang API Key dự phòng số ${globalKeyIndex + 1}`);
-        return true; 
+// Lấy key hiện tại
+const getActiveKey = () => {
+    if (GLOBAL_API_KEYS.length === 0) return "";
+    return GLOBAL_API_KEYS[globalKeyIndex % GLOBAL_API_KEYS.length];
+};
+
+// Chuyển sang key tiếp theo và trả về key mới
+const rotateToNextKey = () => {
+    const oldIndex = globalKeyIndex;
+    globalKeyIndex = (globalKeyIndex + 1) % GLOBAL_API_KEYS.length;
+    console.log(`[HỆ THỐNG] 🔄 Đã chuyển từ Key ${oldIndex + 1} sang Key ${globalKeyIndex + 1}`);
+    return getActiveKey();
+};
+
+// Hàm thử lại với key mới khi gặp lỗi quota
+const retryWithNewKey = async (apiCall, maxRetries = GLOBAL_API_KEYS.length) => {
+    let lastError = null;
+    const startIndex = globalKeyIndex;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            return await apiCall(getActiveKey());
+        } catch (error) {
+            lastError = error;
+            const errorMsg = error.message?.toLowerCase() || "";
+            const isQuotaError = errorMsg.includes("quota") || 
+                                 errorMsg.includes("exhausted") || 
+                                 errorMsg.includes("429") ||
+                                 errorMsg.includes("rate limit") ||
+                                 errorMsg.includes("billing");
+            
+            if (isQuotaError && attempt < maxRetries - 1) {
+                console.log(`[HỆ THỐNG] ⚠️ Key ${globalKeyIndex + 1} hết quota, chuyển sang key tiếp theo...`);
+                rotateToNextKey();
+                await new Promise(r => setTimeout(r, 1000)); // Đợi 1s trước khi thử key mới
+            } else {
+                throw error;
+            }
+        }
     }
-    // Đã hết key → reset về đầu để thử lại từ key 1 (tránh kẹt ở key cuối)
-    globalKeyIndex = 0;
-    console.log(`[HỆ THỐNG] 🔁 Đã reset về Key số 1 để thử lại vòng mới`);
-    return false; 
+    throw lastError;
 };
 
 // --- ÂM THANH HIỆU ỨNG (SFX) ---
@@ -2323,6 +2355,17 @@ function GrammarQuiz({ onBack, updateGlobal, onSaveWord, settings, learnedQuesti
   const [sidePanelLoading, setSidePanelLoading] = useState(false);
   const sidePanelLockRef = useRef(false);
   const sidePanelDebounceRef = useRef(null); // Chống gọi liên tục khi bôi đen
+  // Thêm vào trong component GrammarQuiz, sau các useState khác
+  const [savedQuestions, setSavedQuestions] = useState(() => {
+    return globalStats?.grammar?.savedWords || [];
+  });
+  const [wrongQuestions, setWrongQuestions] = useState(() => {
+    return globalStats?.grammar?.wrongWords || [];
+  });
+  const [masteredQuestions, setMasteredQuestions] = useState(() => {
+    return globalStats?.grammar?.masteredWords || [];
+  });
+  
 
   // Hàm loại bỏ ký tự A), B., (C), D. khỏi đầu chuỗi
   const stripOptionPrefix = (str) => {
@@ -2343,6 +2386,15 @@ function GrammarQuiz({ onBack, updateGlobal, onSaveWord, settings, learnedQuesti
         try { screen.orientation?.unlock?.(); } catch(e) {}
     };
 }, []);
+
+  // Cập nhật local states khi globalStats thay đổi
+  useEffect(() => {
+    if (globalStats?.grammar) {
+      setSavedQuestions(globalStats.grammar.savedWords || []);
+      setWrongQuestions(globalStats.grammar.wrongWords || []);
+      setMasteredQuestions(globalStats.grammar.masteredWords || []);
+    }
+  }, [globalStats?.grammar]);
 
   // 1. TẢI TỪ ĐIỂN GOOGLE SHEET NGAY KHI VÀO GAME ĐỂ DÙNG DẦN
   useEffect(() => {
@@ -2770,13 +2822,18 @@ const handleSelection = (e) => {
           requestBody.generationConfig = { response_mime_type: "application/json" };
         }
 
-        const response = await fetch(apiUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody)
+        const { data } = await retryWithNewKey(async (apiKey) => {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${window.globalCachedModel}:generateContent?key=${apiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
         });
-
-        const data = await response.json();
+        const responseData = await response.json();
+        if (responseData.error) {
+            throw new Error(responseData.error.message);
+        }
+        return { data: responseData };
+    });
 
         // Kiểm tra quota TRƯỚC, rotate key rồi thử lại thay vì crash
         if (data.error) {
@@ -3761,6 +3818,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
 
   /// HÀM LÕI 1: GỌI AI DỊCH LẺ 1 TỪ (ĐÃ ÉP BẮT BUỘC TRẢ VỀ LOẠI TỪ)
   const fetchAI = async (wordInput, currentTab) => {
+    return retryWithNewKey(async (apiKey) => {
       const API_KEY = getActiveKey();
       if (!API_KEY) throw new Error("No_API");
       
@@ -3813,6 +3871,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
       const jsonMatch = rawText.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
       if (jsonMatch) rawText = jsonMatch[0];
       return JSON.parse(rawText);
+      });
   };
 
   // --- TÍNH NĂNG MỚI: HÀM LÕI 2 "DỊCH SỈ" (ĐÃ ÉP BẮT BUỘC TRẢ VỀ LOẠI TỪ) ---
@@ -5092,61 +5151,101 @@ function App() {
   };
 
   // --- TÍNH NĂNG MỚI: DI CHUYỂN TỪ GIỮA CÁC DANH SÁCH (ĐÃ FIX X-QUANG CHỐNG TRÙNG) ---
-  const handleMoveWord = async (type, fromList, toList, wordToMove) => {
-      if (!currentUser) return;
-      playSound("click");
-      
-      const normalizeWord = (w) => w ? w.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim() : "";
-      const normStr = normalizeWord(wordToMove);
-
-      try {
-          const currentState = globalStats[type] || {};
-          
-          // Làm sạch hoàn toàn 3 mảng
-          const cleanSaved = (currentState.savedWords || []).filter(w => normalizeWord(w) !== normStr);
-          const cleanWrong = (currentState.wrongWords || []).filter(w => normalizeWord(w) !== normStr);
-          const cleanMastered = (currentState.masteredWords || []).filter(w => normalizeWord(w) !== normStr);
-
-          // Ép nó vào mảng đích
-          if (toList === "savedWords") cleanSaved.push(wordToMove);
-          if (toList === "wrongWords") cleanWrong.push(wordToMove);
-          if (toList === "masteredWords") {
-              cleanMastered.push(wordToMove);
-              
-              // MÁY QUÉT CHỐNG CÀY ĐIỂM LÁO: Chỉ cộng KPI nếu từ này CHƯA TỪNG NẰM trong Ô Xanh
-              const isAlreadyMastered = (currentState.masteredWords || []).some(w => normalizeWord(w) === normStr);
-              if (!isAlreadyMastered) {
-                  setTodayMasteredCount(prev => {
-                      const newVal = prev + 1;
-                      localStorage.setItem("toeic_today_mastered", newVal.toString());
-                      return newVal;
-                  });
-              }
-          }
-
-          // ĐÃ FIX BƯỚC 3: THÊM KHAI BÁO GÓI DỮ LIỆU Ở ĐÂY KẺO SẬP
-          const updatePayload = {
-              [`${type}.savedWords`]: cleanSaved,
-              [`${type}.wrongWords`]: cleanWrong,
-              [`${type}.masteredWords`]: cleanMastered
-          };
-
-          await updateDoc(doc(db, "users", currentUser.uid), updatePayload);
-
-          setGlobalStats(prev => {
-              const newState = { ...prev };
-              newState[type] = { 
-                  ...newState[type], 
-                  savedWords: cleanSaved, 
-                  wrongWords: cleanWrong, 
-                  masteredWords: cleanMastered 
-              };
-              return newState;
-          });
-      } catch (error) {
-          console.error("Lỗi di chuyển từ:", error);
-      }
+  // --- TÍNH NĂNG MỚI: DI CHUYỂN TỪ GIỮA CÁC DANH SÁCH (ĐÃ FIX X-QUANG CHỐNG TRÙNG) ---
+const handleMoveWord = async (type, fromList, toList, wordToMove) => {
+  if (!currentUser) return;
+  playSound("click");
+  
+  const normalizeWord = (w) => {
+    if (!w) return "";
+    if (typeof w === 'string') return w.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
+    // Nếu là object (câu hỏi grammar), lấy trường question hoặc word
+    const text = w.question || w.word || "";
+    return text.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
   };
+  
+  // Lấy text để so sánh
+  const wordText = typeof wordToMove === 'string' ? wordToMove : (wordToMove.question || wordToMove.word || "");
+  const normStr = normalizeWord(wordText);
+  
+  // LÀM SẠCH OBJECT TRƯỚC KHI LƯU
+  const cleanObject = (obj) => {
+    if (!obj || typeof obj !== 'object') return obj;
+    if (typeof obj === 'string') return obj;
+    
+    const cleaned = {};
+    for (const [key, value] of Object.entries(obj)) {
+      // Bỏ qua các giá trị undefined, null, function
+      if (value === undefined || value === null) continue;
+      if (typeof value === 'function') continue;
+      
+      // Xử lý nested object
+      if (typeof value === 'object' && !Array.isArray(value)) {
+        cleaned[key] = cleanObject(value);
+      } else {
+        cleaned[key] = value;
+      }
+    }
+    return cleaned;
+  };
+
+  try {
+    const currentState = globalStats[type] || {};
+    
+    // Làm sạch hoàn toàn 3 mảng
+    const cleanSaved = (currentState.savedWords || []).filter(w => normalizeWord(w) !== normStr);
+    const cleanWrong = (currentState.wrongWords || []).filter(w => normalizeWord(w) !== normStr);
+    const cleanMastered = (currentState.masteredWords || []).filter(w => normalizeWord(w) !== normStr);
+
+    // Chuẩn bị dữ liệu để lưu (làm sạch nếu là object)
+    let itemToSave = wordToMove;
+    if (typeof wordToMove === 'object' && wordToMove !== null) {
+      itemToSave = cleanObject(wordToMove);
+      // Đảm bảo có trường question hoặc word
+      if (!itemToSave.question && !itemToSave.word && wordText) {
+        itemToSave.question = wordText;
+      }
+    }
+
+    // Ép vào mảng đích
+    if (toList === "savedWords") cleanSaved.push(itemToSave);
+    if (toList === "wrongWords") cleanWrong.push(itemToSave);
+    if (toList === "masteredWords") {
+      cleanMastered.push(itemToSave);
+      
+      // Chỉ cộng KPI nếu từ này CHƯA TỪNG nằm trong Ô Xanh
+      const isAlreadyMastered = (currentState.masteredWords || []).some(w => normalizeWord(w) === normStr);
+      if (!isAlreadyMastered && type !== "grammar") {
+        setTodayMasteredCount(prev => {
+          const newVal = prev + 1;
+          localStorage.setItem("toeic_today_mastered", newVal.toString());
+          return newVal;
+        });
+      }
+    }
+
+    const updatePayload = {
+      [`${type}.savedWords`]: cleanSaved,
+      [`${type}.wrongWords`]: cleanWrong,
+      [`${type}.masteredWords`]: cleanMastered
+    };
+
+    await updateDoc(doc(db, "users", currentUser.uid), updatePayload);
+
+    setGlobalStats(prev => {
+      const newState = { ...prev };
+      newState[type] = { 
+        ...newState[type], 
+        savedWords: cleanSaved, 
+        wrongWords: cleanWrong, 
+        masteredWords: cleanMastered 
+      };
+      return newState;
+    });
+  } catch (error) {
+    console.error("Lỗi di chuyển từ:", error);
+  }
+};
 
   // --- TÍNH NĂNG MỚI: XÓA TỪ KHỎI SỔ TAY ---
   const handleRemoveWord = async (type, listType, wordToRemove) => {
