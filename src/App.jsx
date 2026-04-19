@@ -19,6 +19,24 @@ const RAW_KEYS = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GLOBAL_API_KEYS = RAW_KEYS.split(',').map(k => k.trim()).filter(k => k);
 let globalKeyIndex = 0;
 let isRotating = false;
+const exhaustedKeys = new Set(); // Track keys that hit quota
+
+const isAllKeysExhausted = () => exhaustedKeys.size >= GLOBAL_API_KEYS.length;
+
+const markKeyExhausted = () => {
+    exhaustedKeys.add(globalKeyIndex);
+    if (!isAllKeysExhausted()) {
+        // Find next non-exhausted key
+        for (let i = 1; i <= GLOBAL_API_KEYS.length; i++) {
+            const nextIdx = (globalKeyIndex + i) % GLOBAL_API_KEYS.length;
+            if (!exhaustedKeys.has(nextIdx)) {
+                globalKeyIndex = nextIdx;
+                return true; // Found a good key
+            }
+        }
+    }
+    return false; // All keys exhausted
+};
 
 // Lấy key hiện tại
 const getActiveKey = () => {
@@ -34,10 +52,9 @@ const rotateToNextKey = () => {
     return getActiveKey();
 };
 
-// Hàm thử lại với key mới khi gặp lỗi quota
+// Hàm thử lại với key mới khi gặp lỗi quota - thử tất cả key có sẵn
 const retryWithNewKey = async (apiCall, maxRetries = GLOBAL_API_KEYS.length) => {
     let lastError = null;
-    const startIndex = globalKeyIndex;
     
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
@@ -52,9 +69,9 @@ const retryWithNewKey = async (apiCall, maxRetries = GLOBAL_API_KEYS.length) => 
                                  errorMsg.includes("billing");
             
             if (isQuotaError && attempt < maxRetries - 1) {
-                console.log(`[HỆ THỐNG] ⚠️ Key ${globalKeyIndex + 1} hết quota, chuyển sang key tiếp theo...`);
-                rotateToNextKey();
-                await new Promise(r => setTimeout(r, 1000)); // Đợi 1s trước khi thử key mới
+                const hasNext = markKeyExhausted();
+                if (!hasNext) break; // Tất cả key đã hết quota
+                await new Promise(r => setTimeout(r, 1000));
             } else {
                 throw error;
             }
@@ -155,7 +172,6 @@ const generateVocabQuestions = (selectedData, fullData, level) => {
 
     }
 
-    // SAU
     const itemMeaning = getMeaning(item);
     let questionObj = { ...item, type: qType, meaning: itemMeaning };
 
@@ -311,11 +327,6 @@ function QuizSettings({ mode, onStart, onBack, customWordsCount = 0, customGramm
   let dynamicMin = mode === "grammar" ? 1 : 5;
   let dynamicMax = mode === "grammar" ? 20 : (settings.difficultyLevel === 0 ? 20 : 100);
   
-  // if (mode === "vocab" && settings.dataSource === "custom") {
-  //     // Lấy chính xác số lượng từ ở sheet Custom làm Min
-  //     dynamicMin = customWordsCount > 0 ? customWordsCount : 5;
-  //     if (dynamicMax < dynamicMin) dynamicMax = dynamicMin + 20; 
-  // }
 
   // Tự động đẩy giới hạn lên nếu thanh kéo đang nằm ở mức thấp hơn số từ mới
   useEffect(() => {
@@ -485,13 +496,17 @@ function QuizSettings({ mode, onStart, onBack, customWordsCount = 0, customGramm
   );
 }
 
-// --- COMPONENT: BLAST GAME (BẮN TỪ VỰNG - BOSS MINI-GAME) ---
+// Thay thế hoàn toàn component BlastGame trong file App.jsx
+
 function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
-  const questions = useMemo(() => [...words].sort(() => Math.random() - 0.5), []);
+  const questions = useMemo(() => {
+    if (!words || words.length === 0) return [];
+    return [...words].sort(() => Math.random() - 0.5);
+  }, [words]);
+  
   const [qIdx, setQIdx] = useState(0);
   const [targets, setTargets] = useState([]);
   const [shooting, setShooting] = useState(false);
-  const [bulletTrail, setBulletTrail] = useState(null);
   const [hitIdx, setHitIdx] = useState(null);
   const [missIdx, setMissIdx] = useState(null);
   const [score, setScore] = useState(0);
@@ -500,10 +515,390 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
   const [blastStreak, setBlastStreak] = useState(0);
   const [showResult, setShowResult] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 50, y: 50 });
+  const [remainingCorrectWords, setRemainingCorrectWords] = useState(0); // Số từ đúng còn lại
+  
   const areaRef = useRef(null);
   const animFrameRef = useRef(null);
   const scoreRef = useRef(0);
   const qIdxRef = useRef(0);
+  const targetsRef = useRef([]);
+  const currentQRef = useRef(null);
+  const isProcessingRef = useRef(false);
+  const isGameOverRef = useRef(false);
+  const streakRef = useRef(0);
+  const spawnIntervalRef = useRef(null);
+
+  // Tốc độ cơ bản tăng theo streak
+  const getBaseSpeed = () => {
+    const streak = streakRef.current;
+    if (streak >= 9) return 1.2;
+    if (streak >= 7) return 1.0;
+    if (streak >= 5) return 0.85;
+    if (streak >= 3) return 0.7;
+    return 0.5;
+  };
+
+  const cannonDeg = useMemo(() => {
+    const dx = mousePos.x - 50;
+    const dy = 87 - mousePos.y;
+    const angle = Math.atan2(dx, Math.max(dy, 1)) * (180 / Math.PI);
+    return Math.min(Math.max(angle, -55), 55);
+  }, [mousePos]);
+
+  const handleMouseMove = (e) => {
+    if (!areaRef.current) return;
+    const rect = areaRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setMousePos({ x: Math.min(Math.max(x, 0), 100), y: Math.min(Math.max(y, 0), 100) });
+  };
+
+  // Tạo một loạt từ mới (batch) - rất nhiều từ cùng lúc
+  const createBatch = (question, isFirstBatch = true) => {
+    if (!question) return [];
+    
+    const others = words.filter(w => w.word !== question.word);
+    // Số lượng từ trong batch: 12-25 từ
+    const batchSize = 12 + Math.floor(Math.random() * 14);
+    
+    // Tạo mảng các từ sai (có thể trùng lặp để nhiều hơn)
+    const wrongWordsPool = [];
+    for (let i = 0; i < batchSize - 1; i++) {
+      const randomWrong = others[Math.floor(Math.random() * others.length)];
+      wrongWordsPool.push({ ...randomWrong, isCorrect: false });
+    }
+    
+    // Thêm từ đúng vào batch (chỉ thêm 1 từ đúng mỗi batch)
+    const correctWord = { ...question, isCorrect: true };
+    const pool = [...wrongWordsPool, correctWord];
+    
+    // Xáo trộn
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    
+    const usedX = [];
+    const baseSpeed = getBaseSpeed();
+    
+    return pool.map((opt, idx) => {
+      let x, tries = 0;
+      do { 
+        x = 5 + Math.random() * 90; 
+        tries++;
+      } while (usedX.some(px => Math.abs(px - x) < 22) && tries < 50);
+      usedX.push(x);
+      
+      // Random vị trí Y ban đầu (từ -50 đến -20)
+      const startY = -50 - Math.random() * 80;
+      
+      // Tốc độ random nhưng trong khoảng
+      const speedVariation = (Math.random() - 0.5) * 0.15;
+      let finalSpeed = baseSpeed + speedVariation;
+      finalSpeed = Math.min(Math.max(finalSpeed, 0.3), 1.8);
+      
+      return { 
+        ...opt, 
+        id: Date.now() + idx + Math.random(),
+        x: x, 
+        y: startY,
+        speed: finalSpeed,
+        word: opt.word,
+        cleanWord: opt.cleanWord || opt.word,
+        isCorrect: opt.isCorrect || false
+      };
+    });
+  };
+
+  // Spawn từ mới liên tục
+  const startSpawning = () => {
+    if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+    
+    // Spawn mỗi 2-4 giây một batch mới
+    spawnIntervalRef.current = setInterval(() => {
+      if (isGameOverRef.current) return;
+      if (!currentQRef.current) return;
+      
+      // Kiểm tra xem còn từ đúng chưa
+      const hasCorrectWordRemaining = targetsRef.current.some(t => t.isCorrect === true);
+      
+      // Nếu không còn từ đúng nào trên màn hình, spawn batch mới
+      if (!hasCorrectWordRemaining) {
+        const newBatch = createBatch(currentQRef.current, false);
+        targetsRef.current = [...targetsRef.current, ...newBatch];
+        setTargets([...targetsRef.current]);
+      }
+    }, 2500 + Math.random() * 2000);
+  };
+
+  // Reset cho câu hỏi mới
+  const resetForNextQuestion = (nextIdx) => {
+    if (isGameOverRef.current) return;
+    
+    const nextQ = questions[nextIdx];
+    if (!nextQ) {
+      if (scoreRef.current >= questions.length) {
+        if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+        confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 });
+        playSound("combo_max");
+        onWin();
+      }
+      return;
+    }
+    
+    currentQRef.current = nextQ;
+    qIdxRef.current = nextIdx;
+    setRemainingCorrectWords(1); // Mỗi câu có 1 từ đúng
+    
+    // Dừng interval cũ
+    if (spawnIntervalRef.current) {
+      clearInterval(spawnIntervalRef.current);
+      spawnIntervalRef.current = null;
+    }
+    
+    // Dừng animation cũ
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    
+    // Reset targets
+    targetsRef.current = [];
+    setTargets([]);
+    setHitIdx(null);
+    setMissIdx(null);
+    setShooting(false);
+    setShowResult(null);
+    isProcessingRef.current = false;
+    
+    // Spawn batch đầu tiên
+    setTimeout(() => {
+      if (!isGameOverRef.current && currentQRef.current) {
+        const firstBatch = createBatch(currentQRef.current, true);
+        targetsRef.current = firstBatch;
+        setTargets([...firstBatch]);
+        
+        // Bắt đầu spawn liên tục
+        startSpawning();
+      }
+    }, 100);
+  };
+
+  useEffect(() => {
+    if (questions.length === 0) return;
+    if (isGameOverRef.current) return;
+    resetForNextQuestion(qIdx);
+    
+    return () => {
+      if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+    };
+  }, [qIdx, questions]);
+
+  // Animation loop
+  useEffect(() => {
+    if (questions.length === 0) return;
+    if (gameOver) {
+      isGameOverRef.current = true;
+      if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+      return;
+    }
+    
+    let frameId = null;
+    let lastTime = 0;
+    
+    const animate = (currentTime) => {
+      if (isGameOverRef.current) return;
+      
+      if (!lastTime) lastTime = currentTime;
+      
+      if (currentTime - lastTime > 50) {
+        lastTime = currentTime;
+        
+        let fallenCorrectWord = false;
+        const updatedTargets = targetsRef.current.map(t => {
+          const newY = t.y + t.speed;
+          // Nếu từ đúng rơi xuống đất (ngưỡng 90%)
+          if (newY > 90 && t.isCorrect === true) {
+            fallenCorrectWord = true;
+          }
+          // Xóa từ khi ra khỏi màn hình (dưới 100)
+          if (newY > 105) return null;
+          return { ...t, y: Math.min(newY, 100) };
+        }).filter(t => t !== null);
+        
+        targetsRef.current = updatedTargets;
+        setTargets([...updatedTargets]);
+        
+        // Xử lý khi từ đúng rơi xuống đất
+        if (fallenCorrectWord && !isProcessingRef.current && !gameOver && !isGameOverRef.current) {
+          isProcessingRef.current = true;
+          
+          setLives(prev => { 
+            const newLives = prev - 1;
+            if (newLives <= 0) {
+              isGameOverRef.current = true;
+              setGameOver(true);
+              if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+            }
+            return newLives;
+          });
+          setShowResult("miss");
+          streakRef.current = 0;
+          setBlastStreak(0);
+          playSound("wrong");
+          
+          if (areaRef.current) {
+            areaRef.current.style.transform = "translateX(4px)";
+            setTimeout(() => { if(areaRef.current) areaRef.current.style.transform = ""; }, 100);
+          }
+          
+          setTimeout(() => {
+            if (isGameOverRef.current) return;
+            const nextIdx = (qIdxRef.current + 1) % questions.length;
+            
+            if (nextIdx === 0 && qIdxRef.current === questions.length - 1) {
+              if (scoreRef.current >= questions.length - 1) {
+                if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+                confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 });
+                playSound("combo_max");
+                onWin();
+                return;
+              }
+            }
+            
+            setQIdx(nextIdx);
+            setShowResult(null);
+            isProcessingRef.current = false;
+          }, 800);
+          return;
+        }
+      }
+      
+      if (!isGameOverRef.current) {
+        frameId = requestAnimationFrame(animate);
+      }
+    };
+    
+    frameId = requestAnimationFrame(animate);
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [gameOver, questions.length, onWin]);
+
+  const handleShoot = (opt, idx) => {
+    if (shooting || showResult || gameOver || isGameOverRef.current) return;
+    if (isProcessingRef.current) return;
+    if (!currentQRef.current) return;
+    if (idx >= targetsRef.current.length) return;
+    
+    const currentTarget = targetsRef.current[idx];
+    if (!currentTarget) return;
+    
+    isProcessingRef.current = true;
+    setShooting(true);
+    
+    setTimeout(() => {
+      if (idx >= targetsRef.current.length) {
+        setShooting(false);
+        isProcessingRef.current = false;
+        return;
+      }
+      
+      const currentTargetStill = targetsRef.current[idx];
+      if (!currentTargetStill) {
+        setShooting(false);
+        isProcessingRef.current = false;
+        return;
+      }
+      
+      const isCorrect = currentTargetStill.isCorrect === true;
+      
+      if (isCorrect) {
+        setHitIdx(idx);
+        setShowResult("hit");
+        
+        const newStreak = streakRef.current + 1;
+        if (newStreak === 1) playSound("combo_1");
+        else if (newStreak === 2) playSound("combo_2");
+        else if (newStreak === 3) playSound("combo_3");
+        else if (newStreak === 4) playSound("combo_4");
+        else playSound("combo_max");
+        
+        if (areaRef.current) {
+          areaRef.current.style.transform = "translateX(2px)";
+          setTimeout(() => { if(areaRef.current) areaRef.current.style.transform = ""; }, 80);
+        }
+        
+        scoreRef.current += 1;
+        setScore(scoreRef.current);
+        streakRef.current = newStreak;
+        setBlastStreak(newStreak);
+        
+        // Xóa từ bị bắn
+        targetsRef.current = targetsRef.current.filter((_, i) => i !== idx);
+        setTargets([...targetsRef.current]);
+        setRemainingCorrectWords(0);
+        
+        // Kiểm tra chiến thắng câu này
+        // Sau khi bắn trúng từ đúng, chuyển sang câu tiếp theo
+        setTimeout(() => { 
+          if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+          
+          if (scoreRef.current >= questions.length) {
+            confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 }); 
+            playSound("combo_max"); 
+            onWin(); 
+            return;
+          }
+          
+          const nextIdx = (qIdxRef.current + 1) % questions.length;
+          setQIdx(nextIdx);
+          setShooting(false);
+          setHitIdx(null);
+          setShowResult(null);
+          isProcessingRef.current = false;
+        }, 500);
+      } else {
+        // Bắn trúng từ sai - chỉ xóa từ đó, không mất mạng
+        setHitIdx(idx);
+        playSound("click");
+        
+        // Xóa từ bị bắn
+        targetsRef.current = targetsRef.current.filter((_, i) => i !== idx);
+        setTargets([...targetsRef.current]);
+        
+        setTimeout(() => { 
+          setShooting(false); 
+          setHitIdx(null);
+          isProcessingRef.current = false;
+        }, 100);
+      }
+    }, 100);
+  };
+
+  const handleRestart = () => {
+    if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    
+    isGameOverRef.current = false;
+    isProcessingRef.current = false;
+    scoreRef.current = 0;
+    qIdxRef.current = 0;
+    streakRef.current = 0;
+    setQIdx(0);
+    setScore(0);
+    setLives(initialLives);
+    setGameOver(false);
+    setShowResult(null);
+    setBlastStreak(0);
+    setShooting(false);
+    setHitIdx(null);
+    setMissIdx(null);
+    setRemainingCorrectWords(0);
+    targetsRef.current = [];
+    setTargets([]);
+    currentQRef.current = null;
+  };
 
   const currentQ = questions[qIdx];
   const vietnameseMeaning = currentQ
@@ -514,191 +909,429 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
         .filter(Boolean).join(" / ") || "?")
     : "?";
 
-  const cannonDeg = useMemo(() => {
-    const dx = mousePos.x - 50;
-    const dy = 87 - mousePos.y;
-    const angle = Math.atan2(dx, Math.max(dy, 1)) * (180 / Math.PI);
-    return Math.min(Math.max(angle, -55), 55);
-  }, [mousePos]);
+  const currentSpeed = getBaseSpeed();
+  const speedPercent = ((currentSpeed - 0.5) / (1.2 - 0.5)) * 100;
 
-  const barrelLen = 8.5;
-  const rad = cannonDeg * Math.PI / 180;
-  const barrelTipX = 50 + Math.sin(rad) * barrelLen * 0.5;
-  const barrelTipY = 87 - Math.cos(rad) * barrelLen;
+  if (questions.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px" }}>
+        <h2>Đang tải câu hỏi...</h2>
+      </div>
+    );
+  }
 
-  const handleMouseMove = (e) => {
-    if (!areaRef.current) return;
-    const rect = areaRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    setMousePos({ x: Math.min(Math.max(x, 0), 100), y: Math.min(Math.max(y, 0), 100) });
-  };
-
-  useEffect(() => {
-    const q = questions[qIdx];
-    if (!q) return;
-    cancelAnimationFrame(animFrameRef.current);
-    const others = words.filter(w => w.word !== q.word);
-    const wrongs = [...others].sort(() => Math.random() - 0.5).slice(0, 3);
-    const pool = [...wrongs, q].sort(() => Math.random() - 0.5);
-    const usedX = [];
-    const fresh = pool.map((opt, i) => {
-      let x, tries = 0;
-      do { x = 12 + Math.random() * 68; tries++; }
-      while (usedX.some(px => Math.abs(px - x) < 26) && tries < 30);
-      usedX.push(x);
-      return { ...opt, _x: x, _y: -(18 + i * 28), _speed: 0.1 + Math.random() * 0.05, _key: Math.random() };
-    });
-    setTargets(fresh);
-    setHitIdx(null); setMissIdx(null); setShooting(false);
-    setBulletTrail(null); setShowResult(null);
-  }, [qIdx]);
-
-  useEffect(() => {
-    if (gameOver) return;
-    let running = true;
-    const q = questions[qIdxRef.current];
-    const tick = () => {
-      if (!running) return;
-      setTargets(prev => {
-        const next = prev.map(t => ({ ...t, _y: t._y + t._speed }));
-        const fallen = next.find(t => t._y > 96 && t.word === q?.word);
-        if (fallen && running) {
-          running = false;
-          setLives(l => { const nl = l - 1; if (nl <= 0) setGameOver(true); return nl; });
-          setShowResult("miss");
-          setTimeout(() => {
-            const ni = qIdxRef.current + 1;
-            qIdxRef.current = ni;
-            setQIdx(ni % questions.length);
-            setShowResult(null);
-          }, 1000);
-        }
-        return next;
-      });
-      if (running) animFrameRef.current = requestAnimationFrame(tick);
-    };
-    animFrameRef.current = requestAnimationFrame(tick);
-    return () => { running = false; cancelAnimationFrame(animFrameRef.current); };
-  }, [qIdx, gameOver]);
-
-  const handleShoot = (opt, idx) => {
-    if (shooting || showResult || gameOver) return;
-    const q = questions[qIdxRef.current];
-    setShooting(true);
-    setBulletTrail({ x1: 50, y1: 87, x2: opt._x, y2: Math.max(opt._y + 2, 5) });
-    setTimeout(() => setBulletTrail(null), 320);
-    setTimeout(() => {
-      if (opt.word === q?.word) {
-        setHitIdx(idx); setShowResult("hit");
-        playSound("combo_1");
-        scoreRef.current += 1; setScore(scoreRef.current);
-        setBlastStreak(s => s + 1);
-        if (scoreRef.current >= questions.length) {
-          setTimeout(() => { confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, zIndex: 9999 }); playSound("combo_max"); onWin(); }, 700);
-          return;
-        }
-        setTimeout(() => { const ni = qIdxRef.current + 1; qIdxRef.current = ni; setQIdx(ni % questions.length); }, 800);
-      } else {
-        setMissIdx(idx); setShowResult("miss"); setBlastStreak(0); playSound("wrong");
-        setLives(l => { const nl = l - 1; if (nl <= 0) setGameOver(true); return nl; });
-        setTimeout(() => { setShowResult(null); setShooting(false); setMissIdx(null); }, 900);
-      }
-    }, 350);
-  };
-
-  const handleRestart = () => {
-    cancelAnimationFrame(animFrameRef.current);
-    scoreRef.current = 0; qIdxRef.current = 0;
-    setQIdx(0); setScore(0); setLives(initialLives); setGameOver(false);
-    setShowResult(null); setBlastStreak(0); setShooting(false); setBulletTrail(null);
-  };
-
+  // FULLSCREEN FIXED - KHÔNG CUỘN
   return (
-    <div style={{ userSelect: "none" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-        <button onClick={onBack} style={{ padding: "6px 12px", borderRadius: "8px", border: "1px solid #ccc", backgroundColor: "#f5f5f5", cursor: "pointer", fontSize: "13px", fontFamily: "inherit" }}>← Đổi game</button>
-        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          <span style={{ fontWeight: "bold", color: "#2196F3" }}>🎯 {score}/{questions.length}</span>
-          <span>{Array.from({ length: 3 }, (_, i) => i < lives ? "❤️" : "🖤").join("")}</span>
-          {blastStreak >= 2 && <span style={{ fontWeight: "bold", color: "#FF9800", fontSize: "13px" }}>🔥×{blastStreak}</span>}
+    <div 
+      style={{ 
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: "100vw",
+        height: "100vh",
+        backgroundColor: "#0a0a2a",
+        overflow: "hidden",
+        margin: 0,
+        padding: "12px",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        fontFamily: "inherit",
+        zIndex: 1000
+      }}
+    >
+      {/* Header */}
+      <div style={{ 
+        display: "flex", 
+        alignItems: "center", 
+        justifyContent: "space-between", 
+        marginBottom: "12px",
+        padding: "10px 16px",
+        background: "linear-gradient(135deg, #1a237e, #283593)",
+        borderRadius: "16px",
+        boxShadow: "0 4px 15px rgba(0,0,0,0.2)",
+        flexShrink: 0
+      }}>
+        <button 
+          onClick={() => {
+            if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+            onBack();
+          }} 
+          style={{ 
+            padding: "6px 14px", 
+            borderRadius: "10px", 
+            border: "none", 
+            backgroundColor: "rgba(255,255,255,0.2)", 
+            color: "white", 
+            cursor: "pointer", 
+            fontSize: "13px", 
+            fontWeight: "bold",
+            fontFamily: "inherit"
+          }}
+        >
+          ← Đổi game
+        </button>
+        
+        <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
+          <div style={{ 
+            background: "rgba(255,255,255,0.15)", 
+            padding: "4px 14px", 
+            borderRadius: "30px"
+          }}>
+            <span style={{ fontWeight: "bold", color: "#FFD700", fontSize: "16px" }}>🎯 {score}</span>
+            <span style={{ color: "white", fontSize: "13px" }}>/{questions.length}</span>
+          </div>
+          
+          <div style={{ 
+            display: "flex", 
+            alignItems: "center", 
+            gap: "6px",
+            background: "rgba(0,0,0,0.25)",
+            padding: "3px 10px",
+            borderRadius: "30px"
+          }}>
+            <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.7)" }}>Mạng:</span>
+            <div style={{ display: "flex", gap: "2px", flexWrap: "wrap", maxWidth: "120px" }}>
+              {Array.from({ length: initialLives }, (_, i) => (
+                <span 
+                  key={i} 
+                  style={{ 
+                    fontSize: i < 8 ? "16px" : "14px", 
+                    opacity: i < lives ? 1 : 0.25,
+                    filter: i < lives ? "drop-shadow(0 0 2px #FF5252)" : "none",
+                    transition: "all 0.2s"
+                  }}
+                >
+                  ❤️
+                </span>
+              ))}
+            </div>
+            <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>
+              ({lives}/{initialLives})
+            </span>
+          </div>
+          
+          {blastStreak >= 2 && (
+            <div style={{ 
+              background: "linear-gradient(135deg, #FF9800, #FF5722)", 
+              padding: "3px 10px", 
+              borderRadius: "20px",
+              animation: "pulseBlast 0.5s infinite"
+            }}>
+              <span style={{ fontWeight: "bold", color: "white", fontSize: "12px" }}>🔥 x{blastStreak}</span>
+            </div>
+          )}
         </div>
       </div>
 
-      <div style={{ textAlign: "center", marginBottom: "10px", padding: "12px 16px", background: "linear-gradient(135deg, #1a237e 0%, #283593 100%)", borderRadius: "12px", color: "white" }}>
-        <div style={{ fontSize: "11px", letterSpacing: "2px", opacity: 0.7, textTransform: "uppercase", marginBottom: "4px" }}>▶ FIND THE WORD</div>
-        <div style={{ fontSize: "24px", fontWeight: "900" }}>{vietnameseMeaning}</div>
+      {/* Thanh tốc độ */}
+      <div style={{ 
+        marginBottom: "10px",
+        padding: "4px 10px",
+        background: "rgba(0,0,0,0.5)",
+        borderRadius: "20px",
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        flexShrink: 0
+      }}>
+        <span style={{ fontSize: "11px", color: "#FFD700" }}>⚡ Tốc độ rơi:</span>
+        <div style={{ flex: 1, height: "5px", backgroundColor: "rgba(255,255,255,0.2)", borderRadius: "3px", overflow: "hidden" }}>
+          <div style={{ 
+            width: `${speedPercent}%`, 
+            height: "100%", 
+            background: "linear-gradient(90deg, #FF9800, #F44336)",
+            borderRadius: "3px",
+            transition: "width 0.3s"
+          }} />
+        </div>
+        <span style={{ fontSize: "10px", color: "#FF9800", fontFamily: "monospace" }}>
+          x{(currentSpeed / 0.5).toFixed(1)}
+        </span>
       </div>
 
-      <div ref={areaRef} onMouseMove={handleMouseMove}
-        style={{ position: "relative", width: "100%", height: "340px", background: "linear-gradient(180deg, #0d1b3e 0%, #1a237e 40%, #0a3d62 75%, #01579b 100%)", borderRadius: "12px", overflow: "hidden", border: "2px solid #283593", cursor: "crosshair" }}>
+      {/* Câu hỏi */}
+      <div style={{ 
+        textAlign: "center", 
+        marginBottom: "12px", 
+        padding: "12px 16px", 
+        background: "linear-gradient(135deg, #0d1b3e 0%, #1a237e 100%)", 
+        borderRadius: "16px",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        flexShrink: 0
+      }}>
+        <div style={{ 
+          fontSize: "10px", 
+          letterSpacing: "2px", 
+          opacity: 0.7, 
+          textTransform: "uppercase", 
+          marginBottom: "6px",
+          color: "#90caf9"
+        }}>🎯 BẮN TỪ CÓ NGHĨA LÀ</div>
+        <div style={{ 
+          fontSize: "24px", 
+          fontWeight: "900", 
+          color: "#FFD700",
+          textShadow: "0 2px 4px rgba(0,0,0,0.3)"
+        }}>
+          {vietnameseMeaning}
+        </div>
+        <div style={{ fontSize: "11px", color: "#90caf9", marginTop: "6px" }}>
+          🔫 Có {targets.filter(t => t.isCorrect).length} từ đúng đang bay
+        </div>
+      </div>
 
-        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.07, pointerEvents: "none" }} xmlns="http://www.w3.org/2000/svg">
-          {Array.from({ length: 11 }, (_, i) => <line key={`v${i}`} x1={`${i*10}%`} y1="0" x2={`${i*10}%`} y2="100%" stroke="#00bcd4" strokeWidth="1"/>)}
-          {Array.from({ length: 9 }, (_, i) => <line key={`h${i}`} x1="0" y1={`${i*12.5}%`} x2="100%" y2={`${i*12.5}%`} stroke="#00bcd4" strokeWidth="1"/>)}
+      {/* Khu vực game - chiếm phần còn lại */}
+      <div 
+        ref={areaRef} 
+        onMouseMove={handleMouseMove}
+        style={{ 
+          position: "relative", 
+          flex: 1,
+          minHeight: 0,
+          background: "linear-gradient(180deg, #0a0a2a 0%, #1a1a4a 40%, #0d2b4e 75%, #0a3d5e 100%)", 
+          borderRadius: "20px", 
+          overflow: "hidden", 
+          border: "2px solid #4a6fa5",
+          cursor: "crosshair",
+          boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
+          transition: "transform 0.05s"
+        }}
+      >
+        {/* Grid lines */}
+        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.06, pointerEvents: "none" }}>
+          {Array.from({ length: 11 }, (_, i) => <line key={`v${i}`} x1={`${i*10}%`} y1="0" x2={`${i*10}%`} y2="100%" stroke="#00e5ff" strokeWidth="1"/>)}
+          {Array.from({ length: 9 }, (_, i) => <line key={`h${i}`} x1="0" y1={`${i*12.5}%`} x2="100%" y2={`${i*12.5}%`} stroke="#00e5ff" strokeWidth="1"/>)}
         </svg>
 
-        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 18 }} xmlns="http://www.w3.org/2000/svg">
-          <line x1={`${barrelTipX}%`} y1={`${barrelTipY}%`} x2={`${mousePos.x}%`} y2={`${mousePos.y}%`}
-            stroke="rgba(0,229,255,0.35)" strokeWidth="1.5" strokeDasharray="6 5"/>
-          <circle cx={`${mousePos.x}%`} cy={`${mousePos.y}%`} r="10" stroke="#00e5ff" strokeWidth="1.5" fill="none" opacity="0.85"/>
-          <circle cx={`${mousePos.x}%`} cy={`${mousePos.y}%`} r="2" fill="#00e5ff" opacity="0.9"/>
-          <line x1={`${mousePos.x - 1.8}%`} y1={`${mousePos.y}%`} x2={`${mousePos.x + 1.8}%`} y2={`${mousePos.y}%`} stroke="#00e5ff" strokeWidth="1.5" opacity="0.9"/>
-          <line x1={`${mousePos.x}%`} y1={`${mousePos.y - 3.5}%`} x2={`${mousePos.x}%`} y2={`${mousePos.y + 3.5}%`} stroke="#00e5ff" strokeWidth="1.5" opacity="0.9"/>
-          {bulletTrail && (<>
-            <line x1={`${bulletTrail.x1}%`} y1={`${bulletTrail.y1}%`} x2={`${bulletTrail.x2}%`} y2={`${bulletTrail.y2}%`}
-              stroke="#00e5ff" strokeWidth="3" opacity="0.95" style={{ filter: "drop-shadow(0 0 5px #00e5ff)" }}/>
-            <circle cx={`${bulletTrail.x2}%`} cy={`${bulletTrail.y2}%`} r="7" fill="#00e5ff" opacity="1" style={{ filter: "drop-shadow(0 0 10px #00e5ff)" }}/>
-          </>)}
-        </svg>
-
+        {/* Targets - RẤT NHIỀU TỪ CÙNG LÚC */}
         {targets.map((opt, idx) => {
-          const isHit = hitIdx === idx, isMiss = missIdx === idx;
+          const isHit = hitIdx === idx;
+          const isMiss = missIdx === idx;
+          const isCorrectWord = opt.isCorrect === true;
+          
           return (
-            <button key={opt._key || idx} onClick={() => handleShoot(opt, idx)}
+            <button 
+              key={opt.id} 
+              onClick={() => handleShoot(opt, idx)}
               disabled={shooting || !!showResult || gameOver}
               style={{
-                position: "absolute", left: `${opt._x}%`, top: `${Math.max(opt._y, -10)}%`,
-                transform: "translateX(-50%)", padding: "7px 14px", borderRadius: "20px",
-                fontWeight: "bold", fontSize: "13px", cursor: "crosshair", fontFamily: "inherit",
-                whiteSpace: "nowrap", maxWidth: "130px", overflow: "hidden", textOverflow: "ellipsis", zIndex: 10,
-                border: isHit ? "2px solid #4CAF50" : isMiss ? "2px solid #F44336" : "2px solid rgba(0,188,212,0.6)",
-                backgroundColor: isHit ? "#4CAF50" : isMiss ? "#F44336" : "rgba(13,27,62,0.9)",
-                color: isHit || isMiss ? "white" : "#00e5ff",
-                boxShadow: isHit ? "0 0 18px #4CAF50" : isMiss ? "0 0 18px #F44336" : "0 0 8px rgba(0,188,212,0.3)",
-                opacity: opt._y < -8 ? 0 : 1, transition: "opacity 0.2s",
-              }}>
+                position: "absolute",
+                left: `${opt.x}%`,
+                top: `${Math.min(Math.max(opt.y, -10), 95)}%`,
+                transform: "translateX(-50%)",
+                padding: "6px 12px",
+                borderRadius: "25px",
+                fontWeight: "bold",
+                fontSize: isCorrectWord ? "15px" : "13px",
+                cursor: "crosshair",
+                fontFamily: "inherit",
+                whiteSpace: "nowrap",
+                maxWidth: "130px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                zIndex: 10,
+                border: isHit ? "2px solid #4CAF50" : isMiss ? "2px solid #F44336" : isCorrectWord ? "3px solid #FFD700" : "2px solid rgba(0,188,212,0.4)",
+                background: isHit ? "#4CAF50" : isMiss ? "#F44336" : isCorrectWord ? "rgba(255,215,0,0.85)" : "rgba(13,27,62,0.9)",
+                color: isHit || isMiss ? "white" : isCorrectWord ? "#1a237e" : "#00e5ff",
+                boxShadow: isCorrectWord ? "0 0 15px rgba(255,215,0,0.6)" : (isHit ? "0 0 20px #4CAF50" : "0 4px 10px rgba(0,0,0,0.3)"),
+                opacity: opt.y < -8 ? 0 : 1,
+                transition: "opacity 0.15s",
+                pointerEvents: shooting || !!showResult || gameOver ? "none" : "auto",
+                textShadow: "0 1px 2px rgba(0,0,0,0.2)",
+                fontWeight: isCorrectWord ? "900" : "600"
+              }}
+              onMouseEnter={e => {
+                if (!shooting && !showResult && !gameOver) {
+                  e.currentTarget.style.transform = "translateX(-50%) scale(1.08)";
+                  e.currentTarget.style.zIndex = "20";
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "translateX(-50%)";
+                e.currentTarget.style.zIndex = "10";
+              }}
+            >
               {opt.cleanWord || opt.word}
+              {isCorrectWord && " ⭐"}
             </button>
           );
         })}
 
-        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "46px", background: "linear-gradient(180deg, rgba(1,87,155,0.5) 0%, rgba(1,87,155,0.95) 100%)", borderTop: "2px solid rgba(0,188,212,0.4)", zIndex: 12 }}/>
+        {/* Ground */}
+        <div style={{ 
+          position: "absolute", 
+          bottom: 0, 
+          left: 0, 
+          right: 0, 
+          height: "40px", 
+          background: "linear-gradient(180deg, rgba(1,87,155,0.6) 0%, rgba(1,87,155,0.95) 100%)", 
+          borderTop: "2px solid rgba(0,188,212,0.5)",
+          zIndex: 12 
+        }}/>
 
-        <div style={{ position: "absolute", bottom: "6px", left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", zIndex: 15 }}>
-          <div style={{ width: "14px", height: "30px", backgroundColor: "#00bcd4", borderRadius: "7px 7px 3px 3px", transform: `rotate(${cannonDeg}deg)`, transformOrigin: "bottom center", boxShadow: "0 0 10px rgba(0,188,212,0.8)" }}/>
-          <div style={{ width: "34px", height: "20px", backgroundColor: "#0288d1", borderRadius: "6px", marginTop: "-4px", boxShadow: "0 0 6px rgba(2,136,209,0.6)" }}/>
+        {/* Cannon */}
+        <div style={{ 
+          position: "absolute", 
+          bottom: "6px", 
+          left: "50%", 
+          transform: "translateX(-50%)", 
+          display: "flex", 
+          flexDirection: "column", 
+          alignItems: "center", 
+          zIndex: 15 
+        }}>
+          <div style={{ 
+            width: "14px", 
+            height: "30px", 
+            background: "linear-gradient(135deg, #00bcd4, #0288d1)", 
+            borderRadius: "8px 8px 4px 4px", 
+            transform: `rotate(${cannonDeg}deg)`, 
+            transformOrigin: "bottom center", 
+            boxShadow: "0 0 12px rgba(0,188,212,0.6)",
+            transition: "transform 0.03s linear"
+          }}/>
+          <div style={{ 
+            width: "35px", 
+            height: "18px", 
+            background: "linear-gradient(135deg, #0288d1, #01579b)", 
+            borderRadius: "8px", 
+            marginTop: "-4px", 
+            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+            border: "1px solid #4fc3f7"
+          }}/>
         </div>
 
+        {/* Crosshair */}
+        <div style={{
+          position: "absolute",
+          left: `${mousePos.x}%`,
+          top: `${mousePos.y}%`,
+          width: "18px",
+          height: "18px",
+          transform: "translate(-50%, -50%)",
+          pointerEvents: "none",
+          zIndex: 20
+        }}>
+          <div style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            width: "10px",
+            height: "10px",
+            transform: "translate(-50%, -50%)",
+            borderRadius: "50%",
+            border: "2px solid #00e5ff",
+            boxShadow: "0 0 8px #00e5ff"
+          }}/>
+          <div style={{
+            position: "absolute",
+            top: "50%",
+            left: 0,
+            right: 0,
+            height: "1.5px",
+            background: "#00e5ff",
+            transform: "translateY(-50%)",
+            opacity: 0.5
+          }}/>
+          <div style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: "50%",
+            width: "1.5px",
+            background: "#00e5ff",
+            transform: "translateX(-50%)",
+            opacity: 0.5
+          }}/>
+        </div>
+
+        {/* Result overlay */}
         {showResult && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: showResult === "hit" ? "rgba(76,175,80,0.15)" : "rgba(244,67,54,0.15)", zIndex: 30, pointerEvents: "none" }}>
-            <span style={{ fontSize: "56px" }}>{showResult === "hit" ? "✅" : "💥"}</span>
+          <div style={{ 
+            position: "absolute", 
+            inset: 0, 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "center", 
+            backgroundColor: showResult === "hit" ? "rgba(76,175,80,0.15)" : "rgba(244,67,54,0.15)", 
+            zIndex: 30, 
+            pointerEvents: "none"
+          }}>
+            <span style={{ 
+              fontSize: "50px", 
+              animation: "popResult 0.25s ease-out",
+              filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.3))"
+            }}>
+              {showResult === "hit" ? "💥" : "❌"}
+            </span>
           </div>
         )}
 
+        {/* Game Over */}
         {gameOver && (
-          <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 40, borderRadius: "10px" }}>
-            <div style={{ fontSize: "52px" }}>💀</div>
-            <h3 style={{ color: "white", margin: "8px 0 4px" }}>Game Over!</h3>
-            <p style={{ color: "#aaa", marginBottom: "20px" }}>Đã bắn đúng {score}/{questions.length} từ</p>
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button onClick={onBack} style={{ padding: "10px 20px", backgroundColor: "#555", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontWeight: "bold" }}>← Đổi game</button>
-              <button onClick={handleRestart} style={{ padding: "10px 20px", backgroundColor: "#E91E63", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontWeight: "bold" }}>🔄 Chơi lại</button>
+          <div style={{ 
+            position: "absolute", 
+            inset: 0, 
+            backgroundColor: "rgba(0,0,0,0.88)", 
+            display: "flex", 
+            flexDirection: "column", 
+            alignItems: "center", 
+            justifyContent: "center", 
+            zIndex: 40, 
+            borderRadius: "18px"
+          }}>
+            <div style={{ fontSize: "50px", marginBottom: "6px" }}>💀</div>
+            <h3 style={{ color: "white", margin: "6px 0 3px", fontSize: "24px", fontWeight: "bold" }}>GAME OVER</h3>
+            <p style={{ color: "#aaa", marginBottom: "20px", fontSize: "13px" }}>
+              Bạn đã bắn đúng <strong style={{ color: "#FFD700", fontSize: "18px" }}>{score}</strong>/{questions.length} từ
+            </p>
+            <div style={{ display: "flex", gap: "12px" }}>
+              <button onClick={() => {
+                if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+                onBack();
+              }} style={{ padding: "10px 20px", background: "#555", color: "white", border: "none", borderRadius: "12px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>← Đổi game</button>
+              <button onClick={handleRestart} style={{ padding: "10px 20px", background: "linear-gradient(135deg, #E91E63, #c2185b)", color: "white", border: "none", borderRadius: "12px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>🔄 Chơi lại</button>
             </div>
           </div>
         )}
       </div>
-      <p style={{ textAlign: "center", color: "#888", fontSize: "12px", marginTop: "8px" }}>🖱️ Di chuột để ngắm — Click từ để bắn!</p>
+      
+      <p style={{ 
+        textAlign: "center", 
+        color: "#888", 
+        fontSize: "11px", 
+        marginTop: "10px",
+        marginBottom: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "15px",
+        flexShrink: 0
+      }}>
+        <span>🖱️ Di chuột để ngắm</span>
+        <span>💥 Click vào từ để bắn</span>
+        <span style={{ color: "#FFD700" }}>⭐ Từ vàng là đáp án đúng!</span>
+        <span style={{ color: "#FF9800" }}>⚡ Streak càng cao, từ rơi càng nhanh!</span>
+      </p>
+
+      <style>{`
+        @keyframes pulseBlast {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.08); }
+        }
+        @keyframes popResult {
+          0% { transform: scale(0); opacity: 0; }
+          70% { transform: scale(1.2); }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        body {
+          overflow: hidden !important;
+        }
+      `}</style>
     </div>
   );
 }
@@ -906,9 +1539,6 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
         
         // KIỂM TRA NGUỒN DATA ĐỂ CHỌN SHEET
         let SHEET_NAME = mode === "vocab" ? "Vocab" : "Collocation"; 
-        // if (mode === "vocab" && settings.dataSource === "custom") {
-        //     SHEET_NAME = "Custom"; // Bắt buộc lấy từ sheet Custom theo yêu cầu
-        // }
 
         const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&headers=1&sheet=${SHEET_NAME}`;
         const response = await fetch(url);
@@ -1054,7 +1684,6 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
           try {
               const API_KEY = getActiveKey();
               if (API_KEY && !API_KEY.includes("DÁN_MÃ")) {
-                  console.log(`[BOSS] Đang nhờ AI suy nghĩ danh sách từ khóa (tối đa ${maxPossibleLen} ký tự)...`);
                   
                   // --- THÊM: BỘ ĐẾM NGƯỢC 5 GIÂY CHỐNG TREO GAME ---
                   // Nếu sau 5 giây AI không trả lời -> Ép hủy kết nối để game load ngay!
@@ -1095,11 +1724,9 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
                           .map(w => w.trim().toUpperCase().replace(/[^A-Z]/g, ''))
                           .filter(w => w.length >= 3 && w.length <= maxPossibleLen);
                           
-                      console.log("[BOSS] AI đề xuất danh sách từ khóa:", aiKeywords);
                   }
               }
           } catch (e) { 
-              console.log("[BOSS] Mạng chậm hoặc AI đang bận, hủy kết nối dùng từ khóa dự phòng để vào game ngay."); 
           }
 
           // 2. TẠO MẠNG LƯỚI CROSSWORD TỪ TỪ KHÓA
@@ -1158,7 +1785,6 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
                   question: "Thử thách cuối cùng - Ghép từ bạn vừa học!",
                   answer: "WIN"
               });
-              console.log(`[BOSS] Chốt Boss! Từ khóa: ${finalKeyword} | Chiều: ${isVerticalMap ? "Dọc" : "Ngang"}`);
           }
       }
 
@@ -1178,16 +1804,6 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
   const [answerStatus, setAnswerStatus] = useState(null); 
   const [streak, setStreak] = useState(0);
 
-  // // State quản lý câu hỏi trong Sổ tay
-  // const [savedQuestions, setSavedQuestions] = useState(() => {
-  //   return globalStats?.grammar?.savedWords || [];
-  // });
-  // const [wrongQuestions, setWrongQuestions] = useState(() => {
-  //   return globalStats?.grammar?.wrongWords || [];
-  // });
-  // const [masteredQuestions, setMasteredQuestions] = useState(() => {
-  //   return globalStats?.grammar?.masteredWords || [];
-  // });
 
   useEffect(() => {
     if (!loadingData && current < questionsData.length && selected === null && !isGameOver) {
@@ -1217,7 +1833,6 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
         }
     }
   }, [current, loadingData, questionsData, selected, isGameOver]);
-
 
 
   useEffect(() => {
@@ -2324,7 +2939,6 @@ function GrammarQuiz({ onBack, updateGlobal, onSaveWord, settings, learnedQuesti
   const REQUIRED_STREAK = settings.requiredStreak; 
   const TOEIC_PART = settings.toeicPart || "part5";
   
-  // const GEMINI_API_KEY = getActiveKey(); // Lấy Key từ Trạm Điện Tổng
 
   const [questionsData, setQuestionsData] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -2349,7 +2963,6 @@ function GrammarQuiz({ onBack, updateGlobal, onSaveWord, settings, learnedQuesti
   const [selectedWord, setSelectedWord] = useState("");
   const [tooltipPos, setTooltipPos] = useState(null);
   const [dictModal, setDictModal] = useState(null);
-  // THAY BẰNG:
   const [isSaved, setIsSaved] = useState(false);
   const [sidePanelResult, setSidePanelResult] = useState(null);
   const [sidePanelLoading, setSidePanelLoading] = useState(false);
@@ -2513,7 +3126,8 @@ const handleSelection = (e) => {
                                   const msg = data.error.message?.toLowerCase() || "";
                                   if (msg.includes("quota") || msg.includes("expired") || data.error.code === 429) {
                                       window.globalCachedModel = null;
-                                      if (rotateKey()) {
+                                      const hasNextKey = markKeyExhausted();
+              if (hasNextKey) {
                                           await new Promise(r => setTimeout(r, 1000));
                                           return doLookup();
                                       }
@@ -2598,8 +3212,8 @@ const handleSelection = (e) => {
 
           if (data.error && (data.error.message.toLowerCase().includes("quota") || data.error.message.toLowerCase().includes("expired") || data.error.code === 429)) {
               window.globalCachedModel = null; 
-              if (rotateKey()) {
-                  console.log("⏳ Đang làm nguội hệ thống 1.5 giây trước khi thử Key mới...");
+              const hasNextKey = markKeyExhausted();
+              if (hasNextKey) {
                   await new Promise(r => setTimeout(r, 1500)); // ĐÃ FIX: Nghỉ 1.5s chống spam
                   return handleLookup(wordToLookup);
               }
@@ -2654,7 +3268,8 @@ const handleSelection = (e) => {
 
           if (data.error && (data.error.message.toLowerCase().includes("quota") || data.error.message.toLowerCase().includes("expired") || data.error.code === 429)) {
               window.globalCachedModel = null;
-              if (rotateKey()) {
+              const hasNextKey = markKeyExhausted();
+              if (hasNextKey) {
                   await new Promise(r => setTimeout(r, 1500)); 
                   return handleQuickSave(type, wordToSave);
               }
@@ -2801,7 +3416,6 @@ const handleSelection = (e) => {
             Mức độ: ${DIFFICULTY_LEVEL <= 2 ? "Dễ - Trung bình" : "Khó"}`;
                   }
 
-      // THAY BẰNG:
       try {
         const currentKey = getActiveKey(); // Luôn lấy key hiện tại (không dùng biến cũ)
 
@@ -2859,8 +3473,8 @@ const handleSelection = (e) => {
           // Lỗi quota / hết key → rotate sang key khác
           if (msg.includes("quota") || msg.includes("expired") || code === 429) {
             window.globalCachedModel = null;
-            if (rotateKey()) {
-              console.log("⏳ Đổi key, thử lại sau 1.5s...");
+            const hasNextKey = markKeyExhausted();
+              if (hasNextKey) {
               await new Promise(r => setTimeout(r, 1500));
               isFetchingRef.current = false;
               setLoadingData(true);
@@ -2916,12 +3530,18 @@ const handleSelection = (e) => {
         let finalPool = [];
 
         // ƯU TIÊN LẤY CÂU TỪ Ô ĐỎ (wrongQuestions) TRƯỚC
+        // Lọc theo part hiện tại trước khi dùng
+        const filterByPart = (arr) => arr.filter(q => !q.toeicPart || q.toeicPart === TOEIC_PART);
+
         let quizPool = [];
         if (wrongQuestions.length > 0) {
-          quizPool = [...wrongQuestions];
+            quizPool = filterByPart(wrongQuestions); // ← lọc
         }
         if (quizPool.length < QUIZ_LIMIT && savedQuestions.length > 0) {
-          quizPool = [...quizPool, ...savedQuestions];
+            quizPool = [...quizPool, ...filterByPart(savedQuestions)]; // ← lọc
+        }
+        if (quizPool.length < QUIZ_LIMIT && masteredQuestions.length > 0) {
+          quizPool = [...quizPool, ...filterByPart(masteredQuestions)];
         }
 
         if (quizPool.length >= QUIZ_LIMIT) {
@@ -2956,6 +3576,14 @@ const handleSelection = (e) => {
             return { ...q, options: shuffledOptions, answer: normalizeAnswer(originalOptions, shuffledOptions, q.answer) };
           });
         }
+
+        // Gộp với câu từ Sổ tay nếu AI trả về ít hơn limit
+        if (finalPool.length < QUIZ_LIMIT && quizPool.length > 0) {
+          const aiQuestionSet = new Set(finalPool.map(q => q.question));
+          const extras = quizPool.filter(q => !aiQuestionSet.has(q.question));
+          finalPool = [...finalPool, ...shuffleArray(extras)].slice(0, QUIZ_LIMIT);
+        }
+
         setQuestionsData(finalPool);
 
         // Lưu câu hỏi mới vào Sổ tay (ô vàng) nếu chưa có
@@ -2964,14 +3592,28 @@ const handleSelection = (e) => {
           ...(wrongQuestions.map(q => q.question)),
           ...(masteredQuestions.map(q => q.question))
         ]);
-        const newQuestions = finalPool.filter(q => !existingQuestions.has(q.question));
+        const newQuestions = finalPool.filter(q => !existingQuestions.has(q.question)).map(q => ({ ...q, toeicPart: TOEIC_PART }));
         if (newQuestions.length > 0) {
           await onSaveWord("grammar", newQuestions);
         }
 
       } catch (error) {
         console.error("Lỗi tạo đề:", error);
-        alert("Đã thử tất cả API Key nhưng đều hết quota. Vui lòng thử lại sau!");
+
+        // === KHI HẾT QUOTA: FALLBACK DÙNG SỔ TAY ===
+        const allNotebookQuestions = [
+          ...wrongQuestions,
+          ...savedQuestions,
+          ...masteredQuestions
+        ];
+        if (allNotebookQuestions.length > 0) {
+          const fallbackPool = shuffleArray(allNotebookQuestions).slice(0, QUIZ_LIMIT);
+          setQuestionsData(fallbackPool);
+          setLoadingData(false);
+          return;
+        }
+
+        alert("Đã thử tất cả API Key nhưng đều hết quota và Sổ tay chưa có câu nào. Vui lòng thử lại sau!");
         onBack();
       } finally {
         setLoadingData(false);
@@ -3095,14 +3737,22 @@ const handleSelection = (e) => {
     setAnswerStatus({ type: "correct", streak: newStreak, text: msg });
     if (DIFFICULTY_LEVEL === 4) setGlobalTime(t => t + 5); 
   } else {
-    // Sai → chuyển từ saved sang wrong
+    // Sai → lưu vào ô đỏ
     const isInSaved = savedQuestions.some(q => q.question === currentQ.question);
+    const isInWrong = wrongQuestions.some(q => q.question === currentQ.question);
+
     if (isInSaved) {
       await onMoveWord("grammar", "savedWords", "wrongWords", currentQ);
       setSavedQuestions(prev => prev.filter(q => q.question !== currentQ.question));
       setWrongQuestions(prev => [...prev, currentQ]);
+    } else if (!isInWrong) {
+      // Câu mới làm sai lần đầu → lưu thẳng vào ô đỏ
+      const qToSave = { ...currentQ, toeicPart: TOEIC_PART };
+      await onSaveWord("grammar", [qToSave]);
+      await onMoveWord("grammar", "savedWords", "wrongWords", qToSave);
+      setWrongQuestions(prev => [...prev, qToSave]);
     }
-    
+
     playSound(isTimeout ? "timeout" : "wrong");
     setStreak(0); 
     if (DIFFICULTY_LEVEL === 3) {
@@ -3229,7 +3879,7 @@ const handleSelection = (e) => {
     );
   }
 
-  const currentQ = questionsData[current];
+  const currentQuestion = questionsData[current];
   const timePercentage = (timeLeft / TIME_PER_QUESTION) * 100;
 
   let comboClass = "";
@@ -3242,7 +3892,6 @@ const handleSelection = (e) => {
       else comboClass = "combo-1";
   }
 
-  // THAY BẰNG:
 const renderInlineText = (text) => {
   if (!text) return null;
   return text.split(/('.*?'|".*?"|\*\*.*?\*\*|\*.*?\*)/g).map((part, i) => {
@@ -3351,8 +4000,6 @@ const formatExplanation = (explanation, correctAnswer = null, allOptions = null)
 };
 
   
-
-  // THAY BẰNG:
 return (
   <div style={{ position: "fixed", inset: 0, display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: "12px", padding: "12px", background: "linear-gradient(135deg,#e3f2fd,#e8eaf6)", overflow: "hidden", fontFamily: "inherit" }}>
   {/* PANEL DỊCH TỪ BÊN PHẢI (CHỈ HIỆN TRÊN MÀN HÌNH RỘNG >= 900px) */}
@@ -3456,13 +4103,13 @@ return (
         <div style={{ fontWeight: "bold", color: "#1565c0", fontSize: "15px", marginBottom: "15px", display: "flex", alignItems: "center", gap: "6px", borderBottom: "2px solid #e3f2fd", paddingBottom: "10px" }}>
           🤖 Thầy AI Giải Thích
         </div>
-        {selected !== "TIMEOUT" && selected !== currentQ.answer && (
+        {selected !== "TIMEOUT" && selected !== currentQuestion.answer && (
           <div style={{ marginBottom: "15px", fontSize: "15px", color: "#d32f2f", fontWeight: "bold" }}>
-            Đáp án đúng: <span style={{ textDecoration: "underline", color: "#2e7d32", padding: "2px 6px", backgroundColor: "#e8f5e9", borderRadius: "4px", userSelect: "text", WebkitUserSelect: "text" }}>{currentQ.answer}</span>
+            Đáp án đúng: <span style={{ textDecoration: "underline", color: "#2e7d32", padding: "2px 6px", backgroundColor: "#e8f5e9", borderRadius: "4px", userSelect: "text", WebkitUserSelect: "text" }}>{currentQuestion.answer}</span>
           </div>
         )}
         <div style={{ cursor: "text", userSelect: "text", WebkitUserSelect: "text" }}>
-          {formatExplanation(currentQ.explanation, currentQ.answer, currentQ.options)}
+          {formatExplanation(currentQuestion.explanation, currentQuestion.answer, currentQuestion.options)}
         </div>
       </>
     ) : (
@@ -3619,16 +4266,16 @@ return (
       <div style={{ height: "100%", width: `${timePercentage}%`, background: timeLeft <= 3 ? "#ef5350" : "#42a5f5", transition: "width 1s linear" }} />        <div style={{ height: "100%", width: `${timePercentage}%`, backgroundColor: timeLeft <= 3 ? "#f44336" : "#2196F3", transition: "width 1s linear" }} />
       </div>}
 
-      {currentQ.passage && currentQ.passage.trim() !== "" && currentQ.passage.trim() !== currentQ.question?.trim() && (
+      {currentQuestion.passage && currentQuestion.passage.trim() !== "" && currentQuestion.passage.trim() !== currentQuestion.question?.trim() && (
         <div style={{ backgroundColor: "#fafafa", border: "1px solid #e0e0e0", borderRadius: "12px", marginBottom: "16px", overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-          {currentQ.doc_type && (
+          {currentQuestion.doc_type && (
             <div style={{ backgroundColor: "#e3f2fd", padding: "6px 15px", borderBottom: "1px solid #d0d7de", fontSize: "12px", fontWeight: "bold", color: "#1565c0", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-              📄 {currentQ.doc_type}
+              📄 {currentQuestion.doc_type}
             </div>
           )}
           <div style={{ padding: "15px", textAlign: "left", boxShadow: "inset 0 0 10px rgba(0,0,0,0.02)", cursor: "text", userSelect: "text", WebkitUserSelect: "text" }}>
             <p style={{ fontSize: "15px", lineHeight: "1.8", color: "#333", margin: 0, whiteSpace: "pre-line", userSelect: "text", WebkitUserSelect: "text" }}>
-              {currentQ.passage}
+              {currentQuestion.passage}
             </p>
           </div>
         </div>
@@ -3636,18 +4283,18 @@ return (
 
       {/* CÂU HỎI */}
       <h2 style={{ lineHeight: "1.6", color: "#2c3e50", fontSize: TOEIC_PART !== "part5" ? "18px" : "20px", borderBottom: "2px dashed #bbdefb", paddingBottom: "15px", marginBottom: "20px", cursor: "text", userSelect: "text", WebkitUserSelect: "text" }}>
-        {currentQ.question}
+        {currentQuestion.question}
       </h2>
 
       <div className="options">
-        {currentQ.options.map((option, idx) => {
+        {currentQuestion.options.map((option, idx) => {
           // Loại bỏ prefix khỏi option để hiển thị sạch
           const cleanOption = option.replace(/^\s*[A-Da-d][).:：\-]\s*/g, '').trim();
           return (
             <button 
               key={idx} 
               onClick={() => { window.getSelection()?.removeAllRanges(); handleAnswer(option); }} 
-              className={selected ? (stripOptionPrefix(option) === stripOptionPrefix(currentQ.answer) ? "correct" : option === selected ? "wrong" : "") : ""} 
+              className={selected ? (stripOptionPrefix(option) === stripOptionPrefix(currentQuestion.answer) ? "correct" : option === selected ? "wrong" : "") : ""} 
               disabled={selected !== null}
             >
               {cleanOption}
@@ -3734,7 +4381,235 @@ function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }
 // =======================================================================
 // COMPONENT: SỔ TAY TÍCH HỢP AI + SỬA BẰNG TAY (MANUAL EDIT) XỊN SÒ
 // =======================================================================
-function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveWord, onMoveManyWords, onRemoveManyWords, onUploadGrammarFile, customGrammarNotes = [], defaultTab = "vocab" }) {  const [activeTab, setActiveTab] = useState(defaultTab);
+
+// --- COMPONENT: TÓM TẮT FILE NGỮ PHÁP BẰNG AI ---
+// --- COMPONENT: TÓM TẮT FILE NGỮ PHÁP BẰNG AI (CÓ LƯU CACHE) ---
+function GrammarNotesPanel({ notes, currentUser }) {
+  const [summaries, setSummaries] = useState({}); // { noteId: { status, text } }
+  const [expandedId, setExpandedId] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Tải summaries đã lưu từ Firebase khi component mount
+  useEffect(() => {
+    if (!currentUser || !notes.length) return;
+    
+    const loadSavedSummaries = async () => {
+      const userDocRef = doc(db, "users", currentUser.uid);
+      const docSnap = await getDoc(userDocRef);
+      if (docSnap.exists()) {
+        const savedSummaries = docSnap.data()?.grammar?.notesSummaries || {};
+        setSummaries(savedSummaries);
+      }
+    };
+    loadSavedSummaries();
+  }, [currentUser, notes]);
+
+  const summarizeNote = async (note) => {
+    // Kiểm tra cache trước
+    if (summaries[note.id]?.status === "done") {
+      setExpandedId(note.id);
+      return;
+    }
+
+    setSummaries(prev => ({ ...prev, [note.id]: { status: "loading", text: "" } }));
+    
+    try {
+      if (!window.globalCachedModel) {
+        const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${getActiveKey()}`);
+        const listData = await listRes.json();
+        const textModels = (listData.models || []).filter(m => m.supportedGenerationMethods?.includes("generateContent"));
+        const flash = textModels.find(m => m.name.includes("1.5-flash")) || textModels.find(m => m.name.includes("flash")) || textModels[0];
+        window.globalCachedModel = flash ? flash.name : "models/gemini-1.5-flash";
+      }
+
+      const truncated = note.content.length > 8000 ? note.content.slice(0, 8000) + "\n[...nội dung đã cắt bớt]" : note.content;
+
+      const prompt = `Bạn là giáo viên TOEIC. Dựa vào nội dung tài liệu ngữ pháp dưới đây, hãy tóm tắt những điểm quan trọng nhất theo format phù hợp nhất với nội dung (có thể dùng bảng, bullet points, hay mindmap dạng text). Ưu tiên: công thức cấu trúc, ý nghĩa cốt lõi, ví dụ minh họa ngắn, điểm cần nhớ khi làm bài thi. Viết bằng tiếng Việt, ngắn gọn, dễ ôn tập.
+
+NỘI DUNG TÀI LIỆU:
+${truncated}
+
+Hãy tóm tắt:`;
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${window.globalCachedModel}:generateContent?key=${getActiveKey()}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        const hasNext = markKeyExhausted();
+        if (hasNext) {
+          await new Promise(r => setTimeout(r, 1000));
+          return summarizeNote(note);
+        }
+        throw new Error(data.error.message);
+      }
+
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "Không có kết quả.";
+      
+      // Lưu vào state
+      setSummaries(prev => ({ ...prev, [note.id]: { status: "done", text } }));
+      
+      // LƯU VÀO FIREBASE NGAY LẬP TỨC
+      if (currentUser) {
+        const userDocRef = doc(db, "users", currentUser.uid);
+        const docSnap = await getDoc(userDocRef);
+        if (docSnap.exists()) {
+          const currentData = docSnap.data();
+          const currentSummaries = currentData?.grammar?.notesSummaries || {};
+          await updateDoc(userDocRef, {
+            "grammar.notesSummaries": { ...currentSummaries, [note.id]: { status: "done", text, savedAt: Date.now() } }
+          });
+        }
+      }
+      
+      setExpandedId(note.id);
+    } catch (err) {
+      setSummaries(prev => ({ ...prev, [note.id]: { status: "error", text: "Lỗi: " + err.message } }));
+    }
+  };
+
+  // Trong GrammarNotesPanel, sửa phần formatSummary để hiển thị phân cách
+  const formatSummary = (text) => {
+    if (!text) return <p>Chưa có tóm tắt</p>;
+    
+    const parts = text.split(/\n?--- PHẦN MỚI \(.*?\) ---\n?/);
+    
+    return (
+      <div>
+        {parts.map((part, idx) => {
+          if (!part.trim()) return null;
+          return (
+            <div key={idx} style={{ 
+              marginBottom: idx > 0 ? "16px" : "0",
+              paddingTop: idx > 0 ? "12px" : "0",
+              borderTop: idx > 0 ? "2px dashed #ff9800" : "none"
+            }}>
+              {idx > 0 && (
+                <div style={{ fontSize: "11px", color: "#ff9800", fontWeight: "bold", marginBottom: "8px" }}>
+                  📅 Cập nhật lần {idx}
+                </div>
+              )}
+              {formatSummaryTextContent(part)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Tách riêng hàm format nội dung
+  const formatSummaryTextContent = (text) => {
+    return text.split("\n").map((line, i) => {
+      const trimmed = line.trim();
+      if (!trimmed) return <div key={i} style={{ height: "6px" }} />;
+      if (trimmed.startsWith("## ") || trimmed.startsWith("### "))
+        return <div key={i} style={{ fontWeight: "900", color: "#1565c0", fontSize: "13px", marginTop: "10px", marginBottom: "2px", borderBottom: "1px solid #bbdefb", paddingBottom: "3px" }}>{trimmed.replace(/^#+\s*/, "")}</div>;
+      if (/^[-•*]\s/.test(trimmed))
+        return <div key={i} style={{ display: "flex", gap: "6px", fontSize: "12.5px", lineHeight: "1.6", color: "#333" }}><span style={{ color: "#1976d2", fontWeight: "bold", flexShrink: 0 }}>▸</span><span dangerouslySetInnerHTML={{ __html: trimmed.slice(2).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>") }} /></div>;
+      return <div key={i} style={{ fontSize: "12.5px", lineHeight: "1.6", color: "#444" }} dangerouslySetInnerHTML={{ __html: trimmed.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>") }} />;
+    });
+  };
+
+  const formatSummaryText = (text) => {
+    return text.split("\n").map((line, i) => {
+      const trimmed = line.trim();
+      if (!trimmed) return <div key={i} style={{ height: "6px" }} />;
+      if (trimmed.startsWith("## ") || trimmed.startsWith("### "))
+        return <div key={i} style={{ fontWeight: "900", color: "#1565c0", fontSize: "13px", marginTop: "10px", marginBottom: "2px", borderBottom: "1px solid #bbdefb", paddingBottom: "3px" }}>{trimmed.replace(/^#+\s*/, "")}</div>;
+      if (/^[-•*]\s/.test(trimmed))
+        return <div key={i} style={{ display: "flex", gap: "6px", fontSize: "12.5px", lineHeight: "1.6", color: "#333" }}><span style={{ color: "#1976d2", fontWeight: "bold", flexShrink: 0 }}>▸</span><span dangerouslySetInnerHTML={{ __html: trimmed.slice(2).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>") }} /></div>;
+      return <div key={i} style={{ fontSize: "12.5px", lineHeight: "1.6", color: "#444" }} dangerouslySetInnerHTML={{ __html: trimmed.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>") }} />;
+    });
+  };
+
+  return (
+    <div style={{ background: "#f0f7ff", borderBottom: "2px solid #bbdefb", padding: "10px 14px", flexShrink: 0, maxHeight: "320px", overflowY: "auto", scrollbarWidth: "none" }}>
+      <div style={{ fontSize: "12px", fontWeight: "900", color: "#1565c0", marginBottom: "8px", letterSpacing: "0.5px" }}>📄 FILE NGỮ PHÁP ĐÃ UPLOAD ({notes.length})</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {notes.map(note => {
+          const s = summaries[note.id];
+          const isExpanded = expandedId === note.id;
+          const hasSummary = s?.status === "done";
+          
+          return (
+            <div key={note.id} style={{ background: "white", borderRadius: "10px", border: "1px solid #bbdefb", overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px" }}>
+                <span style={{ fontSize: "16px" }}>📝</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: "bold", fontSize: "13px", color: "#1565c0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{note.filename}</div>
+                  <div style={{ fontSize: "11px", color: "#999" }}>{new Date(note.uploadedAt).toLocaleDateString("vi-VN")}</div>
+                </div>
+                {!hasSummary && (
+                  <button onClick={() => summarizeNote(note)}
+                    style={{ padding: "5px 12px", background: "linear-gradient(135deg,#1565c0,#1976d2)", color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
+                    🤖 Tóm tắt AI
+                  </button>
+                )}
+                {s?.status === "loading" && (
+                  <span style={{ fontSize: "12px", color: "#1976d2", fontWeight: "bold", whiteSpace: "nowrap" }}>⏳ Đang tóm tắt...</span>
+                )}
+                {hasSummary && (
+                <>
+                  <button onClick={() => setExpandedId(isExpanded ? null : note.id)}
+                    style={{ padding: "5px 12px", background: isExpanded ? "#e3f2fd" : "#1565c0", color: isExpanded ? "#1565c0" : "white", border: "1px solid #90caf9", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
+                    {isExpanded ? "▲ Ẩn" : "▼ Xem tóm tắt"}
+                  </button>
+                  
+                  {/* 👇 THÊM NÚT NÀY VÀO ĐÂY */}
+                  <button 
+                    onClick={async () => {
+                      if (confirm("Tóm tắt lại toàn bộ file sẽ tốn quota AI. Tiếp tục?")) {
+                        // Xóa summary cũ khỏi state
+                        setSummaries(prev => {
+                          const newSummaries = { ...prev };
+                          delete newSummaries[note.id];
+                          return newSummaries;
+                        });
+                        // Xóa summary cũ khỏi Firebase
+                        if (currentUser) {
+                          const userDocRef = doc(db, "users", currentUser.uid);
+                          const docSnap = await getDoc(userDocRef);
+                          if (docSnap.exists()) {
+                            const currentSummaries = docSnap.data()?.grammar?.notesSummaries || {};
+                            delete currentSummaries[note.id];
+                            await updateDoc(userDocRef, {
+                              "grammar.notesSummaries": currentSummaries
+                            });
+                          }
+                        }
+                        // Gọi lại AI để tóm tắt toàn bộ
+                        await summarizeNote(note);
+                      }
+                    }}
+                    style={{ padding: "5px 8px", background: "#ff9800", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer", marginLeft: "4px" }} 
+                    title="Tóm tắt lại toàn bộ (tốn quota)">
+                    🔄
+                  </button>
+                </>
+              )}
+              </div>
+              {isExpanded && hasSummary && (
+                <div style={{ padding: "10px 14px", borderTop: "1px solid #e3f2fd", background: "#fafcff" }}>
+                  {formatSummary(s.text)}
+                </div>
+              )}
+              {isExpanded && s?.status === "error" && (
+                <div style={{ padding: "10px 14px", borderTop: "1px solid #ffcdd2", background: "#fff5f5", color: "#c62828", fontSize: "12px" }}>
+                  {s.text}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveWord, onMoveManyWords, onRemoveManyWords, onUploadGrammarFile, customGrammarNotes = [], defaultTab = "vocab", currentUser }) {  const [activeTab, setActiveTab] = useState(defaultTab);
   const [newWord, setNewWord] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [selectedToDelete, setSelectedToDelete] = useState(new Set());
@@ -3828,7 +4703,8 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
           if (listData.error) {
               const msg = listData.error.message?.toLowerCase() || "";
               if (msg.includes("quota") || msg.includes("expired") || listData.error.code === 429 || listData.error.code === 400) {
-                  if (rotateKey()) {
+                  const hasNextKey = markKeyExhausted();
+              if (hasNextKey) {
                       await new Promise(r => setTimeout(r, 1500));
                       return fetchAI(wordInput, currentTab);
                   }
@@ -3859,7 +4735,8 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
       
       if (data.error && (data.error.message.toLowerCase().includes("quota") || data.error.message.toLowerCase().includes("expired") || data.error.code === 429)) {
           window.globalCachedModel = null;
-          if (rotateKey()) {
+          const hasNextKey = markKeyExhausted();
+              if (hasNextKey) {
               await new Promise(r => setTimeout(r, 1500)); 
               return fetchAI(wordInput, currentTab);
           }
@@ -3885,7 +4762,8 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
           if (listData.error) {
               const msg = listData.error.message?.toLowerCase() || "";
               if (msg.includes("quota") || msg.includes("expired") || listData.error.code === 429 || listData.error.code === 400) {
-                  if (rotateKey()) {
+                  const hasNextKey = markKeyExhausted();
+              if (hasNextKey) {
                       await new Promise(r => setTimeout(r, 1500));
                       return fetchAIBatch(wordsString, currentTab);
                   }
@@ -3916,7 +4794,8 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
           const msg = data.error.message?.toLowerCase() || "";
           window.globalCachedModel = null;
           if (msg.includes("quota") || msg.includes("expired") || data.error.code === 429) {
-              if (rotateKey()) {
+              const hasNextKey = markKeyExhausted();
+              if (hasNextKey) {
                   await new Promise(r => setTimeout(r, 1500));
                   return fetchAIBatch(wordsString, currentTab);
               }
@@ -4009,9 +4888,16 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
   }
 
   const openDetail = (w, listType) => {
+      // Grammar: w có thể là object câu hỏi (có trường question)
+      if (activeTab === "grammar" && typeof w === 'object' && w !== null) {
+          setWordDetailModal({ wordStr: w.question || w.word || "", listType, detail: w });
+          setIsEditingManual(false);
+          return;
+      }
+      const wStr = typeof w === 'string' ? w : (w.word || w.question || "");
       const dict = globalStats[activeTab]?.addedWordsObj || [];
-      const foundDetail = [...dict].reverse().find(item => item.word.toLowerCase() === w.toLowerCase());
-      setWordDetailModal({ wordStr: w, listType, detail: foundDetail || null });
+      const foundDetail = [...dict].reverse().find(item => item.word && item.word.toLowerCase() === wStr.toLowerCase());
+      setWordDetailModal({ wordStr: wStr, listType, detail: foundDetail || null });
       setIsEditingManual(false); 
   };
 
@@ -4022,11 +4908,16 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
   }
 
   // --- ĐÃ NÂNG CẤP: THÊM NÚT "V" CHO CẢ Ô VÀNG VÀ Ô ĐỎ ---
+  const getWordStr = (item) => {
+    if (typeof item === 'string') return item;
+    return item.word || item.question || "";
+  };
+
   const renderTags = (wordsArray, color, bgColor, listType, limit = null, isModal = false) => {
     if (!wordsArray || wordsArray.length === 0) return <p style={{ color: "#aaa", fontSize: "14px", fontStyle: "italic", margin: 0 }}>Chưa có từ nào.</p>;
     const sorted = [...wordsArray].sort((a, b) => {
-        const wa = (typeof a === 'string' ? a : a.word).toLowerCase();
-        const wb = (typeof b === 'string' ? b : b.word).toLowerCase();
+        const wa = getWordStr(a).toLowerCase();
+        const wb = getWordStr(b).toLowerCase();
         return wa.localeCompare(wb);
     });
     const displayWords = limit ? sorted.slice(0, limit) : sorted;
@@ -4034,7 +4925,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
     return (
     <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
               {displayWords.map(word => {
-                  const wordStr = typeof word === 'string' ? word : word.word;
+                  const wordStr = getWordStr(word);
                   return (
                       <div key={wordStr} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", textTransform: "none", width: "100%", boxSizing: "border-box" }}>
                           
@@ -4217,6 +5108,11 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
           </label>
         )}
       </div>
+
+      {/* ===== HÀNG 2.5: DANH SÁCH FILE NGỮ PHÁP (CHỈ HIỆN KHI TAB GRAMMAR) ===== */}
+      {activeTab === "grammar" && customGrammarNotes.length > 0 && (
+        <GrammarNotesPanel notes={customGrammarNotes} currentUser={currentUser} />
+      )}
 
       {/* ===== HÀNG 3: 3 CỘT TỪ VỰNG ===== */}
       <div style={{ flex:1, display:"grid", gridTemplateColumns:"1fr 1fr 1fr", overflow:"hidden", minHeight:0 }}>
@@ -4481,7 +5377,6 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
                 }
 
                 
-
                 {isEditingManual && (
                     <div style={{ marginTop: "15px", textAlign: "left" }}>
                         {/* ĐÃ FIX: Nhãn sửa thủ công đổi theo Tab */}
@@ -4526,12 +5421,18 @@ function renderListLogic(globalStats, activeTab, renderWordList) {
             {/* Ô VÀNG: Ghim thủ công */}
             {renderWordList(activeTab === "grammar" ? "📘 Cấu trúc đã lưu" : "🔖 Đang học (Đang khó nhớ)", stats.savedWords, "🔖", "#FF9800", "#fff3e0", "savedWords")}
             
-            {/* Ô ĐỎ: Làm sai nhiều */}
             {activeTab !== "grammar" && renderWordList("❌ Làm sai nhiều (Cần khắc phục)", stats.wrongWords, "❌", "#F44336", "#ffebee", "wrongWords")}
-            
-            {/* Ô XANH: Đã thuộc */}
             {activeTab !== "grammar" && renderWordList("✅ Đã thực sự thuộc (Sẽ ôn ở Lv Cao)", stats.masteredWords, "✅", "#4CAF50", "#e8f5e9", "masteredWords")}
-        </>
+
+            {/* Grammar chỉ hiển thị savedWords (cấu trúc đã lưu) */}
+            {activeTab === "grammar" && (
+              <div style={{ marginBottom: "20px", textAlign: "left", backgroundColor: "#fff", padding: "15px", borderRadius: "12px", border: "1px solid #2196F3", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
+                <h3 style={{ color: "#2196F3", marginTop: 0, marginBottom: "15px", display: "flex", alignItems: "center", gap: "8px", fontSize: "16px" }}>
+                  📘 Cấu trúc ngữ pháp đã lưu ({stats.savedWords?.length || 0})
+                </h3>
+                {renderTags(stats.savedWords, "#2196F3", "#e3f2fd", "savedWords", null, true)}
+              </div>
+            )}        </>
     )
 }
 
@@ -4935,26 +5836,189 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Tự động sinh đề ngữ pháp khi vào web (nếu chưa có)
+  // Tự động sinh đề ngữ pháp khi vào web (nếu chưa có đủ câu trong Sổ tay)
+  const isPreloadingRef = useRef(false);
   useEffect(() => {
-    const autoGenerateGrammarQuestions = async () => {
+    const autoPreloadGrammar = async () => {
       if (!currentUser) return;
+      if (isPreloadingRef.current) return;
+
+        // ===== THÊM KIỂM TRA NGÀY =====
+      const lastPreloadDate = localStorage.getItem(`toeic_last_preload_${currentUser.uid}`);
+      const today = new Date().toLocaleDateString();
       
+      if (lastPreloadDate === today) {
+        console.log("📅 Hôm nay đã sinh đề ngữ pháp rồi, bỏ qua!");
+        return;
+      }
+
       const grammarStats = globalStats.grammar;
-      const totalQuestions = (grammarStats.savedWords?.length || 0) + 
-                            (grammarStats.wrongWords?.length || 0) + 
-                            (grammarStats.masteredWords?.length || 0);
-      
-      // Nếu chưa có đủ 30 câu (tối thiểu), gọi AI sinh
-      if (totalQuestions < 30) {
-        console.log("📚 Đang tự động sinh đề ngữ pháp...");
-        // Kích hoạt sinh đề ở đây (có thể gọi một hàm riêng)
-        // Bạn có thể set một state để trigger việc sinh đề
+      const allNotebook = [
+        ...(grammarStats.savedWords || []),
+        ...(grammarStats.wrongWords || []),
+        ...(grammarStats.masteredWords || []),
+      ];
+      // Đếm câu hỏi hợp lệ (có trường question) trong Sổ tay
+      const validCount = allNotebook.filter(q => q && typeof q === 'object' && q.question).length;
+
+      // Nếu đã có đủ 90 câu (30 × 3 part) thì thôi
+      if (validCount >= 90) return;
+
+      const GEMINI_API_KEY = getActiveKey();
+      if (!GEMINI_API_KEY || String(GEMINI_API_KEY).includes("DÁN_MÃ")) return;
+
+      isPreloadingRef.current = true;
+
+      // Sinh 30 câu cho từng part còn thiếu
+      const partsToGenerate = ["part5", "part6", "part7"];
+
+      const shuffleArr = (arr) => {
+        const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a;
+      };
+      const stripPrefix = (str) => (str || "").replace(/^\s*[A-Da-d][).:：\-]\s*/g, '').trim();
+      const normalizeAnswer = (origOpts, shuffledOpts, answer) => {
+        let clean = stripPrefix(answer);
+        const match = shuffledOpts.find(o => stripPrefix(o).toLowerCase() === clean.toLowerCase());
+        if (match) return match;
+        if (/^[a-d]$/i.test(clean)) {
+          const idx = clean.toUpperCase().charCodeAt(0) - 65;
+          const text = origOpts[idx];
+          if (text) { const m2 = shuffledOpts.find(o => stripPrefix(o).toLowerCase() === stripPrefix(text).toLowerCase()); if (m2) return m2; }
+        }
+        return answer;
+      };
+
+      try {
+        // Đảm bảo document tồn tại trước khi updateDoc
+        const userDocRef = doc(db, "users", currentUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        if (!userDocSnap.exists()) {
+          await setDoc(userDocRef, {
+            vocab: { correct: 0, total: 0, learnedWords: [] },
+            collocation: { correct: 0, total: 0, learnedWords: [] },
+            grammar: { correct: 0, total: 0, learnedWords: [], savedWords: [], wrongWords: [], masteredWords: [] }
+          });
+        }
+
+        // Cache model name
+        if (!window.globalCachedModel) {
+          const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
+          const listData = await listRes.json();
+          if (listData.error) { isPreloadingRef.current = false; return; }
+          const textModels = (listData.models || []).filter(m => m.supportedGenerationMethods?.includes("generateContent"));
+          const flashModel = textModels.find(m => m.name.includes("1.5-flash")) || textModels.find(m => m.name.includes("flash"));
+          window.globalCachedModel = flashModel ? flashModel.name : (textModels[0]?.name || "models/gemini-1.5-flash");
+        }
+
+        const existingQSet = new Set(allNotebook.filter(q => q?.question).map(q => q.question));
+        let totalNewQuestions = [];
+
+        for (const part of partsToGenerate) {
+          // Đếm số câu của part này đã có trong notebook
+          const partKeyword = part === "part5" ? "điền từ" : part === "part6" ? "Part 6" : "Part 7";
+          // Sinh đơn giản: luôn sinh 30 câu mới cho mỗi part, lọc trùng trước khi lưu
+          const isPassage = part === "part6" || part === "part7";
+          let prompt = "";
+          if (!isPassage) {
+            prompt = `Bạn là chuyên gia TOEIC. Tạo 30 câu hỏi PART 5 (hoàn thành câu). Trả về DUY NHẤT 1 mảng JSON không có chữ thừa. Mỗi câu có đúng 1 chỗ trống (___), 4 đáp án, 1 đúng. Đa dạng điểm ngữ pháp.
+[{"passage":"","question":"Câu có ___","options":["A","B","C","D"],"answer":"đáp án đúng","explanation":{"translation":"Dịch tiếng Việt","grammar_points":"Điểm ngữ pháp","wrong_options":"- đáp án: lý do sai","key_vocab":"- từ: nghĩa"}}]`;
+          } else {
+            const qPerDoc = part === "part6" ? 4 : 5;
+            const numDocs = Math.ceil(30 / qPerDoc);
+            prompt = `Bạn là chuyên gia TOEIC. Tạo ${numDocs} đoạn văn cho ${part.toUpperCase()}, mỗi đoạn có đúng ${qPerDoc} câu hỏi. Trả về DUY NHẤT 1 mảng JSON.
+${part === "part6" ? "Đoạn văn có 4 chỗ trống ___1___ ___2___ ___3___ ___4___, mỗi câu hỏi tương ứng 1 chỗ trống." : "Đoạn văn hoàn chỉnh, câu hỏi đọc hiểu đa dạng."}
+[{"doc_type":"text","passage":"Đoạn văn","questions":[{"question":"Câu hỏi","options":["","","",""],"answer":"đáp án đúng","explanation":{"translation":"Dịch/giải thích","grammar_points":"Kỹ năng","wrong_options":"- đáp án: lý do sai","key_vocab":"- từ: nghĩa"}}]}]`;
+          }
+
+          try {
+            const reqBody = { contents: [{ parts: [{ text: prompt }] }] };
+            if (window.globalCachedModel?.includes("1.5")) {
+              reqBody.generationConfig = { response_mime_type: "application/json" };
+            }
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${window.globalCachedModel}:generateContent?key=${getActiveKey()}`, {
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reqBody)
+            });
+            const data = await res.json();
+            if (data.error) {
+              const msg = data.error.message?.toLowerCase() || "";
+              if (msg.includes("quota") || msg.includes("429") || data.error.code === 429) {
+                break; // Hết quota thì dừng, không báo lỗi
+              }
+              console.warn(`[PRELOAD] Lỗi sinh ${part}:`, data.error.message);
+              continue;
+            }
+            let rawText = data.candidates[0].content.parts[0].text;
+            rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(rawText);
+
+            let partPool = [];
+            if (!isPassage) {
+              partPool = parsed.map(q => {
+                const orig = [...q.options]; const shuffled = shuffleArr(q.options);
+                return { ...q, options: shuffled, answer: normalizeAnswer(orig, shuffled, q.answer) };
+              });
+            } else {
+              parsed.forEach(doc => {
+                doc.questions.forEach(q => {
+                  const orig = [...q.options]; const shuffled = shuffleArr(q.options);
+                  partPool.push({ passage: doc.passage, doc_type: doc.doc_type || "", question: q.question, options: shuffled, answer: normalizeAnswer(orig, shuffled, q.answer), explanation: q.explanation });
+                });
+              });
+            }
+
+            const newForThisPart = partPool.filter(q => q.question && !existingQSet.has(q.question));
+            newForThisPart.forEach(q => existingQSet.add(q.question));
+            totalNewQuestions = [...totalNewQuestions, ...newForThisPart];
+
+            // Delay nhẹ tránh spam API
+            await new Promise(r => setTimeout(r, 1500));
+          } catch(partErr) {
+            console.warn(`[PRELOAD] Lỗi khi sinh ${part}:`, partErr);
+          }
+        }
+
+        // Lưu tất cả câu mới vào Sổ tay trực tiếp qua Firebase
+        if (totalNewQuestions.length > 0 && currentUser) {
+          const normalizeQ = (w) => w ? w.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim() : "";
+          const currentState = globalStats.grammar || {};
+          let cleanSaved = [...(currentState.savedWords || [])];
+
+          for (const q of totalNewQuestions) {
+            const normStr = normalizeQ(q.question || q.word || "");
+            if (!normStr) continue;
+            const alreadyIn = cleanSaved.some(w => {
+              const wStr = typeof w === 'string' ? w : (w.question || w.word || "");
+              return normalizeQ(wStr) === normStr;
+            });
+            if (!alreadyIn) cleanSaved.push(q);
+            localStorage.setItem(`toeic_last_preload_${currentUser.uid}`, new Date().toLocaleDateString());
+
+          }
+
+          try {
+            await updateDoc(doc(db, "users", currentUser.uid), {
+              "grammar.savedWords": cleanSaved
+            });
+            setGlobalStats(prev => ({
+              ...prev,
+              grammar: { ...prev.grammar, savedWords: cleanSaved }
+            }));
+          } catch(saveErr) {
+            console.warn("[PRELOAD] Lỗi lưu Sổ tay:", saveErr);
+          }
+        }
+      } catch(e) {
+        console.warn("[PRELOAD] Lỗi preload grammar:", e);
+      } finally {
+        isPreloadingRef.current = false;
       }
     };
     
-    autoGenerateGrammarQuestions();
-  }, [currentUser, globalStats.grammar]);
+    // Delay 2s sau khi login để Firebase load xong globalStats
+    const preloadTimer = setTimeout(autoPreloadGrammar, 2000);
+    return () => clearTimeout(preloadTimer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser]);
 
   const disableRightClick = (e) => e.preventDefault();
 
@@ -5041,7 +6105,6 @@ function App() {
   }
 
 
-
   // --- TÍNH NĂNG MỚI: LƯU TỪ VÀ ĐỊNH NGHĨA AI (HỖ TRỢ LƯU SỈ 1 LÚC NHIỀU TỪ CHỐNG GHI ĐÈ) ---
   const handleSaveDifficultWord = async (type, wordDataOrArray) => {
     if (!currentUser) return;
@@ -5104,7 +6167,7 @@ function App() {
   };
 
 
-  // === HÀM MỚI: UPLOAD FILE WORD NGỮ PHÁP ===
+  // === HÀM MỚI: UPLOAD FILE WORD NGỮ PHÁP + SO SÁNH NỘI DUNG MỚI ===
   const handleUploadGrammarFile = async (file) => {
     if (!currentUser) return;
     playSound("click");
@@ -5116,37 +6179,141 @@ function App() {
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const mammoth = await import('mammoth'); // dynamic import để nhẹ hơn
-
+      const mammoth = await import('mammoth');
       const result = await mammoth.extractRawText({ arrayBuffer });
-      const rawText = result.value.trim();
+      const newContent = result.value.trim();
 
-      if (!rawText) {
+      if (!newContent) {
         alert("File rỗng hoặc không đọc được nội dung!");
         return;
       }
 
-      // Tạo object note
+      // Lấy file cũ cùng tên (Grammar.docx) từ Firestore
+      const userDocRef = doc(db, "users", currentUser.uid);
+      const docSnap = await getDoc(userDocRef);
+      let existingNote = null;
+      let existingSummary = null;
+      
+      if (docSnap.exists()) {
+        const notes = docSnap.data()?.grammar?.customNotes || [];
+        // Tìm file cùng tên (không phân biệt hoa thường)
+        existingNote = notes.find(n => n.filename.toLowerCase() === file.name.toLowerCase());
+        
+        // Lấy summary cũ nếu có
+        const summaries = docSnap.data()?.grammar?.notesSummaries || {};
+        existingSummary = summaries[existingNote?.id];
+      }
+
+      // So sánh nội dung mới với nội dung cũ
+      let finalContent = newContent;
+      let finalSummary = existingSummary?.text || "";
+      let onlyNewPart = "";
+
+      if (existingNote) {
+        const oldContent = existingNote.content || "";
+        
+        // Nếu nội dung mới dài hơn nội dung cũ → có thêm phần mới
+        if (newContent.length > oldContent.length) {
+          // Tìm phần nội dung mới (thường là ở cuối)
+          onlyNewPart = newContent.slice(oldContent.length);
+          
+          if (onlyNewPart.trim().length > 50) {
+            // Chỉ tóm tắt phần mới nếu đủ dài
+            finalContent = newContent; // Lưu toàn bộ
+            
+            // Gọi AI tóm tắt PHẦN MỚI
+            const newSummary = await summarizeNewPartOnly(onlyNewPart, file.name);
+            
+            // Ghép summary cũ + summary mới
+            finalSummary = existingSummary?.text 
+              ? `${existingSummary.text}\n\n--- PHẦN MỚI (${new Date().toLocaleDateString('vi-VN')}) ---\n${newSummary}`
+              : newSummary;
+          } else {
+            // Nội dung mới quá ngắn, không cần tóm tắt lại
+            finalSummary = existingSummary?.text || "";
+          }
+        } else {
+          // Nội dung không thay đổi hoặc ngắn hơn → giữ nguyên summary cũ
+          finalSummary = existingSummary?.text || "";
+        }
+      }
+
+      // Tạo object note mới
       const newNote = {
-        id: Date.now().toString(),
+        id: existingNote?.id || Date.now().toString(),
         filename: file.name,
-        content: rawText,
+        content: finalContent,
         uploadedAt: new Date().toISOString(),
-        // Có thể thêm structured sau nếu gọi AI làm sạch
+        version: (existingNote?.version || 0) + 1,
+        lastSummaryUpdate: existingSummary?.text !== finalSummary ? new Date().toISOString() : (existingNote?.lastSummaryUpdate || null)
       };
 
+      // Cập nhật summaries
+      const updatedSummaries = {
+        ...(docSnap.data()?.grammar?.notesSummaries || {}),
+        [newNote.id]: {
+          status: "done",
+          text: finalSummary,
+          savedAt: Date.now(),
+          lastNewPart: onlyNewPart ? onlyNewPart.slice(0, 500) : null
+        }
+      };
+
+      // Xóa file cũ nếu có (thay thế)
+      let updatedNotes = [...(docSnap.data()?.grammar?.customNotes || [])];
+      if (existingNote) {
+        updatedNotes = updatedNotes.filter(n => n.id !== existingNote.id);
+      }
+      updatedNotes.push(newNote);
+
       // Lưu vào Firebase
-      await updateDoc(doc(db, "users", currentUser.uid), {
-        "grammar.customNotes": arrayUnion(newNote)
+      await updateDoc(userDocRef, {
+        "grammar.customNotes": updatedNotes,
+        "grammar.notesSummaries": updatedSummaries
       });
 
       // Cập nhật state local
-      setCustomGrammarNotes(prev => [...prev, newNote]);
+      setCustomGrammarNotes(updatedNotes);
 
-      alert(`✅ Đã thêm file "${file.name}" thành công!`);
+      alert(`✅ Đã cập nhật file "${file.name}"!\n${onlyNewPart ? "Đã tóm tắt phần nội dung mới." : "Nội dung không thay đổi, giữ nguyên tóm tắt cũ."}`);
     } catch (error) {
       console.error("Lỗi upload file Word:", error);
       alert("Có lỗi khi đọc file. Vui lòng thử file .docx khác.");
+    }
+  };
+
+  // Hàm phụ: Tóm tắt phần nội dung mới
+  const summarizeNewPartOnly = async (newPart, filename) => {
+    try {
+      if (!window.globalCachedModel) {
+        const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${getActiveKey()}`);
+        const listData = await listRes.json();
+        const textModels = (listData.models || []).filter(m => m.supportedGenerationMethods?.includes("generateContent"));
+        const flash = textModels.find(m => m.name.includes("1.5-flash")) || textModels.find(m => m.name.includes("flash")) || textModels[0];
+        window.globalCachedModel = flash ? flash.name : "models/gemini-1.5-flash";
+      }
+
+      const truncated = newPart.length > 3000 ? newPart.slice(0, 3000) + "\n[...còn tiếp]" : newPart;
+
+      const prompt = `Bạn là giáo viên TOEIC. Dưới đây là PHẦN NỘI DUNG MỚI được thêm vào file "${filename}". Hãy tóm tắt NGẮN GỌN những điểm chính trong phần mới này, tập trung vào công thức, cấu trúc, ví dụ mới. Viết bằng tiếng Việt, dạng bullet points.
+
+  NỘI DUNG MỚI:
+  ${truncated}
+
+  Tóm tắt phần mới:`;
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${window.globalCachedModel}:generateContent?key=${getActiveKey()}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+      const data = await res.json();
+
+      if (data.error) throw new Error(data.error.message);
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || "Không thể tóm tắt phần mới.";
+    } catch (err) {
+      console.error("Lỗi tóm tắt phần mới:", err);
+      return `*[Phần mới được thêm vào ngày ${new Date().toLocaleDateString('vi-VN')}]*\n(Xem chi tiết trong file gốc)`;
     }
   };
 
@@ -5325,7 +6492,6 @@ const handleRemoveManyWords = async (type, listType, wordsArray) => {
 };
 
   
-  
 // TÍNH TOÁN SỐ TỪ TRONG SỔ TAY ĐỂ LÀM NGUỒN CUSTOM
   const customVocabSet = new Set([...(globalStats.vocab.savedWords || []), ...(globalStats.vocab.wrongWords || [])]);
   const customVocabCount = customVocabSet.size;
@@ -5351,8 +6517,7 @@ const handleRemoveManyWords = async (type, listType, wordsArray) => {
     />
   }
   // Line ~1170
-  if (screen === "notebook") return <NotebookScreen globalStats={globalStats} onBack={() => { playSound("click"); setScreen("home"); }} onSaveWord={handleSaveDifficultWord} onRemoveWord={handleRemoveWord} onMoveWord={handleMoveWord} onMoveManyWords={handleMoveManyWords} onRemoveManyWords={handleRemoveManyWords} onUploadGrammarFile={handleUploadGrammarFile} customGrammarNotes={customGrammarNotes} defaultTab={notebookTab} />;
-  
+  if (screen === "notebook") return <NotebookScreen globalStats={globalStats} onBack={() => { playSound("click"); setScreen("home"); }} onSaveWord={handleSaveDifficultWord} onRemoveWord={handleRemoveWord} onMoveWord={handleMoveWord} onMoveManyWords={handleMoveManyWords} onRemoveManyWords={handleRemoveManyWords} onUploadGrammarFile={handleUploadGrammarFile} customGrammarNotes={customGrammarNotes} defaultTab={notebookTab} currentUser={currentUser} />;  
   // ĐÃ FIX BƯỚC 1: Truyền thêm onMoveWord={handleMoveWord} vào 2 dòng này
   // TÍNH NĂNG MỚI: Nếu Level 3 + Bắn Từ -> Render BlastGameScreen thay vì WordQuiz
   if (screen === "vocab") {
