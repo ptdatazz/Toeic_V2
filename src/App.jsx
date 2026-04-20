@@ -515,7 +515,6 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
   const [blastStreak, setBlastStreak] = useState(0);
   const [showResult, setShowResult] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 50, y: 50 });
-  const [remainingCorrectWords, setRemainingCorrectWords] = useState(0); // Số từ đúng còn lại
   
   const areaRef = useRef(null);
   const animFrameRef = useRef(null);
@@ -527,15 +526,16 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
   const isGameOverRef = useRef(false);
   const streakRef = useRef(0);
   const spawnIntervalRef = useRef(null);
+  const correctWordSpawnedRef = useRef(false);
 
-  // Tốc độ cơ bản tăng theo streak
+  // Tốc độ cơ bản tăng theo streak (chậm vừa phải)
   const getBaseSpeed = () => {
     const streak = streakRef.current;
-    if (streak >= 9) return 1.2;
-    if (streak >= 7) return 1.0;
-    if (streak >= 5) return 0.85;
-    if (streak >= 3) return 0.7;
-    return 0.5;
+    if (streak >= 9) return 0.75;
+    if (streak >= 7) return 0.68;
+    if (streak >= 5) return 0.6;
+    if (streak >= 3) return 0.52;
+    return 0.45;
   };
 
   const cannonDeg = useMemo(() => {
@@ -553,26 +553,26 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     setMousePos({ x: Math.min(Math.max(x, 0), 100), y: Math.min(Math.max(y, 0), 100) });
   };
 
-  // Tạo một loạt từ mới (batch) - rất nhiều từ cùng lúc
-  const createBatch = (question, isFirstBatch = true) => {
+  // Tạo 1 đợt từ - CHỈ 3-5 TỪ (bao gồm 1 từ đúng)
+  const createWave = (question) => {
     if (!question) return [];
     
     const others = words.filter(w => w.word !== question.word);
-    // Số lượng từ trong batch: 12-25 từ
-    const batchSize = 12 + Math.floor(Math.random() * 14);
+    // 2-4 từ sai (tổng 3-5 từ)
+    const wrongCount = 2 + Math.floor(Math.random() * 3); // 2, 3, 4
+    const wrongs = [...others].sort(() => Math.random() - 0.5).slice(0, wrongCount);
     
-    // Tạo mảng các từ sai (có thể trùng lặp để nhiều hơn)
-    const wrongWordsPool = [];
-    for (let i = 0; i < batchSize - 1; i++) {
-      const randomWrong = others[Math.floor(Math.random() * others.length)];
-      wrongWordsPool.push({ ...randomWrong, isCorrect: false });
-    }
+    // Tạo từ đúng
+    const correctWord = {
+      ...question,
+      id: Date.now() + Math.random(),
+      word: question.word,
+      cleanWord: question.cleanWord || question.word,
+      isCorrect: true
+    };
     
-    // Thêm từ đúng vào batch (chỉ thêm 1 từ đúng mỗi batch)
-    const correctWord = { ...question, isCorrect: true };
-    const pool = [...wrongWordsPool, correctWord];
-    
-    // Xáo trộn
+    // Trộn từ đúng vào đám từ sai
+    const pool = [...wrongs, correctWord];
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -584,18 +584,15 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     return pool.map((opt, idx) => {
       let x, tries = 0;
       do { 
-        x = 5 + Math.random() * 90; 
+        x = 10 + Math.random() * 80; 
         tries++;
-      } while (usedX.some(px => Math.abs(px - x) < 22) && tries < 50);
+      } while (usedX.some(px => Math.abs(px - x) < 28) && tries < 30);
       usedX.push(x);
       
-      // Random vị trí Y ban đầu (từ -50 đến -20)
-      const startY = -50 - Math.random() * 80;
-      
-      // Tốc độ random nhưng trong khoảng
-      const speedVariation = (Math.random() - 0.5) * 0.15;
+      const startY = -40 - Math.random() * 40;
+      const speedVariation = (Math.random() - 0.5) * 0.08;
       let finalSpeed = baseSpeed + speedVariation;
-      finalSpeed = Math.min(Math.max(finalSpeed, 0.3), 1.8);
+      finalSpeed = Math.min(Math.max(finalSpeed, 0.35), 0.9);
       
       return { 
         ...opt, 
@@ -610,25 +607,16 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     });
   };
 
-  // Spawn từ mới liên tục
-  const startSpawning = () => {
-    if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+  // Spawn đợt từ mới
+  const spawnWave = () => {
+    if (isGameOverRef.current) return;
+    if (!currentQRef.current) return;
+    if (correctWordSpawnedRef.current) return; // Đã spawn từ đúng cho câu này rồi
     
-    // Spawn mỗi 2-4 giây một batch mới
-    spawnIntervalRef.current = setInterval(() => {
-      if (isGameOverRef.current) return;
-      if (!currentQRef.current) return;
-      
-      // Kiểm tra xem còn từ đúng chưa
-      const hasCorrectWordRemaining = targetsRef.current.some(t => t.isCorrect === true);
-      
-      // Nếu không còn từ đúng nào trên màn hình, spawn batch mới
-      if (!hasCorrectWordRemaining) {
-        const newBatch = createBatch(currentQRef.current, false);
-        targetsRef.current = [...targetsRef.current, ...newBatch];
-        setTargets([...targetsRef.current]);
-      }
-    }, 2500 + Math.random() * 2000);
+    const newWave = createWave(currentQRef.current);
+    targetsRef.current = [...targetsRef.current, ...newWave];
+    setTargets([...targetsRef.current]);
+    correctWordSpawnedRef.current = true;
   };
 
   // Reset cho câu hỏi mới
@@ -648,7 +636,7 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     
     currentQRef.current = nextQ;
     qIdxRef.current = nextIdx;
-    setRemainingCorrectWords(1); // Mỗi câu có 1 từ đúng
+    correctWordSpawnedRef.current = false;
     
     // Dừng interval cũ
     if (spawnIntervalRef.current) {
@@ -671,17 +659,12 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     setShowResult(null);
     isProcessingRef.current = false;
     
-    // Spawn batch đầu tiên
+    // Spawn đợt từ đầu tiên sau 0.5s
     setTimeout(() => {
-      if (!isGameOverRef.current && currentQRef.current) {
-        const firstBatch = createBatch(currentQRef.current, true);
-        targetsRef.current = firstBatch;
-        setTargets([...firstBatch]);
-        
-        // Bắt đầu spawn liên tục
-        startSpawning();
+      if (!isGameOverRef.current && currentQRef.current && !correctWordSpawnedRef.current) {
+        spawnWave();
       }
-    }, 100);
+    }, 500);
   };
 
   useEffect(() => {
@@ -717,11 +700,9 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
         let fallenCorrectWord = false;
         const updatedTargets = targetsRef.current.map(t => {
           const newY = t.y + t.speed;
-          // Nếu từ đúng rơi xuống đất (ngưỡng 90%)
           if (newY > 90 && t.isCorrect === true) {
             fallenCorrectWord = true;
           }
-          // Xóa từ khi ra khỏi màn hình (dưới 100)
           if (newY > 105) return null;
           return { ...t, y: Math.min(newY, 100) };
         }).filter(t => t !== null);
@@ -729,7 +710,7 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
         targetsRef.current = updatedTargets;
         setTargets([...updatedTargets]);
         
-        // Xử lý khi từ đúng rơi xuống đất
+        // Khi từ đúng rơi xuống đất
         if (fallenCorrectWord && !isProcessingRef.current && !gameOver && !isGameOverRef.current) {
           isProcessingRef.current = true;
           
@@ -785,96 +766,116 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     };
   }, [gameOver, questions.length, onWin]);
 
-  const handleShoot = (opt, idx) => {
-    if (shooting || showResult || gameOver || isGameOverRef.current) return;
-    if (isProcessingRef.current) return;
-    if (!currentQRef.current) return;
-    if (idx >= targetsRef.current.length) return;
+// Trong component BlastGame, tìm hàm handleShoot và sửa phần xử lý khi bắn sai (else case)
+
+const handleShoot = (opt, idx) => {
+  if (shooting || showResult || gameOver || isGameOverRef.current) return;
+  if (isProcessingRef.current) return;
+  if (!currentQRef.current) return;
+  if (idx >= targetsRef.current.length) return;
+  
+  const currentTarget = targetsRef.current[idx];
+  if (!currentTarget) return;
+  
+  isProcessingRef.current = true;
+  setShooting(true);
+  
+  setTimeout(() => {
+    if (idx >= targetsRef.current.length) {
+      setShooting(false);
+      isProcessingRef.current = false;
+      return;
+    }
     
-    const currentTarget = targetsRef.current[idx];
-    if (!currentTarget) return;
+    const currentTargetStill = targetsRef.current[idx];
+    if (!currentTargetStill) {
+      setShooting(false);
+      isProcessingRef.current = false;
+      return;
+    }
     
-    isProcessingRef.current = true;
-    setShooting(true);
+    const isCorrect = currentTargetStill.isCorrect === true;
     
-    setTimeout(() => {
-      if (idx >= targetsRef.current.length) {
-        setShooting(false);
-        isProcessingRef.current = false;
-        return;
+    if (isCorrect) {
+      setHitIdx(idx);
+      setShowResult("hit");
+      
+      const newStreak = streakRef.current + 1;
+      if (newStreak === 1) playSound("combo_1");
+      else if (newStreak === 2) playSound("combo_2");
+      else if (newStreak === 3) playSound("combo_3");
+      else if (newStreak === 4) playSound("combo_4");
+      else playSound("combo_max");
+      
+      if (areaRef.current) {
+        areaRef.current.style.transform = "translateX(2px)";
+        setTimeout(() => { if(areaRef.current) areaRef.current.style.transform = ""; }, 80);
       }
       
-      const currentTargetStill = targetsRef.current[idx];
-      if (!currentTargetStill) {
-        setShooting(false);
-        isProcessingRef.current = false;
-        return;
-      }
+      scoreRef.current += 1;
+      setScore(scoreRef.current);
+      streakRef.current = newStreak;
+      setBlastStreak(newStreak);
       
-      const isCorrect = currentTargetStill.isCorrect === true;
+      // Xóa tất cả từ còn lại trên màn hình (kết thúc câu)
+      targetsRef.current = [];
+      setTargets([]);
       
-      if (isCorrect) {
-        setHitIdx(idx);
-        setShowResult("hit");
+      // Chuyển câu tiếp theo sau khi bắn trúng
+      setTimeout(() => { 
+        if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
         
-        const newStreak = streakRef.current + 1;
-        if (newStreak === 1) playSound("combo_1");
-        else if (newStreak === 2) playSound("combo_2");
-        else if (newStreak === 3) playSound("combo_3");
-        else if (newStreak === 4) playSound("combo_4");
-        else playSound("combo_max");
-        
-        if (areaRef.current) {
-          areaRef.current.style.transform = "translateX(2px)";
-          setTimeout(() => { if(areaRef.current) areaRef.current.style.transform = ""; }, 80);
+        if (scoreRef.current >= questions.length) {
+          confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 }); 
+          playSound("combo_max"); 
+          onWin(); 
+          return;
         }
         
-        scoreRef.current += 1;
-        setScore(scoreRef.current);
-        streakRef.current = newStreak;
-        setBlastStreak(newStreak);
-        
-        // Xóa từ bị bắn
-        targetsRef.current = targetsRef.current.filter((_, i) => i !== idx);
-        setTargets([...targetsRef.current]);
-        setRemainingCorrectWords(0);
-        
-        // Kiểm tra chiến thắng câu này
-        // Sau khi bắn trúng từ đúng, chuyển sang câu tiếp theo
-        setTimeout(() => { 
-          if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
-          
-          if (scoreRef.current >= questions.length) {
-            confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 }); 
-            playSound("combo_max"); 
-            onWin(); 
-            return;
-          }
-          
-          const nextIdx = (qIdxRef.current + 1) % questions.length;
-          setQIdx(nextIdx);
-          setShooting(false);
-          setHitIdx(null);
-          setShowResult(null);
-          isProcessingRef.current = false;
-        }, 500);
-      } else {
-        // Bắn trúng từ sai - chỉ xóa từ đó, không mất mạng
-        setHitIdx(idx);
-        playSound("click");
-        
-        // Xóa từ bị bắn
-        targetsRef.current = targetsRef.current.filter((_, i) => i !== idx);
-        setTargets([...targetsRef.current]);
-        
-        setTimeout(() => { 
-          setShooting(false); 
-          setHitIdx(null);
-          isProcessingRef.current = false;
-        }, 100);
+        const nextIdx = (qIdxRef.current + 1) % questions.length;
+        setQIdx(nextIdx);
+        setShooting(false);
+        setHitIdx(null);
+        setShowResult(null);
+        isProcessingRef.current = false;
+      }, 400);
+    } else {
+      // BẮN SAI - TRỪ MẠNG
+      setMissIdx(idx);
+      setShowResult("miss");
+      streakRef.current = 0;
+      setBlastStreak(0);
+      playSound("wrong");
+      
+      if (areaRef.current) {
+        areaRef.current.style.transform = "translateX(4px)";
+        setTimeout(() => { if(areaRef.current) areaRef.current.style.transform = ""; }, 100);
       }
-    }, 100);
-  };
+      
+      // TRỪ MẠNG KHI BẮN SAI
+      setLives(prev => { 
+        const newLives = prev - 1;
+        if (newLives <= 0) {
+          isGameOverRef.current = true;
+          setGameOver(true);
+          if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+        }
+        return newLives;
+      });
+      
+      // Xóa từ bị bắn sai khỏi màn hình
+      targetsRef.current = targetsRef.current.filter((_, i) => i !== idx);
+      setTargets([...targetsRef.current]);
+      
+      setTimeout(() => { 
+        setShooting(false); 
+        setMissIdx(null);
+        setShowResult(null);
+        isProcessingRef.current = false;
+      }, 500);
+    }
+  }, 100);
+};
 
   const handleRestart = () => {
     if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
@@ -885,6 +886,7 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     scoreRef.current = 0;
     qIdxRef.current = 0;
     streakRef.current = 0;
+    correctWordSpawnedRef.current = false;
     setQIdx(0);
     setScore(0);
     setLives(initialLives);
@@ -894,7 +896,6 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     setShooting(false);
     setHitIdx(null);
     setMissIdx(null);
-    setRemainingCorrectWords(0);
     targetsRef.current = [];
     setTargets([]);
     currentQRef.current = null;
@@ -910,7 +911,7 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     : "?";
 
   const currentSpeed = getBaseSpeed();
-  const speedPercent = ((currentSpeed - 0.5) / (1.2 - 0.5)) * 100;
+  const speedPercent = ((currentSpeed - 0.45) / (0.75 - 0.45)) * 100;
 
   if (questions.length === 0) {
     return (
@@ -920,7 +921,6 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     );
   }
 
-  // FULLSCREEN FIXED - KHÔNG CUỘN
   return (
     <div 
       style={{ 
@@ -985,33 +985,18 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
           </div>
           
           <div style={{ 
-            display: "flex", 
-            alignItems: "center", 
-            gap: "6px",
-            background: "rgba(0,0,0,0.25)",
-            padding: "3px 10px",
-            borderRadius: "30px"
-          }}>
-            <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.7)" }}>Mạng:</span>
-            <div style={{ display: "flex", gap: "2px", flexWrap: "wrap", maxWidth: "120px" }}>
-              {Array.from({ length: initialLives }, (_, i) => (
-                <span 
-                  key={i} 
-                  style={{ 
-                    fontSize: i < 8 ? "16px" : "14px", 
-                    opacity: i < lives ? 1 : 0.25,
-                    filter: i < lives ? "drop-shadow(0 0 2px #FF5252)" : "none",
-                    transition: "all 0.2s"
-                  }}
-                >
-                  ❤️
-                </span>
-              ))}
-            </div>
-            <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>
-              ({lives}/{initialLives})
-            </span>
-          </div>
+  display: "flex", 
+  alignItems: "center", 
+  gap: "4px",
+  background: "rgba(0,0,0,0.25)",
+  padding: "3px 12px",
+  borderRadius: "30px"
+}}>
+  <span style={{ fontSize: "16px", color: "#FF5252" }}>❤️</span>
+  <span style={{ fontSize: "14px", fontWeight: "bold", color: "white" }}>
+    {lives}/{initialLives}
+  </span>
+</div>
           
           {blastStreak >= 2 && (
             <div style={{ 
@@ -1048,7 +1033,7 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
           }} />
         </div>
         <span style={{ fontSize: "10px", color: "#FF9800", fontFamily: "monospace" }}>
-          x{(currentSpeed / 0.5).toFixed(1)}
+          x{(currentSpeed / 0.45).toFixed(1)}
         </span>
       </div>
 
@@ -1079,12 +1064,9 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
         }}>
           {vietnameseMeaning}
         </div>
-        <div style={{ fontSize: "11px", color: "#90caf9", marginTop: "6px" }}>
-          🔫 Có {targets.filter(t => t.isCorrect).length} từ đúng đang bay
-        </div>
       </div>
 
-      {/* Khu vực game - chiếm phần còn lại */}
+      {/* Khu vực game */}
       <div 
         ref={areaRef} 
         onMouseMove={handleMouseMove}
@@ -1107,11 +1089,10 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
           {Array.from({ length: 9 }, (_, i) => <line key={`h${i}`} x1="0" y1={`${i*12.5}%`} x2="100%" y2={`${i*12.5}%`} stroke="#00e5ff" strokeWidth="1"/>)}
         </svg>
 
-        {/* Targets - RẤT NHIỀU TỪ CÙNG LÚC */}
+        {/* Targets - KHÔNG HIGHLIGHT, TẤT CẢ ĐỀU MÀU XANH */}
         {targets.map((opt, idx) => {
           const isHit = hitIdx === idx;
           const isMiss = missIdx === idx;
-          const isCorrectWord = opt.isCorrect === true;
           
           return (
             <button 
@@ -1123,30 +1104,30 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
                 left: `${opt.x}%`,
                 top: `${Math.min(Math.max(opt.y, -10), 95)}%`,
                 transform: "translateX(-50%)",
-                padding: "6px 12px",
+                padding: "8px 14px",
                 borderRadius: "25px",
                 fontWeight: "bold",
-                fontSize: isCorrectWord ? "15px" : "13px",
+                fontSize: "14px",
                 cursor: "crosshair",
                 fontFamily: "inherit",
                 whiteSpace: "nowrap",
-                maxWidth: "130px",
+                maxWidth: "140px",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 zIndex: 10,
-                border: isHit ? "2px solid #4CAF50" : isMiss ? "2px solid #F44336" : isCorrectWord ? "3px solid #FFD700" : "2px solid rgba(0,188,212,0.4)",
-                background: isHit ? "#4CAF50" : isMiss ? "#F44336" : isCorrectWord ? "rgba(255,215,0,0.85)" : "rgba(13,27,62,0.9)",
-                color: isHit || isMiss ? "white" : isCorrectWord ? "#1a237e" : "#00e5ff",
-                boxShadow: isCorrectWord ? "0 0 15px rgba(255,215,0,0.6)" : (isHit ? "0 0 20px #4CAF50" : "0 4px 10px rgba(0,0,0,0.3)"),
+                border: isHit ? "2px solid #4CAF50" : isMiss ? "2px solid #F44336" : "2px solid rgba(0,188,212,0.5)",
+                background: isHit ? "#4CAF50" : isMiss ? "#F44336" : "rgba(13,27,62,0.9)",
+                color: isHit || isMiss ? "white" : "#00e5ff",
+                boxShadow: isHit ? "0 0 20px #4CAF50" : "0 4px 10px rgba(0,0,0,0.3)",
                 opacity: opt.y < -8 ? 0 : 1,
                 transition: "opacity 0.15s",
                 pointerEvents: shooting || !!showResult || gameOver ? "none" : "auto",
                 textShadow: "0 1px 2px rgba(0,0,0,0.2)",
-                fontWeight: isCorrectWord ? "900" : "600"
+                fontWeight: "600"
               }}
               onMouseEnter={e => {
                 if (!shooting && !showResult && !gameOver) {
-                  e.currentTarget.style.transform = "translateX(-50%) scale(1.08)";
+                  e.currentTarget.style.transform = "translateX(-50%) scale(1.05)";
                   e.currentTarget.style.zIndex = "20";
                 }
               }}
@@ -1156,7 +1137,6 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
               }}
             >
               {opt.cleanWord || opt.word}
-              {isCorrectWord && " ⭐"}
             </button>
           );
         })}
@@ -1314,7 +1294,6 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
       }}>
         <span>🖱️ Di chuột để ngắm</span>
         <span>💥 Click vào từ để bắn</span>
-        <span style={{ color: "#FFD700" }}>⭐ Từ vàng là đáp án đúng!</span>
         <span style={{ color: "#FF9800" }}>⚡ Streak càng cao, từ rơi càng nhanh!</span>
       </p>
 
