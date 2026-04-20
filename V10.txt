@@ -1106,6 +1106,7 @@ const handleShoot = (opt, idx) => {
                 transform: "translateX(-50%)",
                 padding: "8px 14px",
                 borderRadius: "25px",
+                fontWeight: "bold",
                 fontSize: "14px",
                 cursor: "crosshair",
                 fontFamily: "inherit",
@@ -1123,6 +1124,16 @@ const handleShoot = (opt, idx) => {
                 pointerEvents: shooting || !!showResult || gameOver ? "none" : "auto",
                 textShadow: "0 1px 2px rgba(0,0,0,0.2)",
                 fontWeight: "600"
+              }}
+              onMouseEnter={e => {
+                if (!shooting && !showResult && !gameOver) {
+                  e.currentTarget.style.transform = "translateX(-50%) scale(1.05)";
+                  e.currentTarget.style.zIndex = "20";
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "translateX(-50%)";
+                e.currentTarget.style.zIndex = "10";
               }}
             >
               {opt.cleanWord || opt.word}
@@ -4350,14 +4361,102 @@ function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }
 // COMPONENT: SỔ TAY TÍCH HỢP AI + SỬA BẰNG TAY (MANUAL EDIT) XỊN SÒ
 // =======================================================================
 
-// --- COMPONENT: TÓM TẮT FILE NGỮ PHÁP BẰNG AI (CÓ LƯU CACHE + NHẬP TÓM TẮT TỪ NGOÀI) ---
-function GrammarNotesPanel({ notes, currentUser }) {
-  const [summaries, setSummaries] = useState({}); // { noteId: { status, text, userEdited } }
+// Thay thế hoàn toàn component GrammarNotesPanel trong file App.jsx
+
+function GrammarNotesPanel({ notes, currentUser, onSaveWord }) {
+
+// Thêm state mới
+const [showGenerateFromFileModal, setShowGenerateFromFileModal] = useState(false);
+const [selectedFileForGeneration, setSelectedFileForGeneration] = useState(null);
+const [generatedPrompt, setGeneratedPrompt] = useState("");
+const [generatedJsonInput, setGeneratedJsonInput] = useState("");
+const [genJsonStep, setGenJsonStep] = useState(1);
+const [genJsonStatus, setGenJsonStatus] = useState("");
+
+// Hàm tạo prompt từ nội dung file
+const generatePromptFromFile = (note) => {
+  // Giới hạn nội dung để tránh quá dài
+  const content = note.content.length > 4000 ? note.content.slice(0, 4000) + "\n\n[...nội dung đã cắt bớt do quá dài]" : note.content;
+  
+  const prompt = `Bạn là chuyên gia luyện thi TOEIC. Dựa vào nội dung tài liệu ngữ pháp dưới đây, hãy tạo 10 câu hỏi PART 5 (điền từ vào chỗ trống) liên quan trực tiếp đến các điểm ngữ pháp trong tài liệu.
+
+NỘI DUNG TÀI LIỆU (FILE: ${note.filename}):
+---
+${content}
+---
+
+YÊU CẦU:
+- Mỗi câu hỏi có đúng 1 chỗ trống (___)
+- 4 đáp án A, B, C, D
+- Đáp án đúng phải liên quan đến kiến thức trong tài liệu
+- Có giải thích chi tiết bằng tiếng Việt
+
+CHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON, KHÔNG giải thích thêm:
+[
+  {
+    "question": "Câu hỏi có ___ chỗ trống",
+    "options": ["Đáp án A", "Đáp án B", "Đáp án C", "Đáp án D"],
+    "answer": "Đáp án đúng (nội dung, không phải chữ cái)",
+    "explanation": {
+      "translation": "Dịch câu hoàn chỉnh sang tiếng Việt",
+      "grammar_points": "Điểm ngữ pháp được kiểm tra (trích từ tài liệu)",
+      "wrong_options": "- Đáp án A: lý do sai\\n- Đáp án B: lý do sai\\n- Đáp án C: lý do sai\\n- Đáp án D: lý do sai",
+      "key_vocab": "- từ vựng 1: nghĩa\\n- từ vựng 2: nghĩa"
+    }
+  }
+]
+
+Số lượng câu hỏi: 10 câu.`;
+
+  return prompt;
+};
+
+const saveGeneratedQuestionsFromJson = async () => {
+  setGenJsonStatus("đang xử lý...");
+  try {
+    let raw = generatedJsonInput.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (!match) throw new Error("Không tìm thấy mảng JSON hợp lệ!");
+    const parsed = JSON.parse(match[0]);
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("JSON rỗng hoặc sai định dạng!");
+    
+    // Thêm metadata
+    const questionsWithMeta = parsed.map(q => ({
+      ...q,
+      sourceFile: selectedFileForGeneration?.filename,
+      sourceFileId: selectedFileForGeneration?.id,
+      createdAt: new Date().toISOString(),
+      toeicPart: "part5",
+      isManual: true
+    }));
+    
+    // Dùng onSaveWord trực tiếp - ĐÃ SỬA
+    if (onSaveWord) {
+      await onSaveWord("grammar", questionsWithMeta);
+      setGenJsonStatus(`✅ Lưu thành công ${questionsWithMeta.length} câu hỏi!`);
+      setTimeout(() => {
+        setShowGenerateFromFileModal(false);
+        setSelectedFileForGeneration(null);
+        setGeneratedPrompt("");
+        setGeneratedJsonInput("");
+        setGenJsonStep(1);
+        setGenJsonStatus("");
+      }, 1500);
+    } else {
+      setGenJsonStatus("❌ Lỗi: Không thể lưu (onSaveWord không được truyền)");
+    }
+  } catch (e) {
+    setGenJsonStatus(`❌ Lỗi: ${e.message}`);
+  }
+};
+
+  const [summaries, setSummaries] = useState({}); // { noteId: { status, text, chunks: [] } }
   const [expandedId, setExpandedId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [importTargetNote, setImportTargetNote] = useState(null);
-  const [importText, setImportText] = useState("");
+  const [showExternalSummaryModal, setShowExternalSummaryModal] = useState(false);
+  const [selectedNoteForExternal, setSelectedNoteForExternal] = useState(null);
+  const [externalSummaryInput, setExternalSummaryInput] = useState("");
+  const [externalSummaryStatus, setExternalSummaryStatus] = useState("");
 
   // Tải summaries đã lưu từ Firebase khi component mount
   useEffect(() => {
@@ -4374,14 +4473,47 @@ function GrammarNotesPanel({ notes, currentUser }) {
     loadSavedSummaries();
   }, [currentUser, notes]);
 
-  const summarizeNote = async (note) => {
+  // Chia nội dung thành nhiều phần nhỏ để tóm tắt (mỗi phần ~2000 ký tự)
+  const splitContentIntoChunks = (content, chunkSize = 2000) => {
+    const chunks = [];
+    let remaining = content;
+    let chunkIndex = 0;
+    
+    while (remaining.length > 0) {
+      let chunk = remaining.slice(0, chunkSize);
+      // Tìm điểm cắt hợp lý (cuối câu hoặc cuối đoạn)
+      const lastPeriod = chunk.lastIndexOf('.');
+      const lastNewLine = chunk.lastIndexOf('\n');
+      const cutPoint = Math.max(lastPeriod, lastNewLine);
+      
+      if (cutPoint > chunkSize / 2 && cutPoint < chunkSize - 100) {
+        chunk = remaining.slice(0, cutPoint + 1);
+        remaining = remaining.slice(cutPoint + 1);
+      } else {
+        remaining = remaining.slice(chunkSize);
+      }
+      
+      chunks.push({
+        index: chunkIndex,
+        content: chunk.trim(),
+        start: chunkIndex * chunkSize,
+        end: chunkIndex * chunkSize + chunk.length
+      });
+      chunkIndex++;
+    }
+    
+    return chunks;
+  };
+
+  // Tóm tắt toàn bộ file bằng cách chia nhỏ
+  const summarizeNoteFull = async (note) => {
     // Kiểm tra cache trước
     if (summaries[note.id]?.status === "done") {
       setExpandedId(note.id);
       return;
     }
 
-    setSummaries(prev => ({ ...prev, [note.id]: { status: "loading", text: "", userEdited: false } }));
+    setSummaries(prev => ({ ...prev, [note.id]: { status: "loading", text: "", chunks: [] } }));
     
     try {
       if (!window.globalCachedModel) {
@@ -4392,154 +4524,143 @@ function GrammarNotesPanel({ notes, currentUser }) {
         window.globalCachedModel = flash ? flash.name : "models/gemini-1.5-flash";
       }
 
-      const truncated = note.content.length > 8000 ? note.content.slice(0, 8000) + "\n[...nội dung đã cắt bớt]" : note.content;
+      // Chia nội dung thành nhiều phần
+      const chunks = splitContentIntoChunks(note.content, 2500);
+      let allSummaries = [];
+      
+      // Tóm tắt từng phần
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const prompt = `Bạn là giáo viên TOEIC. Dưới đây là PHẦN ${i+1}/${chunks.length} của tài liệu ngữ pháp. Hãy tóm tắt NGẮN GỌN những điểm quan trọng nhất trong phần này, tập trung vào công thức cấu trúc, ý nghĩa cốt lõi, ví dụ minh họa. Viết bằng tiếng Việt, dạng bullet points.
 
-      const prompt = `Bạn là giáo viên TOEIC. Dựa vào nội dung tài liệu ngữ pháp dưới đây, hãy tóm tắt những điểm quan trọng nhất theo format phù hợp nhất với nội dung (có thể dùng bảng, bullet points, hay mindmap dạng text). Ưu tiên: công thức cấu trúc, ý nghĩa cốt lõi, ví dụ minh họa ngắn, điểm cần nhớ khi làm bài thi. Viết bằng tiếng Việt, ngắn gọn, dễ ôn tập.
+NỘI DUNG PHẦN ${i+1}:
+${chunk.content}
 
-NỘI DUNG TÀI LIỆU:
-${truncated}
+Tóm tắt phần ${i+1}:`;
 
-Hãy tóm tắt:`;
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${window.globalCachedModel}:generateContent?key=${getActiveKey()}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        });
+        const data = await res.json();
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${window.globalCachedModel}:generateContent?key=${getActiveKey()}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-      });
-      const data = await res.json();
-
-      if (data.error) {
-        const hasNext = markKeyExhausted();
-        if (hasNext) {
-          await new Promise(r => setTimeout(r, 1000));
-          return summarizeNote(note);
+        if (data.error) {
+          const hasNext = markKeyExhausted();
+          if (hasNext) {
+            await new Promise(r => setTimeout(r, 1000));
+            i--; // Thử lại phần này
+            continue;
+          }
+          throw new Error(data.error.message);
         }
-        throw new Error(data.error.message);
-      }
 
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "Không có kết quả.";
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || `(Không thể tóm tắt phần ${i+1})`;
+        allSummaries.push(`## PHẦN ${i+1}/${chunks.length}\n${text}`);
+        
+        // Cập nhật tiến trình
+        setSummaries(prev => ({ 
+          ...prev, 
+          [note.id]: { 
+            status: "loading", 
+            text: `Đang tóm tắt... (${i+1}/${chunks.length})`,
+            chunks: allSummaries
+          } 
+        }));
+        
+        // Delay giữa các lần gọi API để tránh rate limit
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      
+      const finalText = allSummaries.join('\n\n---\n\n');
       
       // Lưu vào state
-      setSummaries(prev => ({ ...prev, [note.id]: { status: "done", text, userEdited: false } }));
+      setSummaries(prev => ({ ...prev, [note.id]: { status: "done", text: finalText, chunks: allSummaries } }));
       
-      // LƯU VÀO FIREBASE NGAY LẬP TỨC
+      // LƯU VÀO FIREBASE
       if (currentUser) {
         const userDocRef = doc(db, "users", currentUser.uid);
         const docSnap = await getDoc(userDocRef);
         if (docSnap.exists()) {
-          const currentData = docSnap.data();
-          const currentSummaries = currentData?.grammar?.notesSummaries || {};
+          const currentSummaries = docSnap.data()?.grammar?.notesSummaries || {};
           await updateDoc(userDocRef, {
-            "grammar.notesSummaries": { ...currentSummaries, [note.id]: { status: "done", text, userEdited: false, savedAt: Date.now() } }
+            "grammar.notesSummaries": { ...currentSummaries, [note.id]: { status: "done", text: finalText, savedAt: Date.now(), chunks: allSummaries } }
           });
         }
       }
       
       setExpandedId(note.id);
     } catch (err) {
-      setSummaries(prev => ({ ...prev, [note.id]: { status: "error", text: "Lỗi: " + err.message, userEdited: false } }));
+      setSummaries(prev => ({ ...prev, [note.id]: { status: "error", text: "Lỗi: " + err.message } }));
     }
   };
 
-// Hàm trích xuất danh sách title từ markdown cũ
-const extractTopicsFromMarkdown = (markdownText) => {
-  if (!markdownText) return [];
-  const matches = markdownText.match(/^## (.+)$/gm);
-  if (!matches) return [];
-  return matches.map(m => m.replace(/^## /, '').trim());
-};
-
-// Hàm nhập tóm tắt từ ngoài vào (hỗ trợ ghép phần mới)
-const handleImportSummary = async (note, formattedText, newJsonData = null) => {
-  if (!formattedText.trim()) {
-    alert("Vui lòng nhập nội dung tóm tắt!");
-    return;
-  }
-
-  const oldSummary = summaries[note.id];
-  let finalText = formattedText;
-  let isMerged = false;
-
-  // Nếu đã có tóm tắt cũ và có dữ liệu JSON mới
-  if (oldSummary?.text && newJsonData?.topics) {
-    const oldTopics = extractTopicsFromMarkdown(oldSummary.text);
-    const newTopics = newJsonData.topics.map(t => t.title);
+  // Lưu tóm tắt từ bên ngoài (nhập tay)
+  const saveExternalSummary = async () => {
+    if (!externalSummaryInput.trim()) {
+      setExternalSummaryStatus("❌ Vui lòng nhập nội dung tóm tắt!");
+      return;
+    }
     
-    // Tìm các chủ đề mới chưa có trong tóm tắt cũ
-    const newTopicsOnly = newTopics.filter(t => !oldTopics.includes(t));
+    setExternalSummaryStatus("Đang lưu...");
     
-    if (newTopicsOnly.length > 0 && newTopicsOnly.length < newTopics.length) {
-      // Chỉ thêm phần mới, giữ nguyên phần cũ
-      let newSectionsText = "";
-      for (const topic of newJsonData.topics) {
-        if (newTopicsOnly.includes(topic.title)) {
-          newSectionsText += `## ${topic.title}\n\n`;
-          if (topic.formulas?.length) newSectionsText += `### 🔹 Công thức / Cấu trúc\n${topic.formulas.map(f => `- ${f}`).join('\n')}\n\n`;
-          if (topic.usages?.length) newSectionsText += `### 🔹 Cách dùng\n${topic.usages.map(u => `- ${u}`).join('\n')}\n\n`;
-          if (topic.examples?.length) newSectionsText += `### 🔹 Ví dụ\n${topic.examples.map(e => `- ${e}`).join('\n')}\n\n`;
-          if (topic.toeic_tips?.length) newSectionsText += `### 🔹 Lưu ý khi làm bài thi TOEIC\n${topic.toeic_tips.map(t => `- ${t}`).join('\n')}\n\n`;
+    try {
+      const finalText = `## TÓM TẮT THỦ CÔNG (${new Date().toLocaleDateString('vi-VN')})\n${externalSummaryInput}`;
+      
+      if (selectedNoteForExternal && currentUser) {
+        const userDocRef = doc(db, "users", currentUser.uid);
+        const docSnap = await getDoc(userDocRef);
+        if (docSnap.exists()) {
+          const currentSummaries = docSnap.data()?.grammar?.notesSummaries || {};
+          await updateDoc(userDocRef, {
+            "grammar.notesSummaries": { 
+              ...currentSummaries, 
+              [selectedNoteForExternal.id]: { 
+                status: "done", 
+                text: finalText, 
+                savedAt: Date.now(),
+                isManual: true 
+              } 
+            }
+          });
+          
+          setSummaries(prev => ({ 
+            ...prev, 
+            [selectedNoteForExternal.id]: { status: "done", text: finalText, isManual: true } 
+          }));
+          
+          setExternalSummaryStatus("✅ Đã lưu thành công!");
+          setTimeout(() => {
+            setShowExternalSummaryModal(false);
+            setExternalSummaryInput("");
+            setExternalSummaryStatus("");
+            setSelectedNoteForExternal(null);
+          }, 1500);
         }
       }
-      
-      finalText = oldSummary.text + `\n\n--- PHẦN MỚI (${new Date().toLocaleDateString('vi-VN')}) ---\n\n` + newSectionsText;
-      isMerged = true;
+    } catch (err) {
+      setExternalSummaryStatus("❌ Lỗi: " + err.message);
     }
-  }
-
-  setSummaries(prev => ({ ...prev, [note.id]: { status: "done", text: finalText, userEdited: true, merged: isMerged } }));
-  
-  // Lưu vào Firebase
-  if (currentUser) {
-    const userDocRef = doc(db, "users", currentUser.uid);
-    const docSnap = await getDoc(userDocRef);
-    if (docSnap.exists()) {
-      const currentData = docSnap.data();
-      const currentSummaries = currentData?.grammar?.notesSummaries || {};
-      await updateDoc(userDocRef, {
-        "grammar.notesSummaries": { ...currentSummaries, [note.id]: { status: "done", text: finalText, userEdited: true, merged: isMerged, savedAt: Date.now() } }
-      });
-    }
-  }
-  
-  setShowImportModal(false);
-  setImportTargetNote(null);
-  setImportText("");
-  setExpandedId(note.id);
-  playSound(isMerged ? "combo_3" : "finish");
-  if (isMerged) {
-    alert(`✅ Đã thêm ${newJsonData?.topics.filter(t => !extractTopicsFromMarkdown(oldSummary?.text || "").includes(t.title)).length} chủ đề mới vào tóm tắt!`);
-  }
-};
-
-  // Hàm xóa tóm tắt
-  const handleDeleteSummary = async (noteId) => {
-    if (!confirm("Bạn có chắc muốn xóa tóm tắt này? (Có thể tóm tắt lại bằng AI sau)")) return;
-    
-    setSummaries(prev => {
-      const newSummaries = { ...prev };
-      delete newSummaries[noteId];
-      return newSummaries;
-    });
-    
-    if (currentUser) {
-      const userDocRef = doc(db, "users", currentUser.uid);
-      const docSnap = await getDoc(userDocRef);
-      if (docSnap.exists()) {
-        const currentSummaries = docSnap.data()?.grammar?.notesSummaries || {};
-        delete currentSummaries[noteId];
-        await updateDoc(userDocRef, {
-          "grammar.notesSummaries": currentSummaries
-        });
-      }
-    }
-    
-    playSound("click");
   };
 
-  const formatSummary = (text, isUserEdited) => {
+  const formatSummary = (text) => {
     if (!text) return <p>Chưa có tóm tắt</p>;
     
-    const parts = text.split(/\n?--- PHẦN MỚI \(.*?\) ---\n?/);
+    // Nếu là tóm tắt thủ công, hiển thị đơn giản
+    if (text.includes("TÓM TẮT THỦ CÔNG")) {
+      return (
+        <div style={{ backgroundColor: "#fff8e1", padding: "12px", borderRadius: "8px", borderLeft: "4px solid #ff9800" }}>
+          {text.split("\n").map((line, i) => {
+            if (line.startsWith("##")) return <h4 key={i} style={{ color: "#e65100", margin: "8px 0 4px 0" }}>{line.replace("##", "").trim()}</h4>;
+            if (line.trim()) return <p key={i} style={{ margin: "6px 0", lineHeight: "1.5" }}>{line}</p>;
+            return null;
+          })}
+        </div>
+      );
+    }
+    
+    // Tóm tắt từ AI - chia theo phần
+    const parts = text.split(/\n?---\n?/);
     
     return (
       <div>
@@ -4547,44 +4668,80 @@ const handleImportSummary = async (note, formattedText, newJsonData = null) => {
           if (!part.trim()) return null;
           return (
             <div key={idx} style={{ 
-              marginBottom: idx > 0 ? "16px" : "0",
-              paddingTop: idx > 0 ? "12px" : "0",
-              borderTop: idx > 0 ? "2px dashed #ff9800" : "none"
+              marginBottom: idx > 0 ? "20px" : "0",
+              paddingTop: idx > 0 ? "16px" : "0",
+              borderTop: idx > 0 ? "2px dashed #1565c0" : "none"
             }}>
-              {idx > 0 && (
-                <div style={{ fontSize: "11px", color: "#ff9800", fontWeight: "bold", marginBottom: "8px" }}>
-                  📅 Cập nhật lần {idx}
-                </div>
-              )}
               {formatSummaryTextContent(part)}
             </div>
           );
         })}
-        {isUserEdited && (
-          <div style={{ marginTop: "8px", fontSize: "10px", color: "#4CAF50", fontStyle: "italic", borderTop: "1px solid #c8e6c9", paddingTop: "6px" }}>
-            ✏️ Đã chỉnh sửa thủ công
-          </div>
-        )}
       </div>
     );
   };
 
   const formatSummaryTextContent = (text) => {
-    return text.split("\n").map((line, i) => {
-      const trimmed = line.trim();
-      if (!trimmed) return <div key={i} style={{ height: "6px" }} />;
-      if (trimmed.startsWith("## ") || trimmed.startsWith("### "))
-        return <div key={i} style={{ fontWeight: "900", color: "#1565c0", fontSize: "13px", marginTop: "10px", marginBottom: "2px", borderBottom: "1px solid #bbdefb", paddingBottom: "3px" }}>{trimmed.replace(/^#+\s*/, "")}</div>;
-      if (/^[-•*]\s/.test(trimmed))
-        return <div key={i} style={{ display: "flex", gap: "6px", fontSize: "12.5px", lineHeight: "1.6", color: "#333" }}><span style={{ color: "#1976d2", fontWeight: "bold", flexShrink: 0 }}>▸</span><span dangerouslySetInnerHTML={{ __html: trimmed.slice(2).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>") }} /></div>;
-      return <div key={i} style={{ fontSize: "12.5px", lineHeight: "1.6", color: "#444" }} dangerouslySetInnerHTML={{ __html: trimmed.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>") }} />;
-    });
+    const lines = text.split("\n");
+    const result = [];
+    let i = 0;
+    
+    while (i < lines.length) {
+      const line = lines[i].trim();
+      if (!line) {
+        i++;
+        continue;
+      }
+      
+      // Xử lý tiêu đề phần (## PHẦN X/Y)
+      if (line.startsWith("## PHẦN")) {
+        result.push(
+          <div key={`header-${i}`} style={{ 
+            fontWeight: "900", 
+            color: "#1565c0", 
+            fontSize: "14px", 
+            marginTop: "8px", 
+            marginBottom: "8px",
+            backgroundColor: "#e3f2fd",
+            padding: "6px 10px",
+            borderRadius: "8px"
+          }}>
+            {line.replace("##", "").trim()}
+          </div>
+        );
+        i++;
+        continue;
+      }
+      
+      // Xử lý bullet points
+      if (line.startsWith("-") || line.startsWith("•") || line.startsWith("*")) {
+        result.push(
+          <div key={`bullet-${i}`} style={{ display: "flex", gap: "8px", marginBottom: "6px", fontSize: "13px", lineHeight: "1.5" }}>
+            <span style={{ color: "#1976d2", flexShrink: 0 }}>▸</span>
+            <span style={{ color: "#333" }}>{line.replace(/^[-•*]\s*/, "")}</span>
+          </div>
+        );
+        i++;
+        continue;
+      }
+      
+      // Xử lý text thường
+      if (line.length > 0) {
+        result.push(
+          <p key={`text-${i}`} style={{ margin: "6px 0", fontSize: "13px", lineHeight: "1.5", color: "#444" }}>
+            {line}
+          </p>
+        );
+      }
+      i++;
+    }
+    
+    return result;
   };
 
   return (
     <div style={{ background: "#f0f7ff", borderBottom: "2px solid #bbdefb", padding: "10px 14px", flexShrink: 0, maxHeight: "320px", overflowY: "auto", scrollbarWidth: "none" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-        <div style={{ fontSize: "12px", fontWeight: "900", color: "#1565c0", letterSpacing: "0.5px" }}>📄 FILE NGỮ PHÁP ĐÃ UPLOAD ({notes.length})</div>
+      <div style={{ fontSize: "12px", fontWeight: "900", color: "#1565c0", marginBottom: "8px", letterSpacing: "0.5px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>📄 FILE NGỮ PHÁP ĐÃ UPLOAD ({notes.length})</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
         {notes.map(note => {
@@ -4600,23 +4757,42 @@ const handleImportSummary = async (note, formattedText, newJsonData = null) => {
                   <div style={{ fontWeight: "bold", fontSize: "13px", color: "#1565c0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{note.filename}</div>
                   <div style={{ fontSize: "11px", color: "#999" }}>{new Date(note.uploadedAt).toLocaleDateString("vi-VN")}</div>
                 </div>
+
+                {/* Thêm nút này vào trong div đó, bên cạnh các nút khác */}
+                <button 
+                  onClick={() => {
+                    setSelectedFileForGeneration(note);
+                    setGeneratedPrompt(generatePromptFromFile(note));
+                    setGenJsonStep(1);
+                    setGeneratedJsonInput("");
+                    setGenJsonStatus("");
+                    setShowGenerateFromFileModal(true);
+                  }}
+                  style={{ padding: "5px 10px", background: "#9C27B0", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  📋 Tạo đề từ file
+                </button>
                 
+                {/* Nút tóm tắt AI */}
                 {!hasSummary && (
-                  <button onClick={() => summarizeNote(note)}
+                  <button onClick={() => summarizeNoteFull(note)}
                     style={{ padding: "5px 12px", background: "linear-gradient(135deg,#1565c0,#1976d2)", color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
                     🤖 Tóm tắt AI
                   </button>
                 )}
                 
-                {!hasSummary && (
-                  <button onClick={() => { setImportTargetNote(note); setImportText(""); setShowImportModal(true); }}
-                    style={{ padding: "5px 12px", background: "#FF9800", color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
-                    📝 Nhập tóm tắt
-                  </button>
-                )}
+                {/* Nút nhập tóm tắt thủ công */}
+                <button 
+                  onClick={() => {
+                    setSelectedNoteForExternal(note);
+                    setExternalSummaryInput(s?.text?.replace(/^## TÓM TẮT THỦ CÔNG.*?\n/, "") || "");
+                    setShowExternalSummaryModal(true);
+                  }}
+                  style={{ padding: "5px 10px", background: "#ff9800", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  ✍️ Nhập tay
+                </button>
                 
                 {s?.status === "loading" && (
-                  <span style={{ fontSize: "12px", color: "#1976d2", fontWeight: "bold", whiteSpace: "nowrap" }}>⏳ Đang tóm tắt...</span>
+                  <span style={{ fontSize: "11px", color: "#1976d2", fontWeight: "bold", whiteSpace: "nowrap" }}>⏳ {s.text || "Đang tóm tắt..."}</span>
                 )}
                 
                 {hasSummary && (
@@ -4628,7 +4804,7 @@ const handleImportSummary = async (note, formattedText, newJsonData = null) => {
                     
                     <button 
                       onClick={async () => {
-                        if (confirm("Tóm tắt lại toàn bộ file sẽ tốn quota AI. Tiếp tục?")) {
+                        if (confirm("Tóm tắt lại toàn bộ file (chia nhỏ từng phần) sẽ tốn quota AI. Tiếp tục?")) {
                           setSummaries(prev => {
                             const newSummaries = { ...prev };
                             delete newSummaries[note.id];
@@ -4645,37 +4821,21 @@ const handleImportSummary = async (note, formattedText, newJsonData = null) => {
                               });
                             }
                           }
-                          await summarizeNote(note);
+                          await summarizeNoteFull(note);
                         }
                       }}
-                      style={{ padding: "5px 8px", background: "#ff9800", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
+                      style={{ padding: "5px 8px", background: "#9e9e9e", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
                       title="Tóm tắt lại toàn bộ (tốn quota)">
                       🔄
-                    </button>
-                    
-                    <button 
-                      onClick={() => { setImportTargetNote(note); setImportText(s?.text || ""); setShowImportModal(true); }}
-                      style={{ padding: "5px 8px", background: "#4CAF50", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
-                      title="Chỉnh sửa tóm tắt thủ công">
-                      ✏️
-                    </button>
-                    
-                    <button 
-                      onClick={() => handleDeleteSummary(note.id)}
-                      style={{ padding: "5px 8px", background: "#f44336", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
-                      title="Xóa tóm tắt">
-                      🗑️
                     </button>
                   </>
                 )}
               </div>
-              
               {isExpanded && hasSummary && (
-                <div style={{ padding: "10px 14px", borderTop: "1px solid #e3f2fd", background: "#fafcff" }}>
-                  {formatSummary(s.text, s.userEdited)}
+                <div style={{ padding: "10px 14px", borderTop: "1px solid #e3f2fd", background: "#fafcff", maxHeight: "400px", overflowY: "auto" }}>
+                  {formatSummary(s.text)}
                 </div>
               )}
-              
               {isExpanded && s?.status === "error" && (
                 <div style={{ padding: "10px 14px", borderTop: "1px solid #ffcdd2", background: "#fff5f5", color: "#c62828", fontSize: "12px" }}>
                   {s.text}
@@ -4686,317 +4846,143 @@ const handleImportSummary = async (note, formattedText, newJsonData = null) => {
         })}
       </div>
 
-{/* Modal nhập tóm tắt từ ngoài */}
-{showImportModal && importTargetNote && (
-  <div onClick={() => setShowImportModal(false)} style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.6)", zIndex: 1300, display: "flex", justifyContent: "center", alignItems: "center", padding: "20px", boxSizing: "border-box" }}>
-    <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: "white", width: "100%", maxWidth: "650px", borderRadius: "16px", padding: "20px", animation: "popIn 0.3s", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", cursor: "default", maxHeight: "90vh", overflowY: "auto" }}>
-      <h3 style={{ margin: "0 0 8px 0", color: "#1565c0" }}>📝 Nhập tóm tắt cho "{importTargetNote.filename}"</h3>
-      
-      {/* Thông báo version */}
-      <div style={{ marginBottom: "15px", padding: "8px 12px", backgroundColor: "#fff8e1", borderRadius: "8px", borderLeft: "4px solid #FF9800", fontSize: "12px" }}>
-        📄 File hiện tại: v{importTargetNote.version || 1} | 
-        📅 Upload: {new Date(importTargetNote.uploadedAt).toLocaleDateString('vi-VN')}
-        {importTargetNote.lastSummaryUpdate && (
-          <span> | 🕐 Tóm tắt lần cuối: {new Date(importTargetNote.lastSummaryUpdate).toLocaleDateString('vi-VN')}</span>
-        )}
-      </div>
-      
-      {/* BƯỚC 1: COPY PROMPT JSON */}
-      <div style={{ marginBottom: "20px", padding: "12px", backgroundColor: "#e3f2fd", borderRadius: "10px", border: "1px solid #90caf9" }}>
-        <div style={{ fontWeight: "bold", color: "#1565c0", marginBottom: "8px", fontSize: "13px" }}>
-          📋 Bước 1: Copy prompt bên dưới → Gửi vào ChatGPT/Gemini/Claude cùng với FILE WORD MỚI NHẤT của bạn
-        </div>
-        <textarea
-  readOnly
-  value={`Bạn là giáo viên TOEIC. Hãy phân tích FILE WORD NGỮ PHÁP TIẾNG ANH mà tôi vừa gửi.
-
-YÊU CẦU: Tóm tắt TOÀN BỘ nội dung trong file, bao gồm tất cả các chủ đề, công thức, ví dụ.
-
-TRẢ VỀ DUY NHẤT MỘT OBJECT JSON, KHÔNG CÓ CHỮ THỪA, theo đúng cấu trúc sau:
-
-{
-  "topics": [
-    {
-      "title": "Tên chủ đề 1",
-      "formulas": ["công thức 1", "công thức 2"],
-      "usages": ["cách dùng 1", "cách dùng 2"],
-      "examples": ["ví dụ 1", "ví dụ 2"],
-      "toeic_tips": ["mẹo 1", "mẹo 2"]
-    }
-  ]
-}
-
-QUY TẮC TRÌNH BÀY CHO TỪNG LOẠI NGỮ PHÁP:
-
-1. **Đối với THÌ (Tenses):**
-   "formulas": [
-     "**Hiện tại đơn**\\\\n  - Khẳng định: S + V(s/es)\\\\n  - Phủ định: S + don't/doesn't + V\\\\n  - Nghi vấn: Do/Does + S + V?",
-     "**Hiện tại tiếp diễn**\\\\n  - Khẳng định: S + am/is/are + V-ing\\\\n  - Phủ định: S + am/is/are + not + V-ing\\\\n  - Nghi vấn: Am/Is/Are + S + V-ing?"
-   ]
-
-2. **Đối với CẤU TRÚC (enough/too/so...that):**
-   "formulas": [
-     "**Cấu trúc enough**\\\\n  - Adj/Adv + enough + (for + O) + to V\\\\n  - Enough + N + (for + O) + to V",
-     "**Cấu trúc too**\\\\n  - Too + adj/adv + (for + O) + to V"
-   ]
-
-3. **Đối với DẠNG TỪ (To V / V-ing / V nguyên mẫu):**
-   "formulas": [
-     "**Động từ theo sau là To V**\\\\n  - want, need, decide, plan, hope, expect, agree, refuse, promise, afford, manage, tend, prepare, offer, fail, learn",
-     "**Động từ theo sau là V-ing**\\\\n  - enjoy, mind, avoid, practice, finish, suggest, consider, delay, deny, risk, appreciate, admit, imagine"
-   ]
-
-4. **Đối với DANH TỪ SỐ NHIỀU (Plural nouns):**
-   "formulas": [
-     "**Quy tắc thêm s/es**\\\\n  - Hầu hết: thêm s (book → books)\\\\n  - Kết thúc s,ss,sh,ch,x,z,o → thêm es (box → boxes)\\\\n  - Kết thúc phụ âm + y → đổi y→i + es (baby → babies)",
-     "**Bất quy tắc**\\\\n  - man → men, woman → women, child → children, foot → feet, tooth → teeth, mouse → mice"
-   ]
-
-5. **Đối với SO SÁNH (Comparisons):**
-   "formulas": [
-     "**So sánh hơn**\\\\n  - Tính từ ngắn: adj-er + than\\\\n  - Tính từ dài: more + adj + than",
-     "**So sánh nhất**\\\\n  - Tính từ ngắn: the + adj-est\\\\n  - Tính từ dài: the most + adj"
-   ]
-
-6. **Đối với CÂU ĐIỀU KIỆN (Conditionals):**
-   "formulas": [
-     "**Loại 0**\\\\n  - If + S + V(s/es), S + V(s/es)",
-     "**Loại 1**\\\\n  - If + S + V(s/es), S + will/can/may + V",
-     "**Loại 2**\\\\n  - If + S + V(quá khứ), S + would/could + V",
-     "**Loại 3**\\\\n  - If + S + had + V3/ed, S + would have + V3/ed"
-   ]
-
-QUY TẮC CHUNG:
-- Mỗi công thức bắt đầu bằng **Tiêu đề in đậm**, dùng \\\\n để xuống dòng
-- Mỗi dòng chi tiết bắt đầu bằng "  - "
-- Mỗi cách dùng, ví dụ, tip phải có tiêu đề in đậm
-- Tip trong toeic_tips có icon (⚠️/💡/🎯)
-
-YÊU CẦU BỔ SUNG:
-- Dùng tiếng Việt
-- CHỈ TRẢ VỀ JSON, KHÔNG GIẢI THÍCH GÌ THÊM
-- Tự động xác định loại ngữ pháp để chọn format phù hợp
-- Tóm tắt ĐẦY ĐỦ nội dung file`}
-  rows={28}
-  style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #90caf9", fontSize: "12px", fontFamily: "monospace", backgroundColor: "#fff", resize: "vertical", boxSizing: "border-box" }}
-/>
-        <button 
-  onClick={() => {
-    const promptText = `Bạn là giáo viên TOEIC. Hãy phân tích FILE WORD NGỮ PHÁP TIẾNG ANH mà tôi vừa gửi.
-
-YÊU CẦU: Tóm tắt TOÀN BỘ nội dung trong file, bao gồm tất cả các chủ đề, công thức, ví dụ.
-
-TRẢ VỀ DUY NHẤT MỘT OBJECT JSON, KHÔNG CÓ CHỮ THỪA, theo đúng cấu trúc sau:
-
-{
-  "topics": [
-    {
-      "title": "Tên chủ đề 1",
-      "formulas": ["công thức 1", "công thức 2"],
-      "usages": ["cách dùng 1", "cách dùng 2"],
-      "examples": ["ví dụ 1", "ví dụ 2"],
-      "toeic_tips": ["mẹo 1", "mẹo 2"]
-    }
-  ]
-}
-
-QUY TẮC TRÌNH BÀY CHO TỪNG LOẠI NGỮ PHÁP:
-
-1. **Đối với THÌ (Tenses):**
-   "formulas": [
-     "**Hiện tại đơn**\\\\n  - Khẳng định: S + V(s/es)\\\\n  - Phủ định: S + don't/doesn't + V\\\\n  - Nghi vấn: Do/Does + S + V?",
-     "**Hiện tại tiếp diễn**\\\\n  - Khẳng định: S + am/is/are + V-ing\\\\n  - Phủ định: S + am/is/are + not + V-ing\\\\n  - Nghi vấn: Am/Is/Are + S + V-ing?"
-   ]
-
-2. **Đối với CẤU TRÚC (enough/too/so...that):**
-   "formulas": [
-     "**Cấu trúc enough**\\\\n  - Adj/Adv + enough + (for + O) + to V\\\\n  - Enough + N + (for + O) + to V",
-     "**Cấu trúc too**\\\\n  - Too + adj/adv + (for + O) + to V"
-   ]
-
-3. **Đối với DẠNG TỪ (To V / V-ing / V nguyên mẫu):**
-   "formulas": [
-     "**Động từ theo sau là To V**\\\\n  - want, need, decide, plan, hope, expect, agree, refuse, promise, afford, manage, tend, prepare, offer, fail, learn",
-     "**Động từ theo sau là V-ing**\\\\n  - enjoy, mind, avoid, practice, finish, suggest, consider, delay, deny, risk, appreciate, admit, imagine"
-   ]
-
-4. **Đối với DANH TỪ SỐ NHIỀU (Plural nouns):**
-   "formulas": [
-     "**Quy tắc thêm s/es**\\\\n  - Hầu hết: thêm s (book → books)\\\\n  - Kết thúc s,ss,sh,ch,x,z,o → thêm es (box → boxes)\\\\n  - Kết thúc phụ âm + y → đổi y→i + es (baby → babies)",
-     "**Bất quy tắc**\\\\n  - man → men, woman → women, child → children, foot → feet, tooth → teeth, mouse → mice"
-   ]
-
-5. **Đối với SO SÁNH (Comparisons):**
-   "formulas": [
-     "**So sánh hơn**\\\\n  - Tính từ ngắn: adj-er + than\\\\n  - Tính từ dài: more + adj + than",
-     "**So sánh nhất**\\\\n  - Tính từ ngắn: the + adj-est\\\\n  - Tính từ dài: the most + adj"
-   ]
-
-6. **Đối với CÂU ĐIỀU KIỆN (Conditionals):**
-   "formulas": [
-     "**Loại 0**\\\\n  - If + S + V(s/es), S + V(s/es)",
-     "**Loại 1**\\\\n  - If + S + V(s/es), S + will/can/may + V",
-     "**Loại 2**\\\\n  - If + S + V(quá khứ), S + would/could + V",
-     "**Loại 3**\\\\n  - If + S + had + V3/ed, S + would have + V3/ed"
-   ]
-
-QUY TẮC CHUNG:
-- Mỗi công thức bắt đầu bằng **Tiêu đề in đậm**, dùng \\\\n để xuống dòng
-- Mỗi dòng chi tiết bắt đầu bằng "  - "
-- Mỗi cách dùng, ví dụ, tip phải có tiêu đề in đậm
-- Tip trong toeic_tips có icon (⚠️/💡/🎯)
-
-YÊU CẦU BỔ SUNG:
-- Dùng tiếng Việt
-- CHỈ TRẢ VỀ JSON, KHÔNG GIẢI THÍCH GÌ THÊM
-- Tự động xác định loại ngữ pháp để chọn format phù hợp
-- Tóm tắt ĐẦY ĐỦ nội dung file`
-    navigator.clipboard.writeText(promptText);
-    playSound("click");
-    alert("✅ Đã copy! Hãy paste vào ChatGPT/Gemini/Claude cùng với FILE WORD MỚI NHẤT của bạn.");
-  }}
-  style={{ marginTop: "8px", padding: "6px 12px", backgroundColor: "#2196F3", color: "white", border: "none", borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontWeight: "bold" }}
->
-  📋 Copy Prompt (JSON)
-</button>
-      </div>
-
-      {/* BƯỚC 2: PASTE JSON KẾT QUẢ */}
-      <div style={{ marginBottom: "15px" }}>
-        <div style={{ fontWeight: "bold", color: "#FF9800", marginBottom: "8px", fontSize: "13px" }}>
-          📌 Bước 2: Paste JSON từ AI vào đây (tóm tắt TOÀN BỘ file mới nhất)
-        </div>
-        <textarea
-          value={importText}
-          onChange={(e) => setImportText(e.target.value)}
-          placeholder={`{
-  "topics": [
-    {
-      "title": "Câu Điều Kiện Loại 2",
-      "formulas": ["If + S + V(quá khứ), S + would/could + V(nguyên thể)", "Were + S + to V, S + would + V"],
-      "usages": ["Diễn tả giả định không có thật ở hiện tại", "Dùng để đưa ra lời khuyên"],
-      "examples": ["If I had a million dollars, I would buy a car.", "Were she to study harder, she would pass."],
-      "toeic_tips": ["Động từ 'to be' luôn chia 'were'", "Đáp án thường chứa 'would'"]
-    },
-    {
-      "title": "Câu Giả Định",
-      "formulas": ["S + suggest/ recommend/ insist + that + S + (should) + V(nguyên thể)"],
-      "usages": ["Diễn tả yêu cầu, đề nghị, sự cần thiết"],
-      "examples": ["I suggest that he (should) study harder."],
-      "toeic_tips": ["Động từ ở mệnh đề that luôn là V(nguyên thể)", "Should có thể được lược bỏ"]
-    }
-  ]
-}`}
-          rows={14}
-          style={{ width: "100%", padding: "12px", borderRadius: "10px", border: "1px solid #ccc", fontSize: "12px", lineHeight: "1.5", fontFamily: "monospace", resize: "vertical", boxSizing: "border-box" }}
-        />
-      </div>
-
-      {/* Hiển thị so sánh nếu đã có summary cũ */}
-      {(() => {
-        const oldSummary = summaries[importTargetNote.id];
-        if (oldSummary?.text && importText.trim()) {
-          try {
-            const newData = JSON.parse(importText.trim());
-            if (newData.topics) {
-              const oldTopics = extractTopicsFromMarkdown(oldSummary.text);
-              const newTopics = newData.topics.map(t => t.title);
-              const existingTopics = oldTopics.filter(t => newTopics.includes(t));
-              const newTopicsOnly = newTopics.filter(t => !oldTopics.includes(t));
-              
-              if (existingTopics.length > 0 && newTopicsOnly.length === 0) {
-                return (
-                  <div style={{ marginBottom: "15px", padding: "10px", backgroundColor: "#fff3e0", borderRadius: "8px", borderLeft: "4px solid #FF9800" }}>
-                    <span style={{ fontWeight: "bold", color: "#e65100" }}>⚠️ Cảnh báo:</span> Có {existingTopics.length} chủ đề đã tồn tại trong tóm tắt cũ. 
-                    Bạn có muốn <strong>GHI ĐÈ</strong> toàn bộ không?
-                  </div>
-                );
-              }
-              if (newTopicsOnly.length > 0) {
-                return (
-                  <div style={{ marginBottom: "15px", padding: "10px", backgroundColor: "#e8f5e9", borderRadius: "8px", borderLeft: "4px solid #4CAF50" }}>
-                    <span style={{ fontWeight: "bold", color: "#2e7d32" }}>✅ Phát hiện {newTopicsOnly.length} chủ đề MỚI:</span>
-                    <ul style={{ margin: "5px 0 0 20px", fontSize: "12px" }}>
-                      {newTopicsOnly.map(t => <li key={t}>{t}</li>)}
-                    </ul>
-                    <span style={{ fontSize: "11px", color: "#666" }}>Hệ thống sẽ CHỈ THÊM phần mới, giữ nguyên phần cũ.</span>
-                  </div>
-                );
-              }
-            }
-          } catch(e) {}
-        }
-        return null;
-      })()}
-
-      {/* Nút kiểm tra JSON */}
-      {importText.trim() && (
-        <div style={{ marginBottom: "15px" }}>
-          <button 
-            onClick={() => {
-              try {
-                const parsed = JSON.parse(importText.trim());
-                if (!parsed.topics || !Array.isArray(parsed.topics) || parsed.topics.length === 0) {
-                  alert("⚠️ JSON phải có trường 'topics' là mảng không rỗng!");
-                  return;
-                }
-                for (let i = 0; i < parsed.topics.length; i++) {
-                  const t = parsed.topics[i];
-                  if (!t.title || !Array.isArray(t.formulas) || !Array.isArray(t.usages) || 
-                      !Array.isArray(t.examples) || !Array.isArray(t.toeic_tips)) {
-                    alert(`⚠️ Chủ đề ${i+1} thiếu trường bắt buộc!`);
-                    return;
-                  }
-                }
-                alert(`✅ JSON hợp lệ! ${parsed.topics.length} chủ đề ngữ pháp.`);
-              } catch (e) {
-                alert("❌ JSON không hợp lệ: " + e.message);
-              }
-            }}
-            style={{ padding: "6px 12px", backgroundColor: "#9C27B0", color: "white", border: "none", borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontWeight: "bold" }}
-          >
-            🔍 Kiểm tra JSON ({importText.trim().split('"title"').length - 1} chủ đề)
-          </button>
+      {/* Modal nhập tóm tắt thủ công */}
+      {showExternalSummaryModal && (
+        <div onClick={() => setShowExternalSummaryModal(false)} style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.7)", zIndex: 1300, display: "flex", justifyContent: "center", alignItems: "center", padding: "20px", boxSizing: "border-box" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: "white", width: "100%", maxWidth: "500px", borderRadius: "16px", padding: "20px", animation: "popIn 0.3s", boxShadow: "0 10px 30px rgba(0,0,0,0.3)" }}>
+            <h3 style={{ margin: "0 0 10px 0", color: "#1565c0" }}>📝 Nhập tóm tắt thủ công</h3>
+            <p style={{ fontSize: "13px", color: "#666", marginBottom: "15px" }}>
+              File: <strong>{selectedNoteForExternal?.filename}</strong>
+            </p>
+            <textarea 
+              value={externalSummaryInput}
+              onChange={(e) => setExternalSummaryInput(e.target.value)}
+              placeholder="Nhập nội dung tóm tắt của bạn tại đây (có thể dùng bullet points, xuống dòng)..."
+              rows={10}
+              style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "14px", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }}
+            />
+            {externalSummaryStatus && (
+              <p style={{ margin: "10px 0 0 0", fontSize: "13px", color: externalSummaryStatus.includes("✅") ? "#4CAF50" : "#f44336" }}>
+                {externalSummaryStatus}
+              </p>
+            )}
+            <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
+              <button onClick={saveExternalSummary} style={{ flex: 1, padding: "10px", backgroundColor: "#4CAF50", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>
+                💾 Lưu tóm tắt
+              </button>
+              <button onClick={() => setShowExternalSummaryModal(false)} style={{ flex: 1, padding: "10px", backgroundColor: "#e0e0e0", color: "#333", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>
+                Hủy
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-        <button 
-          onClick={() => {
-            try {
-              const parsed = JSON.parse(importText.trim());
-              if (!parsed.topics || !Array.isArray(parsed.topics) || parsed.topics.length === 0) {
-                alert("⚠️ JSON phải có trường 'topics' là mảng không rỗng!");
-                return;
-              }
-              
-              // Chuyển JSON thành markdown đẹp
-              let formattedText = "";
-              for (const topic of parsed.topics) {
-                formattedText += `## ${topic.title}\n\n`;
-                if (topic.formulas?.length) formattedText += `### 🔹 Công thức / Cấu trúc\n${topic.formulas.map(f => `- ${f}`).join('\n')}\n\n`;
-                if (topic.usages?.length) formattedText += `### 🔹 Cách dùng\n${topic.usages.map(u => `- ${u}`).join('\n')}\n\n`;
-                if (topic.examples?.length) formattedText += `### 🔹 Ví dụ\n${topic.examples.map(e => `- ${e}`).join('\n')}\n\n`;
-                if (topic.toeic_tips?.length) formattedText += `### 🔹 Lưu ý khi làm bài thi TOEIC\n${topic.toeic_tips.map(t => `- ${t}`).join('\n')}\n\n`;
-              }
-              
-              handleImportSummary(importTargetNote, formattedText, parsed);
-            } catch (e) {
-              alert("❌ JSON không hợp lệ: " + e.message);
-            }
-          }} 
-          disabled={!importText.trim()}
-          style={{ flex: 1, padding: "12px", backgroundColor: importText.trim() ? "#4CAF50" : "#ccc", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: importText.trim() ? "pointer" : "not-allowed" }}
-        >
-          💾 Lưu tóm tắt (tự động ghép phần mới)
-        </button>
-        <button onClick={() => { setShowImportModal(false); setImportText(""); }} style={{ flex: 1, padding: "12px", backgroundColor: "#e0e0e0", color: "#333", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>
-          Hủy
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+            {/* MODAL TẠO ĐỀ TỪ FILE - 3 BƯỚC */}
+      {showGenerateFromFileModal && selectedFileForGeneration && (
+        <div onClick={() => setShowGenerateFromFileModal(false)} style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.7)", zIndex: 1400, display: "flex", justifyContent: "center", alignItems: "center", padding: "16px", boxSizing: "border-box" }}>
+          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: "white", width: "100%", maxWidth: "650px", borderRadius: "16px", padding: "22px", animation: "popIn 0.3s", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <h3 style={{ margin: 0, color: "#9C27B0" }}>📋 Tạo đề từ file: {selectedFileForGeneration.filename}</h3>
+              <button onClick={() => setShowGenerateFromFileModal(false)} style={{ background: "none", border: "none", fontSize: "24px", cursor: "pointer" }}>×</button>
+            </div>
+            <p style={{ fontSize: "13px", color: "#666", marginBottom: "15px" }}>
+              Dùng AI ngoài (ChatGPT/Gemini/Claude) để tạo câu hỏi dựa trên nội dung file grammar của bạn
+            </p>
+            
+            <div style={{ display: "flex", gap: "8px", marginBottom: "20px" }}>
+              {[1, 2, 3].map(s => (
+                <div key={s} style={{ 
+                  flex: 1, height: "4px", borderRadius: "2px", 
+                  backgroundColor: genJsonStep >= s ? "#9C27B0" : "#e0e0e0", 
+                  transition: "0.3s" 
+                }} />
+              ))}
+            </div>
+            
+            {/* Bước 1: Copy prompt */}
+            {genJsonStep === 1 && (
+              <>
+                <p style={{ fontWeight: "bold", color: "#333", marginBottom: "8px" }}>
+                  📝 Bước 1: Copy prompt bên dưới và gửi cho AI
+                </p>
+                <textarea 
+                  readOnly 
+                  value={generatedPrompt} 
+                  rows={15} 
+                  style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #90caf9", fontSize: "12px", boxSizing: "border-box", backgroundColor: "#f5f0ff", fontFamily: "monospace", resize: "vertical", outline: "none" }} 
+                />
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedPrompt);
+                    alert("✅ Đã copy prompt!");
+                  }} 
+                  style={{ width: "100%", marginTop: "12px", padding: "12px", backgroundColor: "#9C27B0", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>
+                  📋 Copy Prompt
+                </button>
+                <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+                  <button onClick={() => setShowGenerateFromFileModal(false)} style={{ flex: 1, padding: "10px", backgroundColor: "#e0e0e0", color: "#333", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>Hủy</button>
+                  <button onClick={() => setGenJsonStep(2)} style={{ flex: 2, padding: "10px", backgroundColor: "#FF9800", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>Đã có JSON →</button>
+                </div>
+              </>
+            )}
+            
+            {/* Bước 2: Paste JSON */}
+            {genJsonStep === 2 && (
+              <>
+                <p style={{ fontWeight: "bold", color: "#333", marginBottom: "8px" }}>
+                  📝 Bước 2: Paste JSON mà AI trả về vào ô bên dưới
+                </p>
+                <textarea 
+                  value={generatedJsonInput} 
+                  onChange={e => { setGeneratedJsonInput(e.target.value); setGenJsonStatus(""); }} 
+                  placeholder={'[\n  {\n    "question": "Câu hỏi...",\n    "options": ["A", "B", "C", "D"],\n    "answer": "Đáp án đúng",\n    "explanation": {...}\n  }\n]'} 
+                  rows={15} 
+                  style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "12px", boxSizing: "border-box", fontFamily: "monospace", resize: "vertical", outline: "none" }} 
+                />
+                {genJsonStatus && <p style={{ margin: "10px 0 0 0", fontWeight: "bold", color: genJsonStatus.startsWith("✅") ? "#4CAF50" : "#f44336" }}>{genJsonStatus}</p>}
+                <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+                  <button onClick={() => setGenJsonStep(1)} style={{ flex: 1, padding: "10px", backgroundColor: "#e0e0e0", color: "#333", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>← Quay lại</button>
+                  <button onClick={() => setGenJsonStep(3)} style={{ flex: 2, padding: "10px", backgroundColor: "#FF9800", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>Tiếp theo →</button>
+                </div>
+              </>
+            )}
+            
+            {/* Bước 3: Xác nhận lưu */}
+            {genJsonStep === 3 && (
+              <>
+                <p style={{ fontWeight: "bold", color: "#333", marginBottom: "8px" }}>
+                  📝 Bước 3: Xác nhận lưu câu hỏi vào Sổ tay
+                </p>
+                <div style={{ backgroundColor: "#f5f0ff", padding: "15px", borderRadius: "8px", marginBottom: "15px" }}>
+                  <p style={{ fontSize: "13px", color: "#666", marginBottom: "10px" }}>
+                    <strong>📄 File nguồn:</strong> {selectedFileForGeneration.filename}
+                  </p>
+                  <p style={{ fontSize: "13px", color: "#666" }}>
+                    <strong>📝 Số câu hỏi sẽ lưu:</strong> {(() => {
+                      try {
+                        const raw = generatedJsonInput.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
+                        const match = raw.match(/\[[\s\S]*\]/);
+                        if (match) {
+                          const parsed = JSON.parse(match[0]);
+                          return Array.isArray(parsed) ? parsed.length : 0;
+                        }
+                        return 0;
+                      } catch { return 0; }
+                    })()} câu
+                  </p>
+                </div>
+                {genJsonStatus && <p style={{ margin: "10px 0 0 0", fontWeight: "bold", color: genJsonStatus.startsWith("✅") ? "#4CAF50" : "#f44336" }}>{genJsonStatus}</p>}
+                <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+                  <button onClick={() => setGenJsonStep(2)} style={{ flex: 1, padding: "10px", backgroundColor: "#e0e0e0", color: "#333", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>← Quay lại</button>
+                  <button onClick={saveGeneratedQuestionsFromJson} style={{ flex: 2, padding: "10px", backgroundColor: "#4CAF50", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>💾 Lưu vào Sổ tay</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -5010,6 +4996,69 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
 
   const [viewAllModal, setViewAllModal] = useState(null); 
   const [wordDetailModal, setWordDetailModal] = useState(null); 
+
+  // Trong component NotebookScreen, thêm các state sau (cùng chỗ với các useState khác):
+
+  // --- STATE CHO NHẬP JSON NGỮ PHÁP TỪ AI NGOÀI ---
+  const [showGrammarJsonModal, setShowGrammarJsonModal] = useState(false);
+  const [grammarJsonWordsInput, setGrammarJsonWordsInput] = useState("");
+  const [grammarJsonPasteInput, setGrammarJsonPasteInput] = useState("");
+  const [grammarJsonModalStep, setGrammarJsonModalStep] = useState(1);
+  const [grammarJsonSaveStatus, setGrammarJsonSaveStatus] = useState("");
+
+  // Thêm hàm getPromptForGrammar (tương tự getPromptForWords nhưng cho ngữ pháp)
+  const getPromptForGrammar = (topicsStr) => {
+    return `Bạn là chuyên gia luyện thi TOEIC. Hãy tạo câu hỏi ngữ pháp PART 5 dựa trên các chủ đề sau: "${topicsStr}".
+
+  YÊU CẦU:
+  - Mỗi câu hỏi có đúng 1 chỗ trống (___)
+  - 4 đáp án A, B, C, D
+  - Có giải thích chi tiết bằng tiếng Việt
+
+  CHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON, KHÔNG giải thích thêm:
+  [
+    {
+      "question": "Câu hỏi có ___ chỗ trống",
+      "options": ["Đáp án A", "Đáp án B", "Đáp án C", "Đáp án D"],
+      "answer": "Đáp án đúng (nội dung, không phải chữ cái)",
+      "explanation": {
+        "translation": "Dịch câu hoàn chỉnh sang tiếng Việt",
+        "grammar_points": "Giải thích điểm ngữ pháp",
+        "wrong_options": "- Đáp án A: lý do sai\\n- Đáp án B: lý do sai\\n- Đáp án C: lý do sai\\n- Đáp án D: lý do sai",
+        "key_vocab": "- từ vựng 1: nghĩa\\n- từ vựng 2: nghĩa"
+      }
+    }
+  ]
+
+  Số lượng câu hỏi: tối thiểu 5 câu, tối đa 15 câu.`;
+  };
+
+  // Hàm lưu JSON ngữ pháp
+  const handleSaveGrammarJson = async () => {
+    setGrammarJsonSaveStatus("đang xử lý...");
+    try {
+      let raw = grammarJsonPasteInput.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
+      const match = raw.match(/\[[\s\S]*\]/);
+      if (!match) throw new Error("Không tìm thấy mảng JSON hợp lệ!");
+      const parsed = JSON.parse(match[0]);
+      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("JSON rỗng hoặc sai định dạng!");
+      
+      // Thêm toeicPart và isManual flag
+      const questionsWithMeta = parsed.map(q => ({ ...q, toeicPart: "part5", isManual: true, createdAt: new Date().toISOString() }));
+      
+      await onSaveWord("grammar", questionsWithMeta);
+      setGrammarJsonSaveStatus(`✅ Lưu thành công ${questionsWithMeta.length} câu hỏi!`);
+      setTimeout(() => {
+        setShowGrammarJsonModal(false);
+        setGrammarJsonWordsInput("");
+        setGrammarJsonPasteInput("");
+        setGrammarJsonModalStep(1);
+        setGrammarJsonSaveStatus("");
+      }, 1500);
+    } catch (e) {
+      setGrammarJsonSaveStatus(`❌ Lỗi: ${e.message}`);
+    }
+  };
 
   useEffect(() => {
     if (!wordDetailModal) return;
@@ -5299,128 +5348,156 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
     setIsEditingManual(false); 
   }
 
-  // --- ĐÃ NÂNG CẤP: THÊM NÚT "V" CHO CẢ Ô VÀNG VÀ Ô ĐỎ ---
-  const getWordStr = (item) => {
-    if (typeof item === 'string') return item;
-    return item.word || item.question || "";
-  };
+// Trong component NotebookScreen, thay thế hoàn toàn hàm getWordStr:
 
-  const renderTags = (wordsArray, color, bgColor, listType, limit = null, isModal = false) => {
-    if (!wordsArray || wordsArray.length === 0) return <p style={{ color: "#aaa", fontSize: "14px", fontStyle: "italic", margin: 0 }}>Chưa có từ nào.</p>;
-    const sorted = [...wordsArray].sort((a, b) => {
-        const wa = getWordStr(a).toLowerCase();
-        const wb = getWordStr(b).toLowerCase();
-        return wa.localeCompare(wb);
-    });
-    const displayWords = limit ? sorted.slice(0, limit) : sorted;
-    
-    return (
+const getWordStr = (item) => {
+  if (!item) return "";
+  if (typeof item === 'string') return item;
+  if (typeof item === 'object') {
+    // Ưu tiên lấy word, nếu không có thì lấy question
+    const wordValue = item.word || item.question;
+    if (wordValue && typeof wordValue === 'string') return wordValue;
+    // Nếu là câu hỏi grammar, có thể có trường question
+    if (item.question && typeof item.question === 'string') return item.question;
+    return "";
+  }
+  return "";
+};
+
+// Tìm hàm renderTags trong NotebookScreen (khoảng dòng 5770-5780) và sửa lại:
+
+const renderTags = (wordsArray, color, bgColor, listType, limit = null, isModal = false) => {
+  // Thêm kiểm tra an toàn
+  if (!wordsArray || !Array.isArray(wordsArray) || wordsArray.length === 0) {
+    return <p style={{ color: "#aaa", fontSize: "14px", fontStyle: "italic", margin: 0 }}>Chưa có từ nào.</p>;
+  }
+  
+  // Lọc bỏ các phần tử undefined/null trước khi sort
+  const validWords = wordsArray.filter(item => item != null && item !== "");
+  
+  if (validWords.length === 0) {
+    return <p style={{ color: "#aaa", fontSize: "14px", fontStyle: "italic", margin: 0 }}>Chưa có từ nào.</p>;
+  }
+  
+  const sorted = [...validWords].sort((a, b) => {
+    try {
+      const wa = getWordStr(a).toLowerCase();
+      const wb = getWordStr(b).toLowerCase();
+      return wa.localeCompare(wb);
+    } catch (e) {
+      return 0;
+    }
+  });
+  
+  const displayWords = limit ? sorted.slice(0, limit) : sorted;
+  
+  return (
     <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
-              {displayWords.map(word => {
-                  const wordStr = getWordStr(word);
-                  return (
-                      <div key={wordStr} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", textTransform: "none", width: "100%", boxSizing: "border-box" }}>
-                          
-                          {/* 1. Phần Bấm vào Chữ để mở Modal */}
-                          <span
-                           onTouchStart={(e) => {
-                                    if (!isModal) return;
-                                    let isLongPress = false;
-                                    const timer = setTimeout(() => {
-                                        isLongPress = true;
-                                        setSelectedToDelete(prev => {
-                                        const next = new Set(prev);
-                                        next.has(wordStr) ? next.delete(wordStr) : next.add(wordStr);
-                                        return next;
-                                    });
-                                }, 500);
-                                e.currentTarget._longPressTimer = timer;
-                                e.currentTarget._isLongPress = false;
-                                e.currentTarget._longPressTimer2 = () => isLongPress;
-                            }}
-                            onTouchEnd={(e) => {
-                                  if (!isModal) return;
-                                  clearTimeout(e.currentTarget._longPressTimer);
-                                  const wasLongPress = e.currentTarget._longPressTimer2?.();
-                                  if (wasLongPress) {
-                                    e.preventDefault(); // Chặn click sau long press, KHÔNG toggle lại
-                                    return;
-                                }
-                                // Nếu đang ở chế độ chọn nhiều và chỉ tap nhẹ -> toggle từ đó
-                                if (selectedToDelete.size > 0) {
-                                    e.preventDefault();
-                                    setSelectedToDelete(prev => {
-                                        const next = new Set(prev);
-                                        next.has(wordStr) ? next.delete(wordStr) : next.add(wordStr);
-                                        return next;
-                                    });
-                                }
-                            }}
-                            onClick={(e) => {
-                                  if (isModal && (e.ctrlKey || e.metaKey)) {
-                                      e.stopPropagation();
-                                      setSelectedToDelete(prev => {
-                                          const next = new Set(prev);
-                                          next.has(wordStr) ? next.delete(wordStr) : next.add(wordStr);
-                                          return next;
-                                      });
-                                  } else if (selectedToDelete.size === 0) {
-                                      openDetail(wordStr, listType);
-                                  }
-                              }}
-                              style={{
-                                  padding: "6px 12px", borderRadius: "20px", fontSize: "14px", wordBreak: "break-word", textAlign: "center", flex: "0 1 70%", minWidth: 0,
-                                  backgroundColor: selectedToDelete.has(wordStr) ? "#ffebee" : bgColor,
-                                  color: selectedToDelete.has(wordStr) ? "#f44336" : color,
-                                  fontWeight: "500", cursor: "pointer",
-                                  border: selectedToDelete.has(wordStr) ? "2px solid #f44336" : `1px solid ${color}80`,
-                                  boxShadow: selectedToDelete.has(wordStr) ? "0 0 0 2px #ffcdd2" : "0 2px 4px rgba(0,0,0,0.05)",
-                                  transition: "all 0.15s"
-                              }}>
-                              {selectedToDelete.has(wordStr) ? "✓ " : ""}{wordStr}
-                          </span>
-                          
-                          {/* 2. Cụm Nút Bấm Chức Năng (V và X) */}
-                          <div style={{ display: "flex", gap: "2px", flexShrink: 0 }}>
-                              
-                              {/* NÚT V (Hiện ở cả Ô Đỏ và Ô Vàng) */}
-                              {(listType === "wrongWords" || listType === "savedWords") && (
-                                  <button 
-                                      onClick={(e) => { 
-                                          e.stopPropagation(); 
-                                          if (listType === "wrongWords") {
-                                              onMoveWord(activeTab, "wrongWords", "savedWords", wordStr); // Đỏ -> Vàng
-                                          } else if (listType === "savedWords") {
-                                              onMoveWord(activeTab, "savedWords", "masteredWords", wordStr); // Vàng -> Xanh
-                                          }
-                                      }}
-                                      style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "#4CAF50", color: "white", border: "1px solid white", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontWeight: "bold", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}
-                                      title={listType === "wrongWords" ? "Đã sửa sai -> Chuyển lên Ô Vàng" : "Đã thuộc -> Chuyển xuống Ô Xanh"}
-                                  >✓</button>
-                              )}
-                              
-                              {/* NÚT X (Luôn luôn là XÓA VĨNH VIỄN) */}
-                              <button 
-                                  onClick={(e) => { 
-                                      e.stopPropagation(); 
-                                      onRemoveWord(activeTab, listType, wordStr); 
-                                  }} 
-                                  style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: color, color: "white", border: "1px solid white", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontWeight: "bold", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}
-                                  title="Xóa vĩnh viễn khỏi Sổ tay"
-                              >×</button>
-                          </div>
-                      </div>
-                  );
-              })}
+      {displayWords.map(word => {
+        const wordStr = getWordStr(word);
+        if (!wordStr) return null;
+        return (
+          <div key={wordStr} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", textTransform: "none", width: "100%", boxSizing: "border-box" }}>
               
-              {/* Nút Xem Thêm */}
-              {limit && wordsArray.length > limit && (
-                  <span onClick={() => { playSound("click"); setViewAllModal({ title: activeTab === "grammar" ? "📘 Cấu trúc đã lưu" : "Tất cả mục", words: wordsArray, color, bgColor, listType }); }} style={{ padding: "6px 12px", borderRadius: "20px", fontSize: "13px", backgroundColor: "#f5f5f5", color: "#666", cursor: "pointer", border: "1px dashed #ccc", display: "inline-flex", alignItems: "center" }}>
-                      +{wordsArray.length - limit} xem thêm
-                  </span>
-              )}
-          </div>
-      );
+              {/* 1. Phần Bấm vào Chữ để mở Modal */}
+              <span
+                onTouchStart={(e) => {
+                  if (!isModal) return;
+                  let isLongPress = false;
+                  const timer = setTimeout(() => {
+                    isLongPress = true;
+                    setSelectedToDelete(prev => {
+                      const next = new Set(prev);
+                      next.has(wordStr) ? next.delete(wordStr) : next.add(wordStr);
+                      return next;
+                    });
+                  }, 500);
+                  e.currentTarget._longPressTimer = timer;
+                  e.currentTarget._isLongPress = false;
+                  e.currentTarget._longPressTimer2 = () => isLongPress;
+                }}
+                onTouchEnd={(e) => {
+                  if (!isModal) return;
+                  clearTimeout(e.currentTarget._longPressTimer);
+                  const wasLongPress = e.currentTarget._longPressTimer2?.();
+                  if (wasLongPress) {
+                    e.preventDefault();
+                    return;
+                  }
+                  if (selectedToDelete.size > 0) {
+                    e.preventDefault();
+                    setSelectedToDelete(prev => {
+                      const next = new Set(prev);
+                      next.has(wordStr) ? next.delete(wordStr) : next.add(wordStr);
+                      return next;
+                    });
+                  }
+                }}
+                onClick={(e) => {
+                  if (isModal && (e.ctrlKey || e.metaKey)) {
+                    e.stopPropagation();
+                    setSelectedToDelete(prev => {
+                      const next = new Set(prev);
+                      next.has(wordStr) ? next.delete(wordStr) : next.add(wordStr);
+                      return next;
+                    });
+                  } else if (selectedToDelete.size === 0) {
+                    openDetail(wordStr, listType);
+                  }
+                }}
+                style={{
+                  padding: "6px 12px", borderRadius: "20px", fontSize: "14px", wordBreak: "break-word", textAlign: "center", flex: "0 1 70%", minWidth: 0,
+                  backgroundColor: selectedToDelete.has(wordStr) ? "#ffebee" : bgColor,
+                  color: selectedToDelete.has(wordStr) ? "#f44336" : color,
+                  fontWeight: "500", cursor: "pointer",
+                  border: selectedToDelete.has(wordStr) ? "2px solid #f44336" : `1px solid ${color}80`,
+                  boxShadow: selectedToDelete.has(wordStr) ? "0 0 0 2px #ffcdd2" : "0 2px 4px rgba(0,0,0,0.05)",
+                  transition: "all 0.15s"
+                }}>
+                {selectedToDelete.has(wordStr) ? "✓ " : ""}{wordStr}
+              </span>
+              
+              {/* 2. Cụm Nút Bấm Chức Năng (V và X) */}
+              <div style={{ display: "flex", gap: "2px", flexShrink: 0 }}>
+                
+                {/* NÚT V (Hiện ở cả Ô Đỏ và Ô Vàng) */}
+                {(listType === "wrongWords" || listType === "savedWords") && (
+                  <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      if (listType === "wrongWords") {
+                        onMoveWord(activeTab, "wrongWords", "savedWords", wordStr);
+                      } else if (listType === "savedWords") {
+                        onMoveWord(activeTab, "savedWords", "masteredWords", wordStr);
+                      }
+                    }}
+                    style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "#4CAF50", color: "white", border: "1px solid white", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontWeight: "bold", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}
+                    title={listType === "wrongWords" ? "Đã sửa sai -> Chuyển lên Ô Vàng" : "Đã thuộc -> Chuyển xuống Ô Xanh"}
+                  >✓</button>
+                )}
+                
+                {/* NÚT X (Luôn luôn là XÓA VĨNH VIỄN) */}
+                <button 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    onRemoveWord(activeTab, listType, wordStr); 
+                  }} 
+                  style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: color, color: "white", border: "1px solid white", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontWeight: "bold", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}
+                  title="Xóa vĩnh viễn khỏi Sổ tay"
+                >×</button>
+              </div>
+            </div>
+          );
+        })}
+        
+        {/* Nút Xem Thêm */}
+        {limit && validWords.length > limit && (
+          <span onClick={() => { playSound("click"); setViewAllModal({ title: activeTab === "grammar" ? "📘 Cấu trúc đã lưu" : "Tất cả mục", words: validWords, color, bgColor, listType }); }} style={{ padding: "6px 12px", borderRadius: "20px", fontSize: "13px", backgroundColor: "#f5f5f5", color: "#666", cursor: "pointer", border: "1px dashed #ccc", display: "inline-flex", alignItems: "center" }}>
+            +{validWords.length - limit} xem thêm
+          </span>
+        )}
+      </div>
+    );
   };
 
   const renderWordList = (title, words, icon, color, bgColor, listType) => (
@@ -5494,16 +5571,24 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
           📋 Nhập AI ngoài
         </button>
         {activeTab === "grammar" && (
-          <label style={{ padding:"8px 14px", background:"#e3f2fd", color:"#1565c0", border:"1px dashed #90caf9", borderRadius:"10px", fontWeight:"bold", cursor:"pointer", fontSize:"13px", whiteSpace:"nowrap" }}>
-            📄 Upload .docx
-            <input type="file" accept=".docx" style={{ display:"none" }} onChange={(e) => { const f=e.target.files[0]; if(f && onUploadGrammarFile){ onUploadGrammarFile(f); e.target.value=""; } }} />
-          </label>
+          <>
+            <button 
+              onClick={() => { playSound("click"); setShowGrammarJsonModal(true); setGrammarJsonModalStep(1); setGrammarJsonWordsInput(""); setGrammarJsonPasteInput(""); setGrammarJsonSaveStatus(""); }}
+              style={{ padding:"8px 14px", background:"#e3f2fd", color:"#1565c0", border:"1px dashed #2196F3", borderRadius:"10px", fontWeight:"bold", cursor:"pointer", fontSize:"13px", fontFamily:"inherit", whiteSpace:"nowrap" }}>
+              📋 Nhập JSON từ AI
+            </button>
+            
+            <label style={{ padding:"8px 14px", background:"#e3f2fd", color:"#1565c0", border:"1px dashed #90caf9", borderRadius:"10px", fontWeight:"bold", cursor:"pointer", fontSize:"13px", whiteSpace:"nowrap" }}>
+              📄 Upload .docx
+              <input type="file" accept=".docx" style={{ display:"none" }} onChange={(e) => { const f=e.target.files[0]; if(f && onUploadGrammarFile){ onUploadGrammarFile(f); e.target.value=""; } }} />
+            </label>
+          </>
         )}
       </div>
 
       {/* ===== HÀNG 2.5: DANH SÁCH FILE NGỮ PHÁP (CHỈ HIỆN KHI TAB GRAMMAR) ===== */}
       {activeTab === "grammar" && customGrammarNotes.length > 0 && (
-        <GrammarNotesPanel notes={customGrammarNotes} currentUser={currentUser} />
+        <GrammarNotesPanel notes={customGrammarNotes} currentUser={currentUser} onSaveWord={onSaveWord} />
       )}
 
       {/* ===== HÀNG 3: 3 CỘT TỪ VỰNG ===== */}
@@ -5587,6 +5672,84 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
               </div>
             </>)}
             <button onClick={() => setShowJsonModal(false)} style={{ width:"100%", marginTop:"12px", padding:"10px", backgroundColor:"#f5f5f5", color:"#666", border:"none", borderRadius:"8px", cursor:"pointer", fontWeight:"bold" }}>✕ Đóng</button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL JSON 3 BƯỚC CHO NGỮ PHÁP */}
+      {showGrammarJsonModal && (
+        <div onClick={() => setShowGrammarJsonModal(false)} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", backgroundColor:"rgba(0,0,0,0.6)", zIndex:1200, display:"flex", justifyContent:"center", alignItems:"center", padding:"16px", boxSizing:"border-box" }}>
+          <div onClick={e => e.stopPropagation()} style={{ backgroundColor:"white", width:"100%", maxWidth:"500px", borderRadius:"16px", padding:"22px", animation:"popIn 0.3s", boxShadow:"0 10px 30px rgba(0,0,0,0.3)", maxHeight:"90vh", overflowY:"auto" }}>
+            <h3 style={{ margin:"0 0 6px 0", color:"#1565c0" }}>📋 Nhập câu hỏi ngữ pháp từ AI ngoài</h3>
+            <p style={{ margin:"0 0 14px 0", fontSize:"13px", color:"#888" }}>Dùng khi API key hết quota hoặc muốn tự tạo đề</p>
+            
+            <div style={{ display:"flex", gap:"6px", marginBottom:"18px" }}>
+              {[1,2,3].map(s => <div key={s} style={{ flex:1, height:"4px", borderRadius:"2px", backgroundColor: grammarJsonModalStep>=s ? "#2196F3":"#e0e0e0", transition:"0.3s" }} />)}
+            </div>
+            
+            {grammarJsonModalStep === 1 && (
+              <>
+                <p style={{ fontWeight:"bold", color:"#333", marginBottom:"8px" }}>Bước 1: Nhập chủ đề / điểm ngữ pháp</p>
+                <textarea 
+                  value={grammarJsonWordsInput} 
+                  onChange={e => setGrammarJsonWordsInput(e.target.value)} 
+                  placeholder={"VD: Câu điều kiện loại 2, Bị động thì hiện tại hoàn thành, So sánh hơn, Động từ khuyết thiếu, Mệnh đề quan hệ..."} 
+                  rows={5} 
+                  style={{ width:"100%", padding:"10px", borderRadius:"8px", border:"1px solid #ccc", fontSize:"14px", boxSizing:"border-box", resize:"vertical", outline:"none", fontFamily:"inherit" }} 
+                />
+                <button 
+                  disabled={!grammarJsonWordsInput.trim()} 
+                  onClick={() => { playSound("click"); setGrammarJsonModalStep(2); }} 
+                  style={{ width:"100%", marginTop:"12px", padding:"12px", backgroundColor: grammarJsonWordsInput.trim()?"#2196F3":"#ccc", color:"white", border:"none", borderRadius:"8px", fontWeight:"bold", cursor: grammarJsonWordsInput.trim()?"pointer":"not-allowed" }}>
+                  Tiếp theo →
+                </button>
+              </>
+            )}
+            
+            {grammarJsonModalStep === 2 && (
+              <>
+                <p style={{ fontWeight:"bold", color:"#333", marginBottom:"8px" }}>Bước 2: Copy prompt → paste vào AI</p>
+                <textarea 
+                  readOnly 
+                  value={getPromptForGrammar(grammarJsonWordsInput.trim())} 
+                  rows={12} 
+                  style={{ width:"100%", padding:"10px", borderRadius:"8px", border:"1px solid #90caf9", fontSize:"12px", boxSizing:"border-box", backgroundColor:"#f0f8ff", fontFamily:"monospace", resize:"none", outline:"none", color:"#1565c0" }} 
+                />
+                <button 
+                  onClick={() => { 
+                    navigator.clipboard.writeText(getPromptForGrammar(grammarJsonWordsInput.trim())); 
+                    playSound("click"); 
+                    alert("✅ Đã copy! Mở ChatGPT/Gemini/Claude → paste → gửi → copy JSON về."); 
+                  }} 
+                  style={{ width:"100%", marginTop:"10px", padding:"12px", backgroundColor:"#2196F3", color:"white", border:"none", borderRadius:"8px", fontWeight:"bold", cursor:"pointer" }}>
+                  📋 Copy Prompt
+                </button>
+                <div style={{ display:"flex", gap:"8px", marginTop:"8px" }}>
+                  <button onClick={() => setGrammarJsonModalStep(1)} style={{ flex:1, padding:"10px", backgroundColor:"#e0e0e0", color:"#333", border:"none", borderRadius:"8px", fontWeight:"bold", cursor:"pointer" }}>← Quay lại</button>
+                  <button onClick={() => { playSound("click"); setGrammarJsonModalStep(3); }} style={{ flex:2, padding:"10px", backgroundColor:"#FF9800", color:"white", border:"none", borderRadius:"8px", fontWeight:"bold", cursor:"pointer" }}>Đã có JSON →</button>
+                </div>
+              </>
+            )}
+            
+            {grammarJsonModalStep === 3 && (
+              <>
+                <p style={{ fontWeight:"bold", color:"#333", marginBottom:"8px" }}>Bước 3: Paste JSON từ AI vào đây</p>
+                <textarea 
+                  value={grammarJsonPasteInput} 
+                  onChange={e => { setGrammarJsonPasteInput(e.target.value); setGrammarJsonSaveStatus(""); }} 
+                  placeholder={'[\n  {\n    "question": "Câu hỏi...",\n    "options": ["A", "B", "C", "D"],\n    "answer": "Đáp án đúng",\n    "explanation": {...}\n  }\n]'} 
+                  rows={12} 
+                  style={{ width:"100%", padding:"10px", borderRadius:"8px", border:"1px solid #ccc", fontSize:"12px", boxSizing:"border-box", fontFamily:"monospace", resize:"vertical", outline:"none" }} 
+                />
+                {grammarJsonSaveStatus && <p style={{ margin:"8px 0 0 0", fontWeight:"bold", color: grammarJsonSaveStatus.startsWith("✅")?"#4CAF50":"#f44336" }}>{grammarJsonSaveStatus}</p>}
+                <div style={{ display:"flex", gap:"8px", marginTop:"10px" }}>
+                  <button onClick={() => setGrammarJsonModalStep(2)} style={{ flex:1, padding:"10px", backgroundColor:"#e0e0e0", color:"#333", border:"none", borderRadius:"8px", fontWeight:"bold", cursor:"pointer" }}>← Quay lại</button>
+                  <button disabled={!grammarJsonPasteInput.trim()} onClick={handleSaveGrammarJson} style={{ flex:2, padding:"10px", backgroundColor: grammarJsonPasteInput.trim()?"#4CAF50":"#ccc", color:"white", border:"none", borderRadius:"8px", fontWeight:"bold", cursor: grammarJsonPasteInput.trim()?"pointer":"not-allowed" }}>💾 Lưu vào Sổ Tay</button>
+                </div>
+              </>
+            )}
+            
+            <button onClick={() => setShowGrammarJsonModal(false)} style={{ width:"100%", marginTop:"12px", padding:"10px", backgroundColor:"#f5f5f5", color:"#666", border:"none", borderRadius:"8px", cursor:"pointer", fontWeight:"bold" }}>✕ Đóng</button>
           </div>
         </div>
       )}
@@ -6431,9 +6594,21 @@ ${part === "part6" ? "Đoạn văn có 4 chỗ trống ___1___ ___2___ ___3___ _
     
     const currentState = globalStats[type] || {};
 
-    // MÁY QUÉT X-QUANG: Xóa chữ hoa, xóa khoảng trắng thừa, lột sạch các tag loại từ (n), (v)...
-    const normalizeWord = (w) => w ? w.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim() : "";
+    // Tìm hàm normalizeWord (khoảng dòng 6646) và thay thế bằng code sau:
 
+    const normalizeWord = (w) => {
+      if (!w) return "";
+      if (typeof w === 'string') return w.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
+      // Nếu là object (câu hỏi grammar), lấy trường question hoặc word
+      if (typeof w === 'object') {
+        const text = w.question || w.word || "";
+        if (typeof text === 'string') {
+          return text.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
+        }
+        return "";
+      }
+      return "";
+    };
     const updatePayload = {
       [`${type}.correct`]: newCorrect,
       [`${type}.total`]: newTotal
@@ -6497,67 +6672,76 @@ ${part === "part6" ? "Đoạn văn có 4 chỗ trống ___1___ ___2___ ___3___ _
   }
 
 
-  // --- TÍNH NĂNG MỚI: LƯU TỪ VÀ ĐỊNH NGHĨA AI (HỖ TRỢ LƯU SỈ 1 LÚC NHIỀU TỪ CHỐNG GHI ĐÈ) ---
-  const handleSaveDifficultWord = async (type, wordDataOrArray) => {
-    if (!currentUser) return;
-    playSound("click");
+const handleSaveDifficultWord = async (type, wordDataOrArray) => {
+  if (!currentUser) return;
+  playSound("click");
 
-    const normalizeWord = (w) => w ? w.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim() : "";
-    
-    // ĐÃ FIX: Chuyển thành mảng để xử lý chung (dù truyền vào 1 từ hay 10 từ)
-    const wordsToProcess = Array.isArray(wordDataOrArray) ? wordDataOrArray : [wordDataOrArray];
-
-    try {
-        const currentState = globalStats[type] || {};
-        let cleanSaved = [...(currentState.savedWords || [])];
-        let cleanWrong = [...(currentState.wrongWords || [])];
-        let cleanMastered = [...(currentState.masteredWords || [])];
-        let cleanObjs = [...(currentState.addedWordsObj || [])];
-
-        // Lắp từng từ vào mảng cục bộ trước
-        for (let wordData of wordsToProcess) {
-            const isFromAI = typeof wordData === "object";
-            const wordStr = isFromAI ? wordData.word : wordData;
-            const normStr = normalizeWord(wordStr);
-
-            // Càn quét và lọc sạch biến thể của từ này ở 3 Ô
-            cleanSaved = cleanSaved.filter(w => normalizeWord(w) !== normStr);
-            cleanWrong = cleanWrong.filter(w => normalizeWord(w) !== normStr);
-            cleanMastered = cleanMastered.filter(w => normalizeWord(w) !== normStr);
-
-            // Đưa từ chuẩn mới nhất vào đúng Ô Vàng
-            cleanSaved.push(wordStr);
-            
-            if (isFromAI) {
-                cleanObjs = cleanObjs.filter(obj => normalizeWord(obj.word) !== normStr);
-                cleanObjs.push(wordData);
-            }
-        }
-
-        // Đẩy lên Firebase 1 lần duy nhất cho toàn bộ mảng
-        const updatePayload = {
-            [`${type}.savedWords`]: cleanSaved,
-            [`${type}.wrongWords`]: cleanWrong,
-            [`${type}.masteredWords`]: cleanMastered,
-            [`${type}.addedWordsObj`]: cleanObjs
-        };
-
-        await updateDoc(doc(db, "users", currentUser.uid), updatePayload);
-        
-        setGlobalStats(prev => {
-            const newState = { ...prev };
-            newState[type] = { 
-                ...newState[type], 
-                savedWords: cleanSaved, 
-                wrongWords: cleanWrong, 
-                masteredWords: cleanMastered,
-                addedWordsObj: cleanObjs
-            };
-            return newState;
-        });
-    } catch(e) { console.error("Lỗi lưu từ:", e); }
+  const normalizeWord = (w) => {
+    if (!w) return "";
+    if (typeof w === 'string') return w.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
+    if (typeof w === 'object') {
+      const text = w.question || w.word || "";
+      if (typeof text === 'string') {
+        return text.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
+      }
+      return "";
+    }
+    return "";
   };
+  
+  // ĐÃ FIX: Chuyển thành mảng để xử lý chung (dù truyền vào 1 từ hay 10 từ)
+  const wordsToProcess = Array.isArray(wordDataOrArray) ? wordDataOrArray : [wordDataOrArray];
 
+  try {
+      const currentState = globalStats[type] || {};
+      let cleanSaved = [...(currentState.savedWords || [])];
+      let cleanWrong = [...(currentState.wrongWords || [])];
+      let cleanMastered = [...(currentState.masteredWords || [])];
+      let cleanObjs = [...(currentState.addedWordsObj || [])];
+
+      // Lắp từng từ vào mảng cục bộ trước
+      for (let wordData of wordsToProcess) {
+          const isFromAI = typeof wordData === "object";
+          const wordStr = isFromAI ? (wordData.word || wordData.question) : wordData;
+          const normStr = normalizeWord(wordStr);
+
+          // Càn quét và lọc sạch biến thể của từ này ở 3 Ô
+          cleanSaved = cleanSaved.filter(w => normalizeWord(w) !== normStr);
+          cleanWrong = cleanWrong.filter(w => normalizeWord(w) !== normStr);
+          cleanMastered = cleanMastered.filter(w => normalizeWord(w) !== normStr);
+
+          // Đưa từ chuẩn mới nhất vào đúng Ô Vàng
+          cleanSaved.push(wordStr);
+          
+          if (isFromAI) {
+              cleanObjs = cleanObjs.filter(obj => normalizeWord(obj.word || obj.question) !== normStr);
+              cleanObjs.push(wordData);
+          }
+      }
+
+      // Đẩy lên Firebase 1 lần duy nhất cho toàn bộ mảng
+      const updatePayload = {
+          [`${type}.savedWords`]: cleanSaved,
+          [`${type}.wrongWords`]: cleanWrong,
+          [`${type}.masteredWords`]: cleanMastered,
+          [`${type}.addedWordsObj`]: cleanObjs
+      };
+
+      await updateDoc(doc(db, "users", currentUser.uid), updatePayload);
+      
+      setGlobalStats(prev => {
+          const newState = { ...prev };
+          newState[type] = { 
+              ...newState[type], 
+              savedWords: cleanSaved, 
+              wrongWords: cleanWrong, 
+              masteredWords: cleanMastered,
+              addedWordsObj: cleanObjs
+          };
+          return newState;
+      });
+  } catch(e) { console.error("Lỗi lưu từ:", e); }
+};
 
   // === HÀM MỚI: UPLOAD FILE WORD NGỮ PHÁP + SO SÁNH NỘI DUNG MỚI ===
   const handleUploadGrammarFile = async (file) => {
