@@ -2899,7 +2899,7 @@ return (
 // =======================================================================
 // COMPONENT MỚI: NGỮ PHÁP TÍCH HỢP AI CHUẨN ETS + TRA TỪ ĐIỂN BÔI ĐEN
 // =======================================================================
-function GrammarQuiz({ onBack, updateGlobal, onSaveWord, settings, learnedQuestions, globalStats, customGrammarNotes = [], selectedNoteId = null }) {
+function GrammarQuiz({ onBack, updateGlobal, onSaveWord, onMoveWord, settings, learnedQuestions, globalStats, customGrammarNotes = [], selectedNoteId = null }) {
 
   const DIFFICULTY_LEVEL = settings.difficultyLevel;
   const QUIZ_LIMIT = settings.quizLimit; 
@@ -2925,6 +2925,9 @@ function GrammarQuiz({ onBack, updateGlobal, onSaveWord, settings, learnedQuesti
   const [elapsedTime, setElapsedTime] = useState(0); // Đếm thời gian đã làm
   const [answerStatus, setAnswerStatus] = useState(null); 
   const [streak, setStreak] = useState(0);
+  
+  const [hasError, setHasError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   // --- TÍNH NĂNG MỚI: STATE CHO TỪ ĐIỂN ---
   const [vocabDict, setVocabDict] = useState([]); // Chứa data từ Google Sheet
@@ -3424,18 +3427,38 @@ const handleSelection = (e) => {
 
           // Lỗi 503: Server quá tải tạm thời → đợi rồi thử lại, KHÔNG rotate key
           const retryCountRef = useRef(0);
+          // Lỗi 503: Server quá tải tạm thời
           if (code === 503 || msg.includes("high demand") || msg.includes("service unavailable") || msg.includes("overloaded")) {
-            retryCountRef.current += 1;
-            if (retryCountRef.current > 4) { // Tối đa 4 lần (~12 giây)
-              retryCountRef.current = 0;
-              alert("Server AI đang quá tải, vui lòng thử lại sau ít phút!");
-              onBack();
+              retryCountRef.current += 1;
+              
+              // THỬ LẠI TỐI ĐA 2 LẦN, SAU ĐÓ FALLBACK VÀO NOTEBOOK
+              if (retryCountRef.current <= 5) {
+                  setLoadingMsg(`🔄 Server AI đang bận, thử lại lần ${retryCountRef.current}/2...`);
+                  await new Promise(r => setTimeout(r, 2000));
+                  isFetchingRef.current = false;
+                  return fetchGrammarFromAI.current();
+              }
+              
+              // SAU 2 LẦN THẤT BẠI → FALLBACK VÀO SỔ TAY
+              console.log("⚠️ AI quá tải, fallback vào Sổ tay");
+              const allNotebookQuestions = [
+                  ...wrongQuestions,
+                  ...savedQuestions,
+                  ...masteredQuestions
+              ];
+              
+              if (allNotebookQuestions.length > 0) {
+                  const fallbackPool = shuffleArray(allNotebookQuestions).slice(0, QUIZ_LIMIT);
+                  setQuestionsData(fallbackPool);
+                  setLoadingData(false);
+                  return;
+              }
+              
+              // Không có gì trong sổ tay thì mới báo lỗi
+              setHasError(true);
+              setErrorMessage("Server AI đang quá tải và Sổ tay chưa có câu hỏi nào. Vui lòng thử lại sau!");
+              setLoadingData(false);
               return;
-            }
-            setLoadingMsg(`🔄 Server AI đang bận, thử lại lần ${retryCountRef.current}/4...`);
-            await new Promise(r => setTimeout(r, 3000));
-            isFetchingRef.current = false;
-            return fetchGrammarFromAI.current();
           }
 
           // Lỗi quota / hết key → rotate sang key khác
@@ -3705,24 +3728,10 @@ const handleSelection = (e) => {
     setAnswerStatus({ type: "correct", streak: newStreak, text: msg });
     if (DIFFICULTY_LEVEL === 4) setGlobalTime(t => t + 5); 
   } else {
-    // Sai → lưu vào ô đỏ
-    const isInSaved = savedQuestions.some(q => q.question === currentQ.question);
-    const isInWrong = wrongQuestions.some(q => q.question === currentQ.question);
-
-    if (isInSaved) {
-      await onMoveWord("grammar", "savedWords", "wrongWords", currentQ);
-      setSavedQuestions(prev => prev.filter(q => q.question !== currentQ.question));
-      setWrongQuestions(prev => [...prev, currentQ]);
-    } else if (!isInWrong) {
-      // Câu mới làm sai lần đầu → lưu thẳng vào ô đỏ
-      const qToSave = { ...currentQ, toeicPart: TOEIC_PART };
-      await onSaveWord("grammar", [qToSave]);
-      await onMoveWord("grammar", "savedWords", "wrongWords", qToSave);
-      setWrongQuestions(prev => [...prev, qToSave]);
-    }
-
+    // ===== HIỂN THỊ KẾT QUẢ NGAY LẬP TỨC =====
     playSound(isTimeout ? "timeout" : "wrong");
     setStreak(0); 
+    
     if (DIFFICULTY_LEVEL === 3) {
         setLives(l => l - 1); 
         setAnswerStatus({ type: "wrong", streak: 0, text: isTimeout ? "⏰ Hết giờ! -1 ❤️" : "❌ Chọn sai! -1 ❤️" });
@@ -3731,23 +3740,26 @@ const handleSelection = (e) => {
         setAnswerStatus({ type: "wrong", streak: 0, text: "❌ Sai cấu trúc! Bị trừ 10 giây!" });
     } else {
         setAnswerStatus({ type: "wrong", streak: 0, text: isTimeout ? "⏰ Hết giờ mất rồi!" : encourages[Math.floor(Math.random() * encourages.length)] });
-        setQuestionsData((prev) => {
-          const newData = [...prev];
-          const remaining = newData.length - current - 1;
-          let insertIndex = newData.length; 
-          if (remaining > 3) insertIndex = current + 2 + Math.floor(Math.random() * (remaining - 1));
-          const origItem = newData[current];
-          const shuffledOpts = shuffleArray([...(origItem.options || [])]);
-          const penaltyItem = {
-            ...origItem,
-            options: shuffledOpts.includes(origItem.answer) ? shuffledOpts : [...(origItem.options || [])],
-            answer: origItem.answer,
-          };
-          newData.splice(insertIndex, 0, penaltyItem);
-          return newData;
-        });
+        
     }
-  }
+    
+    // ===== LƯU VÀO FIREBASE SAU (KHÔNG AWAIT, CHẠY NGẦM) =====
+    const isInSaved = savedQuestions.some(q => q.question === currentQ.question);
+    const isInWrong = wrongQuestions.some(q => q.question === currentQ.question);
+
+    if (isInSaved) {
+      // Chạy ngầm, không await
+      onMoveWord("grammar", "savedWords", "wrongWords", currentQ).catch(console.error);
+      setSavedQuestions(prev => prev.filter(q => q.question !== currentQ.question));
+      setWrongQuestions(prev => [...prev, currentQ]);
+    } else if (!isInWrong) {
+      const qToSave = { ...currentQ, toeicPart: TOEIC_PART };
+      // Chạy ngầm, không await
+      onSaveWord("grammar", [qToSave]).catch(console.error);
+      onMoveWord("grammar", "savedWords", "wrongWords", qToSave).catch(console.error);
+      setWrongQuestions(prev => [...prev, qToSave]);
+    }
+}
 };
 
   const nextQuestion = () => {
@@ -3759,6 +3771,23 @@ const handleSelection = (e) => {
     setTimeLeft(IS_FREE_MODE ? null : TIME_PER_QUESTION);
     if (nextIdx >= questionsData.length && DIFFICULTY_LEVEL < 3) playSound("finish");
   };
+
+  // Thêm vào trước if (loadingData)
+  if (hasError) {
+    return (
+      <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"linear-gradient(135deg,#ffebee,#fce4ec)", padding:"20px", textAlign:"center" }}>
+        <div style={{ maxWidth: "400px" }}>
+          <div style={{ fontSize: "64px", marginBottom: "16px" }}>⚠️</div>
+          <h2 style={{ color: "#c62828", marginBottom: "12px" }}>Lỗi kết nối AI</h2>
+          <p style={{ color: "#666", marginBottom: "24px" }}>{errorMessage}</p>
+          <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+            <button onClick={() => window.location.reload()} style={{ padding: "12px 24px", background: "#4CAF50", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" }}>🔄 Thử lại</button>
+            <button onClick={onBack} style={{ padding: "12px 24px", background: "#1565c0", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" }}>🏠 Về trang chủ</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // GIAO DIỆN CHỜ AI SOẠN ĐỀ (ĐÃ NÂNG CẤP CHUẨN APP CHUYÊN NGHIỆP)
   if (loadingData) {
@@ -3808,6 +3837,23 @@ const handleSelection = (e) => {
           </div>
         </div>
         
+      </div>
+    );
+  }
+
+    if (questionsData.length === 0 && !loadingData && !hasError) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", padding: "20px", textAlign: "center", background: "linear-gradient(135deg,#e3f2fd,#f0f7ff)" }}>
+        <div style={{ fontSize: "48px" }}>🤖</div>
+        <h2 style={{ color: "#1565c0" }}>Server AI đang quá tải</h2>
+        <p style={{ color: "#666", maxWidth: "400px" }}>
+          Google Gemini đang bận. Bạn có thể:
+        </p>
+        <ul style={{ textAlign: "left", color: "#555" }}>
+          <li>Thử lại sau 1-2 phút</li>
+          <li>Vào Sổ tay → Tab Ngữ Pháp → Thêm vài câu hỏi thủ công</li>
+        </ul>
+        <button onClick={onBack} style={{ padding: "12px 24px", background: "#1565c0", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>← Quay lại</button>
       </div>
     );
   }
@@ -4255,7 +4301,7 @@ return (
       </h2>
 
       <div className="options">
-        {currentQuestion.options.map((option, idx) => {
+        {(currentQuestion.options || []).map((option, idx) => {
           // Loại bỏ prefix khỏi option để hiển thị sạch
           const cleanOption = option.replace(/^\s*[A-Da-d][).:：\-]\s*/g, '').trim();
           return (
@@ -5052,6 +5098,13 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
   const [jsonPasteInput, setJsonPasteInput] = useState("");
   const [jsonModalStep, setJsonModalStep] = useState(1);
   const [jsonSaveStatus, setJsonSaveStatus] = useState("");
+    // --- TÍNH NĂNG MỚI: NHẬP CÂU HỎI TOEIC TỪ AI NGOÀI ---
+  const [showToeicJsonModal, setShowToeicJsonModal] = useState(false);
+  const [toeicJsonInput, setToeicJsonInput] = useState("");
+  const [toeicPartForJson, setToeicPartForJson] = useState("part5");
+  const [toeicJsonSaveStatus, setToeicJsonSaveStatus] = useState("");
+  const [selectedGrammarNoteForPrompt, setSelectedGrammarNoteForPrompt] = useState(""); // ← THÊM DÒNG NÀY
+
 
   const getPromptForWords = (wordsStr, tab) => {
     if (tab === "grammar") {
@@ -5401,11 +5454,29 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
                               
                               {/* NÚT X (Luôn luôn là XÓA VĨNH VIỄN) */}
                               <button 
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onTouchStart={(e) => e.stopPropagation()}
                                   onClick={(e) => { 
                                       e.stopPropagation(); 
+                                      e.preventDefault();
                                       onRemoveWord(activeTab, listType, wordStr); 
                                   }} 
-                                  style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: color, color: "white", border: "1px solid white", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontWeight: "bold", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}
+                                  style={{ 
+                                      width: "20px", 
+                                      height: "20px", 
+                                      borderRadius: "50%", 
+                                      backgroundColor: color, 
+                                      color: "white", 
+                                      border: "1px solid white", 
+                                      cursor: "pointer", 
+                                      fontSize: "11px", 
+                                      display: "flex", 
+                                      alignItems: "center", 
+                                      justifyContent: "center", 
+                                      padding: 0, 
+                                      fontWeight: "bold", 
+                                      boxShadow: "0 1px 3px rgba(0,0,0,0.3)" 
+                                  }}
                                   title="Xóa vĩnh viễn khỏi Sổ tay"
                               >×</button>
                           </div>
@@ -5489,10 +5560,22 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
             {isAdding ? "🤖 ..." : "➕ Thêm"}
           </button>
         </form>
-        <button onClick={() => { playSound("click"); setShowJsonModal(true); setJsonModalStep(1); setJsonWordsInput(""); setJsonPasteInput(""); setJsonSaveStatus(""); }}
+                <button onClick={() => { playSound("click"); setShowJsonModal(true); setJsonModalStep(1); setJsonWordsInput(""); setJsonPasteInput(""); setJsonSaveStatus(""); }}
           style={{ padding:"8px 14px", background:"#e8f5e9", color:"#2e7d32", border:"1px dashed #4CAF50", borderRadius:"10px", fontWeight:"bold", cursor:"pointer", fontSize:"13px", fontFamily:"inherit", whiteSpace:"nowrap" }}>
           📋 Nhập AI ngoài
         </button>
+        
+        {/* ===== THÊM NÚT NÀY ===== */}
+        {activeTab === "grammar" && (
+          <button 
+            onClick={() => { playSound("click"); setShowToeicJsonModal(true); setToeicJsonInput(""); setToeicJsonSaveStatus(""); }}
+            style={{ padding:"8px 14px", background:"#fff3e0", color:"#e65100", border:"1px dashed #FF9800", borderRadius:"10px", fontWeight:"bold", cursor:"pointer", fontSize:"13px", fontFamily:"inherit", whiteSpace:"nowrap" }}
+          >
+            📝 Nhập câu TOEIC
+          </button>
+        )}
+        {/* ===== KẾT THÚC THÊM ===== */}
+        
         {activeTab === "grammar" && (
           <label style={{ padding:"8px 14px", background:"#e3f2fd", color:"#1565c0", border:"1px dashed #90caf9", borderRadius:"10px", fontWeight:"bold", cursor:"pointer", fontSize:"13px", whiteSpace:"nowrap" }}>
             📄 Upload .docx
@@ -5531,10 +5614,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
             <span style={{ marginLeft:"auto", background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.wrongWords||[]).length}</span>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
-            {activeTab === "grammar"
-              ? <p style={{ color:"#bbb", fontSize:"13px", fontStyle:"italic", textAlign:"center", marginTop:"40px" }}>Không áp dụng cho Ngữ Pháp</p>
-              : renderTags(stats.wrongWords, "#F44336", "#ffebee", "wrongWords", null, true)
-            }
+            {renderTags(stats.wrongWords, "#F44336", "#ffebee", "wrongWords", null, true)}
           </div>
         </div>
 
@@ -5546,10 +5626,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
             <span style={{ marginLeft:"auto", background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.masteredWords||[]).length}</span>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
-            {activeTab === "grammar"
-              ? <p style={{ color:"#bbb", fontSize:"13px", fontStyle:"italic", textAlign:"center", marginTop:"40px" }}>Không áp dụng cho Ngữ Pháp</p>
-              : renderTags(stats.masteredWords, "#4CAF50", "#e8f5e9", "masteredWords", null, true)
-            }
+            {renderTags(stats.wrongWords, "#F44336", "#ffebee", "wrongWords", null, true)}
           </div>
         </div>
       </div>
@@ -5802,6 +5879,248 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
             </div>
         )
       })()}
+      {/* ===== THÊM MODAL MỚI VÀO ĐÂY ===== */}
+      {/* ===== MODAL NHẬP CÂU HỎI TOEIC TỪ AI NGOÀI ===== */}
+      {showToeicJsonModal && (
+        <div onClick={() => setShowToeicJsonModal(false)} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", backgroundColor:"rgba(0,0,0,0.6)", zIndex:1300, display:"flex", justifyContent:"center", alignItems:"center", padding:"16px", boxSizing:"border-box" }}>
+          <div onClick={e => e.stopPropagation()} style={{ backgroundColor:"white", width:"100%", maxWidth:"700px", borderRadius:"16px", padding:"22px", animation:"popIn 0.3s", boxShadow:"0 10px 30px rgba(0,0,0,0.3)", maxHeight:"90vh", overflowY:"auto" }}>
+            <h3 style={{ margin:"0 0 6px 0", color:"#e65100" }}>📝 Nhập câu hỏi TOEIC từ AI ngoài</h3>
+            <p style={{ margin:"0 0 14px 0", fontSize:"13px", color:"#888" }}>Copy prompt → Gửi AI → Paste JSON kết quả vào đây</p>
+            
+            {/* Chọn Part */}
+            <div style={{ marginBottom: "16px", display: "flex", alignItems: "center", gap: "12px" }}>
+              <span style={{ fontWeight: "bold", color: "#555", fontSize: "14px" }}>Chọn Part:</span>
+              {["part5", "part6", "part7"].map(part => (
+                <label key={part} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                  <input type="radio" name="toeicPart" value={part} checked={toeicPartForJson === part} onChange={(e) => setToeicPartForJson(e.target.value)} style={{ accentColor: "#FF9800" }} />
+                  <span style={{ textTransform: "uppercase", fontWeight: "bold", color: toeicPartForJson === part ? "#e65100" : "#888" }}>{part}</span>
+                </label>
+              ))}
+            </div>
+
+            {/* BƯỚC 1: COPY PROMPT */}
+            <div style={{ marginBottom: "20px", padding: "12px", backgroundColor: "#fff3e0", borderRadius: "10px", border: "1px solid #FF9800" }}>
+              <div style={{ fontWeight: "bold", color: "#e65100", marginBottom: "8px", fontSize: "13px" }}>
+                📋 Bước 1: Copy prompt bên dưới → Gửi vào AI kèm FILE WORD
+              </div>
+              
+              <p style={{ fontSize: "12px", color: "#666", marginBottom: "8px" }}>
+                ⚡ Prompt này sẽ yêu cầu AI tạo <strong>30 câu Part 5 + 30 câu Part 6 + 30 câu Part 7</strong> (tổng 90 câu) dựa trên nội dung file Word.
+              </p>
+              
+              {(() => {
+                // Prompt cố định yêu cầu 30 câu mỗi part
+                const promptText = `Bạn là chuyên gia luyện thi TOEIC chuẩn ETS.
+
+            Tôi sẽ gửi kèm FILE WORD chứa lý thuyết ngữ pháp. Hãy dựa vào nội dung file đó để tạo câu hỏi.
+
+            YÊU CẦU: Tạo chính xác:
+            - 30 câu hỏi PART 5 (hoàn thành câu, điền từ)
+            - 30 câu hỏi PART 6 (1 đoạn văn có 4 chỗ trống ___1___ ___2___ ___3___ ___4___)
+            - 30 câu hỏi PART 7 (đoạn văn đọc hiểu, mỗi đoạn 5 câu hỏi)
+
+            Trả về DUY NHẤT 1 OBJECT JSON với cấu trúc sau (KHÔNG có chữ thừa):
+
+            {
+              "part5": [
+                {
+                  "passage": "",
+                  "question": "Câu có ___ chỗ trống",
+                  "options": ["A) đáp án A", "B) đáp án B", "C) đáp án C", "D) đáp án D"],
+                  "answer": "B) đáp án B",
+                  "explanation": {
+                    "translation": "Dịch câu hoàn chỉnh sang tiếng Việt",
+                    "grammar_points": "Giải thích điểm ngữ pháp",
+                    "wrong_options": "- A) đáp án A: lý do sai\\n- C) đáp án C: lý do sai\\n- D) đáp án D: lý do sai",
+                    "key_vocab": "- từ 1: nghĩa\\n- từ 2: nghĩa"
+                  }
+                }
+              ],
+              "part6": [
+                {
+                  "doc_type": "text",
+                  "passage": "Đoạn văn có ___1___, ___2___, ___3___, ___4___",
+                  "questions": [
+                    {
+                      "question": "Câu 1: Chọn từ điền vào ô ___1___",
+                      "options": ["A) đáp án A", "B) đáp án B", "C) đáp án C", "D) đáp án D"],
+                      "answer": "B) đáp án B",
+                      "explanation": {
+                        "translation": "Dịch/giải thích ngữ cảnh",
+                        "grammar_points": "Điểm ngữ pháp",
+                        "wrong_options": "- A) đáp án A: lý do sai\\n- C) đáp án C: lý do sai\\n- D) đáp án D: lý do sai",
+                        "key_vocab": "- từ: nghĩa"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "part7": [
+                {
+                  "doc_type": "text",
+                  "passage": "Toàn bộ đoạn văn (email, thông báo, quảng cáo...)",
+                  "questions": [
+                    {
+                      "question": "What is the purpose of this email?",
+                      "options": ["A) đáp án A", "B) đáp án B", "C) đáp án C", "D) đáp án D"],
+                      "answer": "A) đáp án A",
+                      "explanation": {
+                        "translation": "Giải thích ngữ cảnh",
+                        "grammar_points": "Kỹ năng đọc hiểu",
+                        "wrong_options": "- B) đáp án B: lý do sai\\n- C) đáp án C: lý do sai\\n- D) đáp án D: lý do sai",
+                        "key_vocab": "- từ: nghĩa"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+
+            LƯU Ý QUAN TRỌNG:
+            - Part 5: Tạo ĐÚNG 30 câu, mỗi câu 1 chỗ trống
+            - Part 6: Tạo các đoạn văn sao cho TỔNG SỐ CÂU HỎI là 30 (ví dụ: 7 đoạn × 4 câu + 1 đoạn × 2 câu = 30)
+            - Part 7: Tạo các đoạn văn sao cho TỔNG SỐ CÂU HỎI là 30 (ví dụ: 6 đoạn × 5 câu = 30)
+            - CHỈ TRẢ VỀ JSON, KHÔNG giải thích gì thêm.`;
+                
+                return (
+                  <>
+                    <textarea
+                      readOnly
+                      value={promptText}
+                      rows={16}
+                      style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #FF9800", fontSize: "12px", fontFamily: "monospace", backgroundColor: "#fff", resize: "vertical", boxSizing: "border-box" }}
+                    />
+                    <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(promptText);
+                          playSound("click");
+                          alert("✅ Đã copy prompt!\n\n📌 CÁCH GỬI:\n1. Mở ChatGPT/Gemini/Claude\n2. Paste prompt này\n3. ĐÍNH KÈM FILE WORD\n4. Gửi và copy JSON kết quả");
+                        }}
+                        style={{ flex: 1, padding: "8px 12px", backgroundColor: "#FF9800", color: "white", border: "none", borderRadius: "6px", fontSize: "13px", cursor: "pointer", fontWeight: "bold" }}
+                      >
+                        📋 Copy Prompt
+                      </button>
+                    </div>
+                    <p style={{ margin: "8px 0 0 0", fontSize: "11px", color: "#666" }}>
+                      💡 AI sẽ trả về 1 object JSON với 3 mảng: part5 (30 câu), part6 (30 câu), part7 (30 câu). Paste toàn bộ JSON vào ô bên dưới.
+                    </p>
+                  </>
+                );
+              })()}
+            </div>
+                        {/* BƯỚC 2: PASTE JSON KẾT QUẢ */}
+            <div style={{ marginBottom: "15px" }}>
+              <div style={{ fontWeight: "bold", color: "#1565c0", marginBottom: "8px", fontSize: "13px" }}>
+                📌 Bước 2: Paste JSON từ AI vào đây (object có 3 mảng part5, part6, part7)
+              </div>
+              <textarea
+                value={toeicJsonInput}
+                onChange={(e) => setToeicJsonInput(e.target.value)}
+                placeholder={`{
+              "part5": [ ... 30 câu ... ],
+              "part6": [ ... các đoạn văn part 6 ... ],
+              "part7": [ ... các đoạn văn part 7 ... ]
+            }`}
+                rows={15}
+                style={{ width: "100%", padding: "12px", borderRadius: "10px", border: "1px solid #ccc", fontSize: "12px", lineHeight: "1.5", fontFamily: "monospace", resize: "vertical", boxSizing: "border-box" }}
+              />
+            </div>
+
+            {/* Trạng thái lưu */}
+            {toeicJsonSaveStatus && (
+              <p style={{ margin: "8px 0", fontWeight: "bold", color: toeicJsonSaveStatus.startsWith("✅") ? "#4CAF50" : "#f44336" }}>
+                {toeicJsonSaveStatus}
+              </p>
+            )}
+
+            {/* Nút chức năng */}
+            <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+              <button 
+                onClick={async () => {
+                  if (!toeicJsonInput.trim()) {
+                    setToeicJsonSaveStatus("❌ Vui lòng paste JSON!");
+                    return;
+                  }
+                  setToeicJsonSaveStatus("⏳ Đang xử lý...");
+                  try {
+                    let raw = toeicJsonInput.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
+                    
+                    // Tìm object JSON (có thể bọc trong { })
+                    const match = raw.match(/\{[\s\S]*\}/);
+                    if (!match) throw new Error("Không tìm thấy object JSON hợp lệ!");
+                    
+                    const parsed = JSON.parse(match[0]);
+                    
+                    // Kiểm tra cấu trúc
+                    if (!parsed.part5 || !Array.isArray(parsed.part5)) throw new Error("Thiếu mảng part5!");
+                    if (!parsed.part6 || !Array.isArray(parsed.part6)) throw new Error("Thiếu mảng part6!");
+                    if (!parsed.part7 || !Array.isArray(parsed.part7)) throw new Error("Thiếu mảng part7!");
+                    
+                    let totalQuestions = 0;
+                    const allQuestions = [];
+                    
+                    // Xử lý Part 5
+                    parsed.part5.forEach(q => {
+                      allQuestions.push({ ...q, toeicPart: "part5" });
+                      totalQuestions++;
+                    });
+                    
+                    // Xử lý Part 6
+                    parsed.part6.forEach(doc => {
+                      if (doc.questions && Array.isArray(doc.questions)) {
+                        doc.questions.forEach(q => {
+                          allQuestions.push({
+                            ...q,
+                            passage: doc.passage,
+                            doc_type: doc.doc_type || "text",
+                            toeicPart: "part6"
+                          });
+                          totalQuestions++;
+                        });
+                      }
+                    });
+                    
+                    // Xử lý Part 7
+                    parsed.part7.forEach(doc => {
+                      if (doc.questions && Array.isArray(doc.questions)) {
+                        doc.questions.forEach(q => {
+                          allQuestions.push({
+                            ...q,
+                            passage: doc.passage,
+                            doc_type: doc.doc_type || "text",
+                            toeicPart: "part7"
+                          });
+                          totalQuestions++;
+                        });
+                      }
+                    });
+                    
+                    await onSaveWord("grammar", allQuestions);
+                    setToeicJsonSaveStatus(`✅ Đã lưu ${totalQuestions} câu hỏi (Part5: ${parsed.part5.length}, Part6: ${parsed.part6.reduce((sum, d) => sum + (d.questions?.length || 0), 0)}, Part7: ${parsed.part7.reduce((sum, d) => sum + (d.questions?.length || 0), 0)})!`);
+                    
+                    setTimeout(() => {
+                      setShowToeicJsonModal(false);
+                      setToeicJsonInput("");
+                      setToeicJsonSaveStatus("");
+                    }, 2000);
+                  } catch (e) {
+                    setToeicJsonSaveStatus("❌ Lỗi: " + e.message);
+                  }
+                }} 
+                disabled={!toeicJsonInput.trim()}
+                style={{ flex: 1, padding: "12px", backgroundColor: toeicJsonInput.trim() ? "#4CAF50" : "#ccc", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: toeicJsonInput.trim() ? "pointer" : "not-allowed" }}
+              >
+                💾 Lưu vào Sổ Tay
+              </button>
+              <button onClick={() => { setShowToeicJsonModal(false); setToeicJsonInput(""); }} style={{ flex: 1, padding: "12px", backgroundColor: "#e0e0e0", color: "#333", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>
+                Hủy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ===== KẾT THÚC MODAL MỚI ===== */}
     </div>
   );
 }
@@ -6518,19 +6837,37 @@ ${part === "part6" ? "Đoạn văn có 4 chỗ trống ___1___ ___2___ ___3___ _
         // Lắp từng từ vào mảng cục bộ trước
         for (let wordData of wordsToProcess) {
             const isFromAI = typeof wordData === "object";
-            const wordStr = isFromAI ? wordData.word : wordData;
+            // Nếu là object (câu hỏi grammar), lấy question làm định danh
+            let wordStr;
+            if (isFromAI) {
+              wordStr = wordData.question || wordData.word || JSON.stringify(wordData).slice(0, 50);
+            } else {
+              wordStr = wordData;
+            }
             const normStr = normalizeWord(wordStr);
 
             // Càn quét và lọc sạch biến thể của từ này ở 3 Ô
-            cleanSaved = cleanSaved.filter(w => normalizeWord(w) !== normStr);
-            cleanWrong = cleanWrong.filter(w => normalizeWord(w) !== normStr);
-            cleanMastered = cleanMastered.filter(w => normalizeWord(w) !== normStr);
+            cleanSaved = cleanSaved.filter(w => {
+              const wStr = typeof w === 'string' ? w : (w.question || w.word || "");
+              return normalizeWord(wStr) !== normStr;
+            });
+            cleanWrong = cleanWrong.filter(w => {
+              const wStr = typeof w === 'string' ? w : (w.question || w.word || "");
+              return normalizeWord(wStr) !== normStr;
+            });
+            cleanMastered = cleanMastered.filter(w => {
+              const wStr = typeof w === 'string' ? w : (w.question || w.word || "");
+              return normalizeWord(wStr) !== normStr;
+            });
 
             // Đưa từ chuẩn mới nhất vào đúng Ô Vàng
             cleanSaved.push(wordStr);
             
             if (isFromAI) {
-                cleanObjs = cleanObjs.filter(obj => normalizeWord(obj.word) !== normStr);
+                cleanObjs = cleanObjs.filter(obj => {
+                  const objWord = obj.question || obj.word || "";
+                  return normalizeWord(objWord) !== normStr;
+                });
                 cleanObjs.push(wordData);
             }
         }
