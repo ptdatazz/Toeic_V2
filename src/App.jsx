@@ -6231,6 +6231,7 @@ function App() {
   // Tự động sinh đề ngữ pháp khi vào web (nếu chưa có đủ câu trong Sổ tay)
   const isPreloadingRef = useRef(false);
   useEffect(() => {
+    return;
     const autoPreloadGrammar = async () => {
       if (!currentUser) return;
       if (isPreloadingRef.current) return;
