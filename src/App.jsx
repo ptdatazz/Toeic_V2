@@ -4754,149 +4754,57 @@ const handleImportSummary = async (note, formattedText, newJsonData = null) => {
         </div>
         <textarea
   readOnly
-  value={`Bạn là giáo viên TOEIC. Hãy phân tích FILE WORD NGỮ PHÁP TIẾNG ANH mà tôi vừa gửi.
+  value={`Hãy đọc toàn bộ nội dung file word tôi vừa gửi kèm và tóm tắt lại nội dung một cách trực quan nhất có thể, đầy đủ nhất.
 
-YÊU CẦU: Tóm tắt TOÀN BỘ nội dung trong file, bao gồm tất cả các chủ đề, công thức, ví dụ.
+YÊU CẦU TÓM TẮT:
+- Trình bày dễ nhìn, dễ đọc, có thể dùng bullet points (•), bảng, headings, hoặc bất kỳ format nào bạn thấy phù hợp
+- Với mỗi chủ đề/công thức ngữ pháp, cần có: công thức/cấu trúc, cách dùng, ví dụ minh họa
+- Tập trung vào các ý chính quan trọng
+- Viết bằng tiếng Việt, ngắn gọn, súc tích
 
 TRẢ VỀ DUY NHẤT MỘT OBJECT JSON, KHÔNG CÓ CHỮ THỪA, theo đúng cấu trúc sau:
 
 {
   "topics": [
     {
-      "title": "Tên chủ đề 1",
+      "title": "Tên chủ đề / công thức ngữ pháp",
       "formulas": ["công thức 1", "công thức 2"],
       "usages": ["cách dùng 1", "cách dùng 2"],
       "examples": ["ví dụ 1", "ví dụ 2"],
-      "toeic_tips": ["mẹo 1", "mẹo 2"]
+      "toeic_tips": ["mẹo làm bài 1", "mẹo làm bài 2"]
     }
   ]
 }
 
-QUY TẮC TRÌNH BÀY CHO TỪNG LOẠI NGỮ PHÁP:
-
-1. **Đối với THÌ (Tenses):**
-   "formulas": [
-     "**Hiện tại đơn**\\\\n  - Khẳng định: S + V(s/es)\\\\n  - Phủ định: S + don't/doesn't + V\\\\n  - Nghi vấn: Do/Does + S + V?",
-     "**Hiện tại tiếp diễn**\\\\n  - Khẳng định: S + am/is/are + V-ing\\\\n  - Phủ định: S + am/is/are + not + V-ing\\\\n  - Nghi vấn: Am/Is/Are + S + V-ing?"
-   ]
-
-2. **Đối với CẤU TRÚC (enough/too/so...that):**
-   "formulas": [
-     "**Cấu trúc enough**\\\\n  - Adj/Adv + enough + (for + O) + to V\\\\n  - Enough + N + (for + O) + to V",
-     "**Cấu trúc too**\\\\n  - Too + adj/adv + (for + O) + to V"
-   ]
-
-3. **Đối với DẠNG TỪ (To V / V-ing / V nguyên mẫu):**
-   "formulas": [
-     "**Động từ theo sau là To V**\\\\n  - want, need, decide, plan, hope, expect, agree, refuse, promise, afford, manage, tend, prepare, offer, fail, learn",
-     "**Động từ theo sau là V-ing**\\\\n  - enjoy, mind, avoid, practice, finish, suggest, consider, delay, deny, risk, appreciate, admit, imagine"
-   ]
-
-4. **Đối với DANH TỪ SỐ NHIỀU (Plural nouns):**
-   "formulas": [
-     "**Quy tắc thêm s/es**\\\\n  - Hầu hết: thêm s (book → books)\\\\n  - Kết thúc s,ss,sh,ch,x,z,o → thêm es (box → boxes)\\\\n  - Kết thúc phụ âm + y → đổi y→i + es (baby → babies)",
-     "**Bất quy tắc**\\\\n  - man → men, woman → women, child → children, foot → feet, tooth → teeth, mouse → mice"
-   ]
-
-5. **Đối với SO SÁNH (Comparisons):**
-   "formulas": [
-     "**So sánh hơn**\\\\n  - Tính từ ngắn: adj-er + than\\\\n  - Tính từ dài: more + adj + than",
-     "**So sánh nhất**\\\\n  - Tính từ ngắn: the + adj-est\\\\n  - Tính từ dài: the most + adj"
-   ]
-
-6. **Đối với CÂU ĐIỀU KIỆN (Conditionals):**
-   "formulas": [
-     "**Loại 0**\\\\n  - If + S + V(s/es), S + V(s/es)",
-     "**Loại 1**\\\\n  - If + S + V(s/es), S + will/can/may + V",
-     "**Loại 2**\\\\n  - If + S + V(quá khứ), S + would/could + V",
-     "**Loại 3**\\\\n  - If + S + had + V3/ed, S + would have + V3/ed"
-   ]
-
-QUY TẮC CHUNG:
-- Mỗi công thức bắt đầu bằng **Tiêu đề in đậm**, dùng \\\\n để xuống dòng
-- Mỗi dòng chi tiết bắt đầu bằng "  - "
-- Mỗi cách dùng, ví dụ, tip phải có tiêu đề in đậm
-- Tip trong toeic_tips có icon (⚠️/💡/🎯)
-
-YÊU CẦU BỔ SUNG:
-- Dùng tiếng Việt
-- CHỈ TRẢ VỀ JSON, KHÔNG GIẢI THÍCH GÌ THÊM
-- Tự động xác định loại ngữ pháp để chọn format phù hợp
-- Tóm tắt ĐẦY ĐỦ nội dung file`}
+LƯU Ý: Phần "formulas", "usages", "examples", "toeic_tips" là các mảng, mỗi phần tử là một chuỗi text có thể chứa bullet points hoặc định dạng markdown đơn giản để khi hiển thị được đẹp mắt.`}
   rows={28}
   style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #90caf9", fontSize: "12px", fontFamily: "monospace", backgroundColor: "#fff", resize: "vertical", boxSizing: "border-box" }}
 />
         <button 
   onClick={() => {
-    const promptText = `Bạn là giáo viên TOEIC. Hãy phân tích FILE WORD NGỮ PHÁP TIẾNG ANH mà tôi vừa gửi.
+    const promptText =`Hãy đọc toàn bộ nội dung file word tôi vừa gửi kèm và tóm tắt lại nội dung một cách trực quan nhất có thể, đầy đủ nhất.
 
-YÊU CẦU: Tóm tắt TOÀN BỘ nội dung trong file, bao gồm tất cả các chủ đề, công thức, ví dụ.
+YÊU CẦU TÓM TẮT:
+- Trình bày dễ nhìn, dễ đọc, có thể dùng bullet points (•), bảng, headings, hoặc bất kỳ format nào bạn thấy phù hợp
+- Với mỗi chủ đề/công thức ngữ pháp, cần có: công thức/cấu trúc, cách dùng, ví dụ minh họa
+- Tập trung vào các ý chính quan trọng
+- Viết bằng tiếng Việt, ngắn gọn, súc tích
 
 TRẢ VỀ DUY NHẤT MỘT OBJECT JSON, KHÔNG CÓ CHỮ THỪA, theo đúng cấu trúc sau:
 
 {
   "topics": [
     {
-      "title": "Tên chủ đề 1",
+      "title": "Tên chủ đề / công thức ngữ pháp",
       "formulas": ["công thức 1", "công thức 2"],
       "usages": ["cách dùng 1", "cách dùng 2"],
       "examples": ["ví dụ 1", "ví dụ 2"],
-      "toeic_tips": ["mẹo 1", "mẹo 2"]
+      "toeic_tips": ["mẹo làm bài 1", "mẹo làm bài 2"]
     }
   ]
 }
 
-QUY TẮC TRÌNH BÀY CHO TỪNG LOẠI NGỮ PHÁP:
-
-1. **Đối với THÌ (Tenses):**
-   "formulas": [
-     "**Hiện tại đơn**\\\\n  - Khẳng định: S + V(s/es)\\\\n  - Phủ định: S + don't/doesn't + V\\\\n  - Nghi vấn: Do/Does + S + V?",
-     "**Hiện tại tiếp diễn**\\\\n  - Khẳng định: S + am/is/are + V-ing\\\\n  - Phủ định: S + am/is/are + not + V-ing\\\\n  - Nghi vấn: Am/Is/Are + S + V-ing?"
-   ]
-
-2. **Đối với CẤU TRÚC (enough/too/so...that):**
-   "formulas": [
-     "**Cấu trúc enough**\\\\n  - Adj/Adv + enough + (for + O) + to V\\\\n  - Enough + N + (for + O) + to V",
-     "**Cấu trúc too**\\\\n  - Too + adj/adv + (for + O) + to V"
-   ]
-
-3. **Đối với DẠNG TỪ (To V / V-ing / V nguyên mẫu):**
-   "formulas": [
-     "**Động từ theo sau là To V**\\\\n  - want, need, decide, plan, hope, expect, agree, refuse, promise, afford, manage, tend, prepare, offer, fail, learn",
-     "**Động từ theo sau là V-ing**\\\\n  - enjoy, mind, avoid, practice, finish, suggest, consider, delay, deny, risk, appreciate, admit, imagine"
-   ]
-
-4. **Đối với DANH TỪ SỐ NHIỀU (Plural nouns):**
-   "formulas": [
-     "**Quy tắc thêm s/es**\\\\n  - Hầu hết: thêm s (book → books)\\\\n  - Kết thúc s,ss,sh,ch,x,z,o → thêm es (box → boxes)\\\\n  - Kết thúc phụ âm + y → đổi y→i + es (baby → babies)",
-     "**Bất quy tắc**\\\\n  - man → men, woman → women, child → children, foot → feet, tooth → teeth, mouse → mice"
-   ]
-
-5. **Đối với SO SÁNH (Comparisons):**
-   "formulas": [
-     "**So sánh hơn**\\\\n  - Tính từ ngắn: adj-er + than\\\\n  - Tính từ dài: more + adj + than",
-     "**So sánh nhất**\\\\n  - Tính từ ngắn: the + adj-est\\\\n  - Tính từ dài: the most + adj"
-   ]
-
-6. **Đối với CÂU ĐIỀU KIỆN (Conditionals):**
-   "formulas": [
-     "**Loại 0**\\\\n  - If + S + V(s/es), S + V(s/es)",
-     "**Loại 1**\\\\n  - If + S + V(s/es), S + will/can/may + V",
-     "**Loại 2**\\\\n  - If + S + V(quá khứ), S + would/could + V",
-     "**Loại 3**\\\\n  - If + S + had + V3/ed, S + would have + V3/ed"
-   ]
-
-QUY TẮC CHUNG:
-- Mỗi công thức bắt đầu bằng **Tiêu đề in đậm**, dùng \\\\n để xuống dòng
-- Mỗi dòng chi tiết bắt đầu bằng "  - "
-- Mỗi cách dùng, ví dụ, tip phải có tiêu đề in đậm
-- Tip trong toeic_tips có icon (⚠️/💡/🎯)
-
-YÊU CẦU BỔ SUNG:
-- Dùng tiếng Việt
-- CHỈ TRẢ VỀ JSON, KHÔNG GIẢI THÍCH GÌ THÊM
-- Tự động xác định loại ngữ pháp để chọn format phù hợp
-- Tóm tắt ĐẦY ĐỦ nội dung file`
+LƯU Ý: Phần "formulas", "usages", "examples", "toeic_tips" là các mảng, mỗi phần tử là một chuỗi text có thể chứa bullet points hoặc định dạng markdown đơn giản để khi hiển thị được đẹp mắt.`
     navigator.clipboard.writeText(promptText);
     playSound("click");
     alert("✅ Đã copy! Hãy paste vào ChatGPT/Gemini/Claude cùng với FILE WORD MỚI NHẤT của bạn.");
