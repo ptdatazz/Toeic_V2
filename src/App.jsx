@@ -4397,7 +4397,7 @@ function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }
 // =======================================================================
 
 // --- COMPONENT: TÓM TẮT FILE NGỮ PHÁP BẰNG AI (CÓ LƯU CACHE + NHẬP TÓM TẮT TỪ NGOÀI) ---
-function GrammarNotesPanel({ notes, currentUser }) {
+function GrammarNotesPanel({ notes, currentUser, onRefreshNotes }) {
   const [summaries, setSummaries] = useState({}); // { noteId: { status, text, userEdited } }
   const [expandedId, setExpandedId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -4639,86 +4639,156 @@ const handleImportSummary = async (note, formattedText, newJsonData = null) => {
           const hasSummary = s?.status === "done";
           
           return (
-            <div key={note.id} style={{ background: "white", borderRadius: "10px", border: "1px solid #bbdefb", overflow: "hidden" }}>
+            <div key={note.id} style={{ 
+                background: note.isManual ? "#fff8e1" : "white", 
+                borderRadius: "10px", 
+                border: `1px solid ${note.isManual ? "#ffcc80" : "#bbdefb"}`, 
+                overflow: "hidden" 
+            }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", flexWrap: "wrap" }}>
-                <span style={{ fontSize: "16px" }}>📝</span>
+                <span style={{ fontSize: "16px" }}>{note.isManual ? "✏️" : "📄"}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: "bold", fontSize: "13px", color: "#1565c0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{note.filename}</div>
-                  <div style={{ fontSize: "11px", color: "#999" }}>{new Date(note.uploadedAt).toLocaleDateString("vi-VN")}</div>
+                  <div style={{ fontSize: "11px", color: "#999" }}>{note.createdAt ? new Date(note.createdAt).toLocaleDateString("vi-VN") : (note.uploadedAt ? new Date(note.uploadedAt).toLocaleDateString("vi-VN") : "Invalid Date")}</div>
                 </div>
                 
-                {!hasSummary && (
-                  <button onClick={() => summarizeNote(note)}
-                    style={{ padding: "5px 12px", background: "linear-gradient(135deg,#1565c0,#1976d2)", color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
-                    🤖 Tóm tắt AI
-                  </button>
-                )}
+                {/* ===== NÚT XÓA FILE ===== */}
+                <button 
+                  onClick={async () => {
+                    if (confirm(`Bạn có chắc muốn xóa file "${note.filename}"? Hành động này không thể hoàn tác!`)) {
+                      try {
+                        const userDocRef = doc(db, "users", currentUser.uid);
+                        const docSnap = await getDoc(userDocRef);
+                        if (docSnap.exists()) {
+                          const currentNotes = docSnap.data()?.grammar?.customNotes || [];
+                          const updatedNotes = currentNotes.filter(n => n.id !== note.id);
+                          
+                          const currentSummaries = docSnap.data()?.grammar?.notesSummaries || {};
+                          const updatedSummaries = { ...currentSummaries };
+                          delete updatedSummaries[note.id];
+                          
+                          await updateDoc(userDocRef, {
+                            "grammar.customNotes": updatedNotes,
+                            "grammar.notesSummaries": updatedSummaries
+                          });
+                          
+                          if (onRefreshNotes) {
+                            await onRefreshNotes();
+                          }
+                          
+                          playSound("click");
+                          alert(`✅ Đã xóa file "${note.filename}"!`);
+                        }
+                      } catch (error) {
+                        console.error("Lỗi xóa file:", error);
+                        alert("Có lỗi xảy ra khi xóa file!");
+                      }
+                    }
+                  }}
+                  style={{ 
+                    padding: "5px 10px", 
+                    background: "#f44336", 
+                    color: "white", 
+                    border: "none", 
+                    borderRadius: "8px", 
+                    fontSize: "12px", 
+                    fontWeight: "bold", 
+                    cursor: "pointer", 
+                    whiteSpace: "nowrap", 
+                    fontFamily: "inherit"
+                  }}
+                  title="Xóa file vĩnh viễn"
+                >
+                  🗑️ Xóa
+                </button>
                 
-                {!hasSummary && (
-                  <button onClick={() => { setImportTargetNote(note); setImportText(""); setShowImportModal(true); }}
-                    style={{ padding: "5px 12px", background: "#FF9800", color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
-                    📝 Nhập tóm tắt
-                  </button>
-                )}
+                  {!hasSummary && !note.isManual && (
+                    <button onClick={() => summarizeNote(note)}
+                      style={{ padding: "5px 12px", background: "linear-gradient(135deg,#1565c0,#1976d2)", color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
+                      🤖 Tóm tắt AI
+                    </button>
+                  )}
+
+                  {!hasSummary && !note.isManual && (
+                    <button onClick={() => { setImportTargetNote(note); setImportText(""); setShowImportModal(true); }}
+                      style={{ padding: "5px 12px", background: "#FF9800", color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
+                      📝 Nhập tóm tắt
+                    </button>
+                  )}
                 
-                {s?.status === "loading" && (
+                {s?.status === "loading" && !note.isManual && (
                   <span style={{ fontSize: "12px", color: "#1976d2", fontWeight: "bold", whiteSpace: "nowrap" }}>⏳ Đang tóm tắt...</span>
                 )}
                 
-                {hasSummary && (
-                  <>
-                    <button onClick={() => setExpandedId(isExpanded ? null : note.id)}
-                      style={{ padding: "5px 12px", background: isExpanded ? "#e3f2fd" : "#1565c0", color: isExpanded ? "#1565c0" : "white", border: "1px solid #90caf9", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
-                      {isExpanded ? "▲ Ẩn" : "▼ Xem tóm tắt"}
-                    </button>
-                    
+                {/* Nếu là file tự tạo (.txt) - chỉ hiển thị nút xem nội dung, không có AI */}
+                  {note.isManual ? (
                     <button 
-                      onClick={async () => {
-                        if (confirm("Tóm tắt lại toàn bộ file sẽ tốn quota AI. Tiếp tục?")) {
-                          setSummaries(prev => {
-                            const newSummaries = { ...prev };
-                            delete newSummaries[note.id];
-                            return newSummaries;
-                          });
-                          if (currentUser) {
-                            const userDocRef = doc(db, "users", currentUser.uid);
-                            const docSnap = await getDoc(userDocRef);
-                            if (docSnap.exists()) {
-                              const currentSummaries = docSnap.data()?.grammar?.notesSummaries || {};
-                              delete currentSummaries[note.id];
-                              await updateDoc(userDocRef, {
-                                "grammar.notesSummaries": currentSummaries
-                              });
+                      onClick={() => setExpandedId(isExpanded ? null : note.id)}
+                      style={{ padding: "5px 12px", background: isExpanded ? "#e3f2fd" : "#4CAF50", color: isExpanded ? "#1565c0" : "white", border: "1px solid #90caf9", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}
+                    >
+                      {isExpanded ? "▲ Ẩn nội dung" : "▼ Xem nội dung"}
+                    </button>
+                    ) : (
+                    /* File upload (.docx) - hiển thị đầy đủ các nút AI */
+                    hasSummary && (
+                      <>
+                        <button onClick={() => setExpandedId(isExpanded ? null : note.id)}
+                          style={{ padding: "5px 12px", background: isExpanded ? "#e3f2fd" : "#1565c0", color: isExpanded ? "#1565c0" : "white", border: "1px solid #90caf9", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}>
+                          {isExpanded ? "▲ Ẩn" : "▼ Xem tóm tắt"}
+                        </button>
+                        
+                        <button onClick={async () => {
+                          if (confirm("Tóm tắt lại toàn bộ file sẽ tốn quota AI. Tiếp tục?")) {
+                            setSummaries(prev => {
+                              const newSummaries = { ...prev };
+                              delete newSummaries[note.id];
+                              return newSummaries;
+                            });
+                            if (currentUser) {
+                              const userDocRef = doc(db, "users", currentUser.uid);
+                              const docSnap = await getDoc(userDocRef);
+                              if (docSnap.exists()) {
+                                const currentSummaries = docSnap.data()?.grammar?.notesSummaries || {};
+                                delete currentSummaries[note.id];
+                                await updateDoc(userDocRef, {
+                                  "grammar.notesSummaries": currentSummaries
+                                });
+                              }
                             }
+                            await summarizeNote(note);
                           }
-                          await summarizeNote(note);
-                        }
-                      }}
-                      style={{ padding: "5px 8px", background: "#ff9800", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
-                      title="Tóm tắt lại toàn bộ (tốn quota)">
-                      🔄
-                    </button>
-                    
-                    <button 
-                      onClick={() => { setImportTargetNote(note); setImportText(s?.text || ""); setShowImportModal(true); }}
-                      style={{ padding: "5px 8px", background: "#4CAF50", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
-                      title="Chỉnh sửa tóm tắt thủ công">
-                      ✏️
-                    </button>
-                    
-                    <button 
-                      onClick={() => handleDeleteSummary(note.id)}
-                      style={{ padding: "5px 8px", background: "#f44336", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
-                      title="Xóa tóm tắt">
-                      🗑️
-                    </button>
-                  </>
-                )}
+                        }}
+                        style={{ padding: "5px 8px", background: "#ff9800", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
+                        title="Tóm tắt lại toàn bộ (tốn quota)">
+                        🔄
+                      </button>
+                      
+                      <button onClick={() => { setImportTargetNote(note); setImportText(s?.text || ""); setShowImportModal(true); }}
+                        style={{ padding: "5px 8px", background: "#4CAF50", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
+                        title="Chỉnh sửa tóm tắt thủ công">
+                        ✏️
+                      </button>
+                      
+                      <button onClick={() => handleDeleteSummary(note.id)}
+                        style={{ padding: "5px 8px", background: "#f44336", color: "white", border: "none", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }} 
+                        title="Xóa tóm tắt">
+                        🗑️
+                      </button>
+                    </>
+                  ))}
               </div>
               
-              {isExpanded && hasSummary && (
+              {isExpanded && (
                 <div style={{ padding: "10px 14px", borderTop: "1px solid #e3f2fd", background: "#fafcff" }}>
-                  {formatSummary(s.text, s.userEdited)}
+                  {note.isManual ? (
+                    // Hiển thị nội dung thô của file .txt
+                    <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "13px", margin: 0, fontFamily: "inherit", lineHeight: "1.6" }}>
+                      {note.content}
+                    </pre>
+                  ) : (
+                    // File upload .docx - hiển thị tóm tắt AI
+                    hasSummary && formatSummary(s.text, s.userEdited)
+                  )}
                 </div>
               )}
               
@@ -4955,7 +5025,7 @@ LƯU Ý: Phần "formulas", "usages", "examples", "toeic_tips" là các mảng, 
   );
 }
 
-function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveWord, onMoveManyWords, onRemoveManyWords, onUploadGrammarFile, customGrammarNotes = [], defaultTab = "vocab", currentUser }) {  const [activeTab, setActiveTab] = useState(defaultTab);
+function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveWord, onMoveManyWords, onRemoveManyWords, onUploadGrammarFile, customGrammarNotes = [], defaultTab = "vocab", currentUser, onRefreshNotes }) {  const [activeTab, setActiveTab] = useState(defaultTab);
   const [newWord, setNewWord] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [selectedToDelete, setSelectedToDelete] = useState(new Set());
@@ -5012,6 +5082,12 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
   const [toeicPartForJson, setToeicPartForJson] = useState("part5");
   const [toeicJsonSaveStatus, setToeicJsonSaveStatus] = useState("");
   const [selectedGrammarNoteForPrompt, setSelectedGrammarNoteForPrompt] = useState(""); // ← THÊM DÒNG NÀY
+  // ===== THÊM CÁC STATE NÀY VÀO ĐÂY =====
+  const [showSaveToFileModal, setShowSaveToFileModal] = useState(false);
+  const [newFileName, setNewFileName] = useState("");
+  const [saveMode, setSaveMode] = useState("new"); // "new" hoặc "append"
+  const [selectedAppendFileId, setSelectedAppendFileId] = useState(null);
+  const [pendingGrammarText, setPendingGrammarText] = useState("");
 
 
   const getPromptForWords = (wordsStr, tab) => {
@@ -5024,26 +5100,62 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
     return `Phân tích các từ/cụm từ tiếng Anh sau: "${wordsStr}".\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON:\n[{"word": "Từ chuẩn (kèm loại từ)", "phonetic": "Phiên âm IPA", "noun_meaning": "Nghĩa (n) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "verb_meaning": "Nghĩa (v) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "adj_meaning": "Nghĩa (adj/adv) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "meaning": "Nghĩa chung TỐI ĐA 5 TỪ nếu không chia được", "synonym": "tối thiểu 3 từ đồng nghĩa và tối đa là 7 từ đồng nghĩa", "usage": "1 câu ví dụ ngắn"}]`;
   };
 
-  const handleSaveJson = async () => {
+ const handleSaveJson = async () => {
     setJsonSaveStatus("đang xử lý...");
     try {
-      let raw = jsonPasteInput.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
-      const match = raw.match(/\[[\s\S]*\]/);
-      if (!match) throw new Error("Không tìm thấy mảng JSON hợp lệ!");
-      const parsed = JSON.parse(match[0]);
-      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("JSON rỗng hoặc sai định dạng!");
-      await onSaveWord(activeTab, parsed);
-      setJsonSaveStatus("✅ Lưu thành công " + parsed.length + " từ!");
-      setTimeout(() => {
-        setShowJsonModal(false);
-        setJsonWordsInput(""); setJsonPasteInput("");
-        setJsonModalStep(1); setJsonSaveStatus("");
-      }, 1500);
+        let raw = jsonPasteInput.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
+        const match = raw.match(/\[[\s\S]*\]/);
+        if (!match) throw new Error("Không tìm thấy mảng JSON hợp lệ!");
+        const parsed = JSON.parse(match[0]);
+        if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("JSON rỗng hoặc sai định dạng!");
+        
+        // NẾU ĐANG Ở TAB GRAMMAR -> LƯU VÀO FILE (hiện popup)
+        if (activeTab === "grammar") {
+            // ===== SỬA: Lấy đầy đủ thông tin từ JSON, không chỉ lấy mỗi tên =====
+            let formattedText = "";
+            
+            for (const item of parsed) {
+                // Lấy tên cấu trúc (có thể từ word hoặc question)
+                const structureName = item.word || item.question || "";
+                const meaning = item.meaning || "";
+                const formula = item.phonetic || item.formula || "";
+                const example = item.usage || item.example || "";
+                const synonym = item.synonym || "";
+                
+                formattedText += `📌 ${structureName}\n`;
+                if (formula) formattedText += `   📐 Công thức: ${formula}\n`;
+                if (meaning) formattedText += `   📖 Nghĩa: ${meaning}\n`;
+                if (synonym) formattedText += `   🔀 Đồng nghĩa: ${synonym}\n`;
+                if (example) formattedText += `   💡 Ví dụ: "${example}"\n`;
+                formattedText += `\n`;
+            }
+            
+            // Thêm timestamp
+            const timestamp = new Date().toLocaleString('vi-VN');
+            const fullContent = `--- Nhập từ AI ngoài lúc ${timestamp} ---\n\n${formattedText}`;
+            
+            // Mở modal lưu file với nội dung đã format sẵn
+            setPendingGrammarText(fullContent);
+            setNewFileName("");
+            setSaveMode("new");
+            setSelectedAppendFileId(null);
+            setShowSaveToFileModal(true);
+            setShowJsonModal(false);
+            setJsonSaveStatus("");
+        } else {
+            // Các tab khác (vocab, collocation) giữ nguyên logic cũ
+            await onSaveWord(activeTab, parsed);
+            setJsonSaveStatus("✅ Lưu thành công " + parsed.length + " từ!");
+            setTimeout(() => {
+                setShowJsonModal(false);
+                setJsonWordsInput(""); setJsonPasteInput("");
+                setJsonModalStep(1); setJsonSaveStatus("");
+            }, 1500);
+        }
     } catch (e) {
-      setJsonSaveStatus("❌ Lỗi: " + e.message);
+        setJsonSaveStatus("❌ Lỗi: " + e.message);
     }
-  };
-
+};
   /// HÀM LÕI 1: GỌI AI DỊCH LẺ 1 TỪ (ĐÃ ÉP BẮT BUỘC TRẢ VỀ LOẠI TỪ)
   const fetchAI = async (wordInput, currentTab) => {
     return retryWithNewKey(async (apiKey) => {
@@ -5169,37 +5281,115 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
       return parsedArray; 
   };
 
-  // --- ĐÃ NÂNG CẤP: GỌI AI VÀ LƯU DATABASE 1 LẦN DUY NHẤT DÙ LÀ 1 TỪ HAY 10 TỪ ---
   const handleAddNew = async (e) => {
     e.preventDefault();
     const wordInput = newWord.trim();
     if (!wordInput) return;
-    setIsAdding(true);
 
-    try {
-        if (wordInput.includes(',')) {
-            // Nếu nhập sỉ -> Gọi AI dịch sỉ ra 1 mảng
-            const aiWordsArray = await fetchAIBatch(wordInput, activeTab);
-            
-            // ĐÃ FIX: Nhồi cả mảng vào Database 1 lần duy nhất, không dùng vòng lặp nữa!
-            await onSaveWord(activeTab, aiWordsArray);
-        } else {
-            // Nếu chỉ nhập 1 từ -> Chạy bình thường
-            const aiWordObj = await fetchAI(wordInput, activeTab);
-            await onSaveWord(activeTab, aiWordObj);
+    // Lưu text tạm thời và mở modal (chỉ dành cho tab grammar)
+    if (activeTab === "grammar") {
+        setPendingGrammarText(wordInput);
+        setNewFileName("");
+        setSaveMode("new");
+        setSelectedAppendFileId(null);
+        setShowSaveToFileModal(true);
+    } else {
+        // Các tab khác (vocab, collocation) giữ nguyên logic cũ
+        setIsAdding(true);
+        try {
+            if (wordInput.includes(',')) {
+                const aiWordsArray = await fetchAIBatch(wordInput, activeTab);
+                await onSaveWord(activeTab, aiWordsArray);
+            } else {
+                const aiWordObj = await fetchAI(wordInput, activeTab);
+                await onSaveWord(activeTab, aiWordObj);
+            }
+        } catch (error) {
+            if(error.message === "No_API") alert("Bạn chưa cấu hình API Key để gọi AI!");
+            else { 
+                console.error("Lỗi AI:", error); 
+                const rawWords = wordInput.split(',').map(w => w.trim()).filter(w => w);
+                await onSaveWord(activeTab, rawWords.map(w => w.toLowerCase())); 
+            }
         }
-    } catch (error) {
-        if(error.message === "No_API") alert("Bạn chưa cấu hình API Key để gọi AI!");
-        else { 
-            console.error("Lỗi AI:", error); 
-            // Nếu AI hỏng, lưu thô một mảng các từ vào sổ tay 1 lượt
-            const rawWords = wordInput.split(',').map(w => w.trim()).filter(w => w);
-            await onSaveWord(activeTab, rawWords.map(w => w.toLowerCase())); 
-        }
+        setIsAdding(false);
+        setNewWord(""); 
     }
-    setIsAdding(false);
-    setNewWord(""); 
-  };
+};
+
+const handleSaveToFile = async () => {
+    if (!pendingGrammarText) return;
+    
+    const finalFileName = newFileName.trim();
+    if (saveMode === "new" && !finalFileName) {
+        alert("Vui lòng nhập tên file!");
+        return;
+    }
+    if (saveMode === "append" && !selectedAppendFileId) {
+        alert("Vui lòng chọn file để thêm vào!");
+        return;
+    }
+
+    // ===== SỬA: Kiểm tra xem pendingGrammarText đã được format sẵn chưa =====
+    let formattedContent = pendingGrammarText;
+    
+    // Nếu pendingGrammarText không bắt đầu bằng "---" (chưa được format) thì mới xử lý
+    if (!pendingGrammarText.startsWith("---") && !pendingGrammarText.includes("📌")) {
+        // Format nội dung: mỗi cấu trúc trên 1 dòng với dấu •
+        const items = pendingGrammarText.split(',').map(item => item.trim()).filter(item => item);
+        formattedContent = items.map(item => `• ${item}`).join('\n');
+        const timestamp = new Date().toLocaleString('vi-VN');
+        formattedContent = `--- Tạo lúc ${timestamp} ---\n${formattedContent}`;
+    }
+
+    let updatedNotes = [...customGrammarNotes];
+    let targetNote = null;
+
+    if (saveMode === "append" && selectedAppendFileId) {
+        targetNote = updatedNotes.find(n => n.id === selectedAppendFileId);
+        if (targetNote) {
+            const timestamp = new Date().toLocaleString('vi-VN');
+            const newContent = targetNote.content + `\n\n--- Thêm ngày ${timestamp} ---\n${formattedContent}`;
+            targetNote.content = newContent;
+            targetNote.version = (targetNote.version || 1) + 1;
+            targetNote.updatedAt = new Date().toISOString();
+        }
+    } else {
+        const newId = Date.now().toString();
+        const newNote = {
+            id: newId,
+            filename: finalFileName.endsWith('.txt') ? finalFileName : `${finalFileName}.txt`,
+            content: formattedContent,
+            createdAt: new Date().toISOString(),
+            version: 1,
+            isManual: true
+        };
+        updatedNotes.push(newNote);
+        targetNote = newNote;
+    }
+
+    if (currentUser) {
+        try {
+            await updateDoc(doc(db, "users", currentUser.uid), {
+                "grammar.customNotes": updatedNotes
+            });
+            
+            if (onRefreshNotes) {
+                await onRefreshNotes();
+            }
+            
+            alert(`✅ Đã lưu vào file "${targetNote.filename}"!`);
+            setNewWord("");
+            setShowSaveToFileModal(false);
+            setPendingGrammarText("");
+        } catch (error) {
+            console.error("Lỗi lưu file:", error);
+            alert("Có lỗi xảy ra khi lưu file: " + error.message);
+        }
+    } else {
+        alert("Vui lòng đăng nhập để lưu!");
+    }
+};
 
   const handleRetranslate = async (wordStr) => {
       setIsAdding(true);
@@ -5494,7 +5684,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
 
       {/* ===== HÀNG 2.5: DANH SÁCH FILE NGỮ PHÁP (CHỈ HIỆN KHI TAB GRAMMAR) ===== */}
       {activeTab === "grammar" && customGrammarNotes.length > 0 && (
-        <GrammarNotesPanel notes={customGrammarNotes} currentUser={currentUser} />
+        <GrammarNotesPanel notes={customGrammarNotes} currentUser={currentUser} onRefreshNotes={onRefreshNotes} />
       )}
 
       {/* ===== HÀNG 3: 3 CỘT TỪ VỰNG ===== */}
@@ -5788,6 +5978,82 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
         )
       })()}
       {/* ===== THÊM MODAL MỚI VÀO ĐÂY ===== */}
+      {/* ===== MODAL LƯU CẤU TRÚC NGỮ PHÁP VÀO FILE ===== */}
+{showSaveToFileModal && (
+    <div onClick={() => setShowSaveToFileModal(false)} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", backgroundColor:"rgba(0,0,0,0.6)", zIndex:1400, display:"flex", justifyContent:"center", alignItems:"center", padding:"16px", boxSizing:"border-box" }}>
+        <div onClick={e => e.stopPropagation()} style={{ backgroundColor:"white", width:"100%", maxWidth:"450px", borderRadius:"16px", padding:"22px", animation:"popIn 0.3s", boxShadow:"0 10px 30px rgba(0,0,0,0.3)" }}>
+            <h3 style={{ margin:"0 0 6px 0", color:"#1565c0" }}>📝 Lưu cấu trúc ngữ pháp</h3>
+            <p style={{ margin:"0 0 14px 0", fontSize:"13px", color:"#666" }}>
+                {pendingGrammarText.split(',').length} cấu trúc sẽ được lưu:
+            </p>
+            <div style={{ backgroundColor:"#f5f5f5", padding:"10px", borderRadius:"8px", marginBottom:"16px", maxHeight:"120px", overflowY:"auto", fontSize:"13px" }}>
+                {pendingGrammarText.split(',').map((item, i) => (
+                    <div key={i}>• {item.trim()}</div>
+                ))}
+            </div>
+
+            {/* Chọn chế độ */}
+            <div style={{ marginBottom:"16px" }}>
+                <label style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"10px", cursor:"pointer" }}>
+                    <input type="radio" name="saveMode" value="new" checked={saveMode === "new"} onChange={() => setSaveMode("new")} />
+                    <span>📄 Tạo file mới</span>
+                </label>
+                <label style={{ display:"flex", alignItems:"center", gap:"10px", cursor:"pointer" }}>
+                    <input type="radio" name="saveMode" value="append" checked={saveMode === "append"} onChange={() => setSaveMode("append")} />
+                    <span>📂 Thêm vào file có sẵn</span>
+                </label>
+            </div>
+
+            {/* Nếu chọn thêm vào file cũ */}
+            {saveMode === "append" && (
+                <div style={{ marginBottom:"16px" }}>
+                    <label style={{ fontSize:"13px", fontWeight:"bold", color:"#555" }}>Chọn file:</label>
+                    <select 
+                        value={selectedAppendFileId || ""} 
+                        onChange={(e) => setSelectedAppendFileId(e.target.value)}
+                        style={{ width:"100%", padding:"10px", borderRadius:"8px", border:"1px solid #ccc", marginTop:"5px" }}
+                    >
+                        <option value="">-- Chọn file --</option>
+                        {customGrammarNotes.filter(n => n.isManual).map(note => (
+                            <option key={note.id} value={note.id}>{note.filename}</option>
+                        ))}
+                    </select>
+                    {customGrammarNotes.filter(n => n.isManual).length === 0 && (
+                        <p style={{ fontSize:"12px", color:"#f44336", marginTop:"5px" }}>Chưa có file nào. Hãy tạo file mới trước.</p>
+                    )}
+                </div>
+            )}
+
+            {/* Nhập tên file (cho chế độ tạo mới) */}
+            {saveMode === "new" && (
+                <div style={{ marginBottom:"20px" }}>
+                    <label style={{ fontSize:"13px", fontWeight:"bold", color:"#555" }}>Tên file (.txt sẽ tự động thêm):</label>
+                    <input 
+                        type="text" 
+                        value={newFileName} 
+                        onChange={(e) => setNewFileName(e.target.value)}
+                        placeholder="VD: Cau_truc_dieu_kien"
+                        style={{ width:"100%", padding:"10px", borderRadius:"8px", border:"1px solid #ccc", marginTop:"5px" }}
+                        autoFocus
+                    />
+                </div>
+            )}
+
+            <div style={{ display:"flex", gap:"10px", marginTop:"10px" }}>
+                <button 
+                    onClick={handleSaveToFile} 
+                    disabled={saveMode === "new" ? !newFileName.trim() : !selectedAppendFileId}
+                    style={{ flex:1, padding:"12px", backgroundColor: (saveMode === "new" ? newFileName.trim() : selectedAppendFileId) ? "#4CAF50" : "#ccc", color:"white", border:"none", borderRadius:"8px", fontWeight:"bold", cursor: (saveMode === "new" ? newFileName.trim() : selectedAppendFileId) ? "pointer" : "not-allowed" }}
+                >
+                    💾 Lưu
+                </button>
+                <button onClick={() => setShowSaveToFileModal(false)} style={{ flex:1, padding:"12px", backgroundColor:"#e0e0e0", color:"#333", border:"none", borderRadius:"8px", fontWeight:"bold", cursor:"pointer" }}>
+                    Hủy
+                </button>
+            </div>
+        </div>
+    </div>
+)}
       {/* ===== MODAL NHẬP CÂU HỎI TOEIC TỪ AI NGOÀI ===== */}
       {showToeicJsonModal && (
         <div onClick={() => setShowToeicJsonModal(false)} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", backgroundColor:"rgba(0,0,0,0.6)", zIndex:1300, display:"flex", justifyContent:"center", alignItems:"center", padding:"16px", boxSizing:"border-box" }}>
@@ -7155,7 +7421,29 @@ const handleRemoveManyWords = async (type, listType, wordsArray) => {
     />
   }
   // Line ~1170
-  if (screen === "notebook") return <NotebookScreen globalStats={globalStats} onBack={() => { playSound("click"); setScreen("home"); }} onSaveWord={handleSaveDifficultWord} onRemoveWord={handleRemoveWord} onMoveWord={handleMoveWord} onMoveManyWords={handleMoveManyWords} onRemoveManyWords={handleRemoveManyWords} onUploadGrammarFile={handleUploadGrammarFile} customGrammarNotes={customGrammarNotes} defaultTab={notebookTab} currentUser={currentUser} />;  
+  if (screen === "notebook") return <NotebookScreen 
+    globalStats={globalStats} 
+    onBack={() => { playSound("click"); setScreen("home"); }} 
+    onSaveWord={handleSaveDifficultWord} 
+    onRemoveWord={handleRemoveWord} 
+    onMoveWord={handleMoveWord} 
+    onMoveManyWords={handleMoveManyWords} 
+    onRemoveManyWords={handleRemoveManyWords} 
+    onUploadGrammarFile={handleUploadGrammarFile} 
+    customGrammarNotes={customGrammarNotes} 
+    defaultTab={notebookTab} 
+    currentUser={currentUser}
+    onRefreshNotes={async () => {
+        if (currentUser) {
+            const docRef = doc(db, "users", currentUser.uid);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                const notes = docSnap.data()?.grammar?.customNotes || [];
+                setCustomGrammarNotes(notes);
+            }
+        }
+    }}
+/>;  
   // ĐÃ FIX BƯỚC 1: Truyền thêm onMoveWord={handleMoveWord} vào 2 dòng này
   // TÍNH NĂNG MỚI: Nếu Level 3 + Bắn Từ -> Render BlastGameScreen thay vì WordQuiz
   if (screen === "vocab") {
