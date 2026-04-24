@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import confetti from "canvas-confetti";
+import FarmGame from "./FarmGame";
 import "./App.css";
 
 // Import Firebase
@@ -4369,11 +4370,19 @@ function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }
             count: (globalStats.grammar?.learnedWords?.length || 0),
             label: "câu đã làm"
         },
+        // ===== THÊM NÔNG TRẠI VÀO MENU CHÍNH =====
+        {
+            title: "Nông Trại", icon: "🌾", bg: "linear-gradient(135deg,#16a34a,#22c55e)",
+            screen: "farm",
+            count: 0,
+            label: "trồng từ vựng"
+        },
     ];
-
+    
+    // ĐỔI grid từ 3 cột thành 4 cột
     return (
         <div style={{ width: "100%", height: "100%" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", height: "100%" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", height: "100%" }}>
                 {modes.map(m => (
                     <div key={m.screen}
                         onClick={() => onModeSelect(m.screen)}
@@ -6531,7 +6540,8 @@ function App() {
 
   // STATE ĐỂ LƯU DANH SÁCH TỪ CỦA SHEET CUSTOM (ĐỂ LỌC TỪ MỚI)
   const [customSheetWords, setCustomSheetWords] = useState(() => JSON.parse(localStorage.getItem("toeic_custom_words")) || []);
-
+  // Tìm khoảng dòng ~7240, sau các useState khác
+  const [vocabData, setVocabData] = useState([]);  // ← THÊM DÒNG NÀY
   const [showTutorial, setShowTutorial] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(true); 
   const [currentTrackIndex, setCurrentTrackIndex] = useState(Math.floor(Math.random() * BGM_PLAYLIST.length));
@@ -6686,6 +6696,35 @@ function App() {
 
     fetchTotalWords();
   }, []); 
+
+  // Tìm dòng ~7350: useEffect(() => { const fetchTotalWords = async () => { ... }
+// SAU useEffect đó, THÊM useEffect mới:
+
+// ===== FETCH VOCAB DATA CHO FARM GAME =====
+useEffect(() => {
+  const fetchVocabForFarm = async () => {
+    try {
+      const SHEET_ID = "1nAdOxZBZ3-Bawh3Ks54KaIYLPgGZfTuchebwbCYW8dU";
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&headers=1&sheet=Vocab`;
+      const response = await fetch(url);
+      const text = await response.text();
+      const jsonString = text.substring(text.indexOf("{"), text.lastIndexOf("}") + 1);
+      const result = JSON.parse(jsonString);
+      const headers = result.table.cols.map(col => col.label ? col.label.toLowerCase().trim() : "");
+      let fullData = result.table.rows.map(row => {
+        let obj = {};
+        headers.forEach((header, index) => {
+          obj[header] = (row.c[index] && row.c[index].v) ? row.c[index].v.toString() : "";
+        });
+        return obj;
+      });
+      setVocabData(fullData);
+    } catch (e) {
+      console.error("Lỗi fetch vocab cho Farm:", e);
+    }
+  };
+  if (currentUser) fetchVocabForFarm();
+}, [currentUser]);
 
   useEffect(() => {
     const timeout = setTimeout(() => setAuthChecking(false), 8000);
@@ -7404,6 +7443,68 @@ const handleRemoveManyWords = async (type, listType, wordsArray) => {
   const customCollocCount = customCollocSet.size;
 
   // --- ĐIỀU HƯỚNG MÀN HÌNH ---
+  // ✅ THÊM VÀO ĐÂY (trước vocab_settings)
+  if (screen === "farm") {
+  // Lấy từ từ Sổ tay (Ô vàng + Ô đỏ)
+  const savedWords = globalStats.vocab?.savedWords || [];
+  const wrongWords = globalStats.vocab?.wrongWords || [];
+  const addedWordsObj = globalStats.vocab?.addedWordsObj || [];
+  
+  const notebookVocab = [];
+  const seen = new Set();
+  
+  // 🔥 ƯU TIÊN LẤY TỪ addedWordsObj (có đầy đủ meaning)
+  addedWordsObj.forEach(item => {
+    if (item.word && !seen.has(item.word.toLowerCase())) {
+      seen.add(item.word.toLowerCase());
+      notebookVocab.push(item);
+    }
+  });
+  
+  // Sau đó mới lấy từ savedWords và wrongWords (nếu chưa có)
+  [...savedWords, ...wrongWords].forEach(word => {
+    const wordStr = typeof word === 'string' ? word : word.word;
+    if (wordStr && !seen.has(wordStr.toLowerCase())) {
+      seen.add(wordStr.toLowerCase());
+      // Tạo object tối thiểu
+      notebookVocab.push({ word: wordStr, meaning: "???" });
+    }
+  });
+  
+  if (notebookVocab.length < 4) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", textAlign: "center", padding: "20px" }}>
+        <div style={{ fontSize: "48px" }}>🌾</div>
+        <h2 style={{ color: "#16a34a" }}>Chưa đủ từ vựng!</h2>
+        <p style={{ color: "#666", maxWidth: "300px" }}>
+          Cần ít nhất <strong>4 từ</strong> trong Sổ tay để chơi Nông Trại.
+        </p>
+        <p style={{ fontSize: "13px", color: "#888" }}>
+          📌 Hiện bạn có <strong>{notebookVocab.length}</strong> từ<br/>
+          (Ô vàng + Ô đỏ)
+        </p>
+        <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
+          <button onClick={() => setScreen("notebook")} style={{ padding: "10px 20px", background: "#FF9800", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>
+            📖 Vào Sổ tay
+          </button>
+          <button onClick={() => setScreen("home")} style={{ padding: "10px 20px", background: "#6b7280", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>
+            ← Quay lại
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <FarmGame
+      onBack={() => { playSound("click"); setScreen("home"); }}
+      vocabData={notebookVocab}  // ← Truyền từ từ Notebook
+      updateGlobal={updateGlobalStats}
+      onSaveWord={handleSaveDifficultWord}
+      stats={globalStats.vocab}
+    />
+  );
+}
   if (screen === "vocab_settings") {
     return <QuizSettings mode="vocab" onBack={() => setScreen("home")} onStart={(settings) => { setQuizSettings(settings); setScreen("vocab"); }} customWordsCount={customVocabCount} />
   }
