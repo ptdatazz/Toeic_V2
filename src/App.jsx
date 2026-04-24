@@ -7498,10 +7498,12 @@ const handleRemoveManyWords = async (type, listType, wordsArray) => {
   return (
     <FarmGame
       onBack={() => { playSound("click"); setScreen("home"); }}
-      vocabData={notebookVocab}  // ← Truyền từ từ Notebook
+      vocabData={notebookVocab}
       updateGlobal={updateGlobalStats}
       onSaveWord={handleSaveDifficultWord}
+      onMoveWord={handleMoveWord}
       stats={globalStats.vocab}
+      currentUser={currentUser}
     />
   );
 }
