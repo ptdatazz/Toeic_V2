@@ -7269,27 +7269,22 @@ const handleMoveWord = async (type, fromList, toList, wordToMove) => {
   const normalizeWord = (w) => {
     if (!w) return "";
     if (typeof w === 'string') return w.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
-    // Nếu là object (câu hỏi grammar), lấy trường question hoặc word
     const text = w.question || w.word || "";
     return text.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
   };
   
-  // Lấy text để so sánh
   const wordText = typeof wordToMove === 'string' ? wordToMove : (wordToMove.question || wordToMove.word || "");
   const normStr = normalizeWord(wordText);
   
-  // LÀM SẠCH OBJECT TRƯỚC KHI LƯU
   const cleanObject = (obj) => {
     if (!obj || typeof obj !== 'object') return obj;
     if (typeof obj === 'string') return obj;
     
     const cleaned = {};
     for (const [key, value] of Object.entries(obj)) {
-      // Bỏ qua các giá trị undefined, null, function
       if (value === undefined || value === null) continue;
       if (typeof value === 'function') continue;
       
-      // Xử lý nested object
       if (typeof value === 'object' && !Array.isArray(value)) {
         cleaned[key] = cleanObject(value);
       } else {
@@ -7302,56 +7297,80 @@ const handleMoveWord = async (type, fromList, toList, wordToMove) => {
   try {
     const currentState = globalStats[type] || {};
     
-    // Làm sạch hoàn toàn 3 mảng
-    const cleanSaved = (currentState.savedWords || []).filter(w => normalizeWord(w) !== normStr);
-    const cleanWrong = (currentState.wrongWords || []).filter(w => normalizeWord(w) !== normStr);
-    const cleanMastered = (currentState.masteredWords || []).filter(w => normalizeWord(w) !== normStr);
-
-    // Chuẩn bị dữ liệu để lưu (làm sạch nếu là object)
+    // Lấy dữ liệu hiện tại
+    let saved = [...(currentState.savedWords || [])];
+    let wrong = [...(currentState.wrongWords || [])];
+    let mastered = [...(currentState.masteredWords || [])];
+    
+    // ===== XÓA KHỎI MẢNG NGUỒN (fromList) =====
+    if (fromList === "savedWords") {
+      saved = saved.filter(w => normalizeWord(w) !== normStr);
+    } else if (fromList === "wrongWords") {
+      wrong = wrong.filter(w => normalizeWord(w) !== normStr);
+    } else if (fromList === "masteredWords") {
+      mastered = mastered.filter(w => normalizeWord(w) !== normStr);
+    }
+    
+    // Chuẩn bị dữ liệu để lưu
     let itemToSave = wordToMove;
     if (typeof wordToMove === 'object' && wordToMove !== null) {
       itemToSave = cleanObject(wordToMove);
-      // Đảm bảo có trường question hoặc word
       if (!itemToSave.question && !itemToSave.word && wordText) {
         itemToSave.question = wordText;
       }
     }
-
-    // Ép vào mảng đích
-    if (toList === "savedWords") cleanSaved.push(itemToSave);
-    if (toList === "wrongWords") cleanWrong.push(itemToSave);
-    if (toList === "masteredWords") {
-      cleanMastered.push(itemToSave);
-      
-      // Chỉ cộng KPI nếu từ này CHƯA TỪNG nằm trong Ô Xanh
-      const isAlreadyMastered = (currentState.masteredWords || []).some(w => normalizeWord(w) === normStr);
-      if (!isAlreadyMastered && type !== "grammar") {
-        setTodayMasteredCount(prev => {
-          const newVal = prev + 1;
-          localStorage.setItem("toeic_today_mastered", newVal.toString());
-          return newVal;
-        });
+    
+    // ===== KIỂM TRA TRÙNG TRƯỚC KHI THÊM VÀO MẢNG ĐÍCH =====
+    if (toList === "savedWords") {
+      const alreadyExists = saved.some(w => normalizeWord(w) === normStr);
+      if (!alreadyExists) saved.push(itemToSave);
+    } else if (toList === "wrongWords") {
+      const alreadyExists = wrong.some(w => normalizeWord(w) === normStr);
+      if (!alreadyExists) wrong.push(itemToSave);
+    } else if (toList === "masteredWords") {
+      const alreadyExists = mastered.some(w => normalizeWord(w) === normStr);
+      if (!alreadyExists) {
+        mastered.push(itemToSave);
+        
+        // Lưu vào localStorage để FarmGame biết
+        localStorage.setItem("last_mastered_word", JSON.stringify({
+          word: wordText,
+          timestamp: Date.now()
+        }));
+        
+        // Chỉ cộng KPI nếu từ này CHƯA TỪNG nằm trong Ô Xanh
+        const isAlreadyMastered = (currentState.masteredWords || []).some(w => normalizeWord(w) === normStr);
+        if (!isAlreadyMastered && type !== "grammar") {
+          setTodayMasteredCount(prev => {
+            const newVal = prev + 1;
+            localStorage.setItem("toeic_today_mastered", newVal.toString());
+            return newVal;
+          });
+        }
       }
     }
-
+    
+    // Cập nhật lên Firebase
     const updatePayload = {
-      [`${type}.savedWords`]: cleanSaved,
-      [`${type}.wrongWords`]: cleanWrong,
-      [`${type}.masteredWords`]: cleanMastered
+      [`${type}.savedWords`]: saved,
+      [`${type}.wrongWords`]: wrong,
+      [`${type}.masteredWords`]: mastered
     };
-
+    
     await updateDoc(doc(db, "users", currentUser.uid), updatePayload);
-
+    
+    // Cập nhật state local
     setGlobalStats(prev => {
       const newState = { ...prev };
       newState[type] = { 
         ...newState[type], 
-        savedWords: cleanSaved, 
-        wrongWords: cleanWrong, 
-        masteredWords: cleanMastered 
+        savedWords: saved, 
+        wrongWords: wrong, 
+        masteredWords: mastered 
       };
       return newState;
     });
+    
   } catch (error) {
     console.error("Lỗi di chuyển từ:", error);
   }
