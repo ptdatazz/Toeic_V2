@@ -321,7 +321,7 @@ function QuizSettings({ mode, onStart, onBack, customWordsCount = 0, customGramm
           
           return { ...parsedSettings, difficultyLevel: diffLevel, toeicPart: parsedSettings.toeicPart || "part5", dataSource: parsedSettings.dataSource || "default" }; 
       }
-      return { quizLimit: mode === "grammar" ? 5 : 30, timePerQuestion: mode === "grammar" ? 30 : 10, requiredStreak: 3, difficultyLevel: 1, survivalLives: 3, timeAttackSeconds: mode === "grammar" ? 60 : 30, toeicPart: "part5", dataSource: "default" };
+      return { quizLimit: mode === "grammar" ? 5 : 30, timePerQuestion: mode === "grammar" ? 30 : 10, requiredStreak: 3, difficultyLevel: 1, survivalLives: 3, timeAttackSeconds: mode === "grammar" ? 60 : 30, toeicPart: "part5", dataSource: "default", storyMode: false };
     });
 
   // THÊM: Tính toán min/max tự động cho thanh kéo
@@ -419,6 +419,22 @@ function QuizSettings({ mode, onStart, onBack, customWordsCount = 0, customGramm
 
           {/* LEVEL */}
           <div style={{ ...cardStyle, borderLeft: `4px solid ${levelColor}` }}>
+
+            {/* CHẾ ĐỘ HỌC LEVEL 0 */}
+            {settings.difficultyLevel === 0 && mode === "vocab" && (
+              <div style={{ ...cardStyle, marginTop: "12px" }}>
+                <span style={labelStyle}>📖 Chế độ học Level 0</span>
+                <label style={{ ...radioCardBase, background: !settings.storyMode ? `${primaryColor}15` : "#f9fafb", border: `2px solid ${!settings.storyMode ? primaryColor : "transparent"}` }}>
+                  <input type="radio" name="storyMode" value="flashcard" checked={!settings.storyMode} onChange={() => setSettings({...settings, storyMode: false})} style={{ accentColor: primaryColor }} />
+                  <div><strong>🎴 Flashcard</strong> — Lật thẻ học từ truyền thống</div>
+                </label>
+                <label style={{ ...radioCardBase, background: settings.storyMode ? `${primaryColor}15` : "#f9fafb", border: `2px solid ${settings.storyMode ? primaryColor : "transparent"}`, marginBottom: 0 }}>
+                  <input type="radio" name="storyMode" value="story" checked={settings.storyMode === true} onChange={() => setSettings({...settings, storyMode: true})} style={{ accentColor: primaryColor }} />
+                  <div><strong>📖 Song Ngữ</strong> — Học qua truyện chêm từ, dễ nhớ hơn</div>
+                </label>
+              </div>
+            )}
+
             <span style={labelStyle}>🔥 Độ khó — <span style={{ color: levelColor, fontWeight: "900" }}>Level {settings.difficultyLevel}: {levelName}</span></span>
             <input type="range" min="0" max="4" step="1" value={settings.difficultyLevel} onChange={(e) => setSettings({...settings, difficultyLevel: parseInt(e.target.value)})} style={{ width: "100%", cursor: "pointer", accentColor: levelColor }} />
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: "6px" }}>
@@ -1372,6 +1388,560 @@ function BlastGameScreen({ mode, onBack, settings, stats }) {
   );
 }
 
+// Thay thế hoàn toàn component StoryMode trong file App.jsx
+
+function StoryMode({ words, onComplete, onBack, updateGlobal, onSaveWord, settings }) {
+  const [stories, setStories] = useState([]);
+  const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [generatingProgress, setGeneratingProgress] = useState(0);
+  const [learnedWordsMap, setLearnedWordsMap] = useState({});
+  const [score, setScore] = useState(0);
+  const [completed, setCompleted] = useState(false);
+  const [hoveredWord, setHoveredWord] = useState(null);
+  
+  const hasGeneratedRef = useRef(false);
+  const isGeneratingRef = useRef(false);
+  const wordsHashRef = useRef("");
+  const [activeWord, setActiveWord] = useState(null); // từ đang được bấm vào
+  const [inputMeaning, setInputMeaning] = useState(""); // nghĩa user đang gõ
+  const [inputResult, setInputResult] = useState(null); // "correct" | "wrong" | null
+  const [showVietnamese, setShowVietnamese] = useState(false); // hiện bản dịch so sánh 
+
+  // Lấy số lượng từ cần học từ settings
+  const targetWordCount = settings?.quizLimit || words.length;
+  const STORIES_PER_BATCH = 1; // Số lượng truyện cần tạo (mỗi truyện chứa TẤT CẢ từ)
+
+  const getMeaning = (item) => {
+    if (!item) return "???";
+    if (item.meaning && item.meaning.trim()) return item.meaning.trim();
+    const parts = [
+      item.noun_meaning && `(n) ${item.noun_meaning}`,
+      item.verb_meaning && `(v) ${item.verb_meaning}`,
+      item.adj_meaning && `(adj) ${item.adj_meaning}`,
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(" / ") : "???";
+  };
+
+  // Sinh truyện cho 1 bộ từ (CHỨA TẤT CẢ các từ)
+ const generateStoryWithAllWords = async (wordList, storyIndex, totalStories) => {
+    const wordDetails = wordList.map(w => ({
+      word: w.word,
+      meaning: getMeaning(w)
+    }));
+
+    // ✅ THÊM: Danh sách thể loại đa dạng
+    const genres = [
+      { type: "đoạn văn", instruction: "Viết 1 đoạn văn ngắn bằng TIẾNG VIỆT, mạch lạc, tự nhiên (khoảng 100-150 từ)." },
+      { type: "quảng cáo", instruction: "Viết 1 mẩu quảng cáo ngắn bằng TIẾNG VIỆT cho một sản phẩm/dịch vụ hư cấu (khoảng 80-120 từ), có tiêu đề hấp dẫn, ngôn ngữ thuyết phục." },
+      { type: "thông báo", instruction: "Viết 1 thông báo chính thức bằng TIẾNG VIỆT (khoảng 80-120 từ), ví dụ thông báo công ty, trường học, sự kiện." },
+      { type: "đối thoại", instruction: "Viết 1 đoạn hội thoại ngắn bằng TIẾNG VIỆT giữa 2 người (khoảng 100-140 từ), ghi rõ tên người nói, tình huống thực tế đời thường hoặc công sở." },
+      { type: "phỏng vấn", instruction: "Viết 1 đoạn phỏng vấn xin việc hoặc phỏng vấn nhân vật bằng TIẾNG VIỆT (khoảng 100-140 từ), ghi rõ câu hỏi và câu trả lời." },
+      { type: "bài thuyết trình", instruction: "Viết phần mở đầu của 1 bài thuyết trình ngắn bằng TIẾNG VIỆT (khoảng 100-150 từ), có chào hỏi, giới thiệu chủ đề, nêu dàn ý chính." },
+    ];
+
+    const genre = genres[Math.floor(Math.random() * genres.length)]; // ✅ Chọn ngẫu nhiên
+    const wordTarget = wordDetails.length;
+    const minWords = wordTarget * 8;
+    const maxWords = wordTarget * 15;
+
+    const prompt = `Bạn là một nhà văn chuyên viết nội dung để dạy từ vựng TOEIC.
+
+DANH SÁCH TỪ CẦN DẠY (${wordDetails.length} từ):
+${wordDetails.map((w, i) => `${i+1}. ${w.word} (${w.meaning})`).join('\n')}
+
+THỂ LOẠI: ${genre.type.toUpperCase()}
+${genre.instruction}
+
+YÊU CẦU BẮT BUỘC:
+1. **BẮT BUỘC sử dụng TẤT CẢ ${wordDetails.length} từ tiếng Anh trên**, mỗi từ xuất hiện ÍT NHẤT 1 lần
+2. Mỗi từ tiếng Anh khi xuất hiện phải được đặt trong dấu [ ] và viết IN HOA
+   Ví dụ: "Cô ấy đến [PHARMACY] để mua thuốc."
+3. **TUYỆT ĐỐI KHÔNG ĐƯỢC viết nghĩa tiếng Việt bên cạnh từ tiếng Anh**
+4. Viết thêm 1 bản dịch tiếng Việt HOÀN TOÀN (thay tất cả từ tiếng Anh bằng nghĩa tiếng Việt tương ứng)
+5. Độ dài nội dung: khoảng ${minWords}–${maxWords} từ, KHÔNG được dài hơn ${maxWords} từ
+
+
+Trả về DUY NHẤT 1 OBJECT JSON:
+{
+  "title": "Tên ${genre.type} (tiếng Việt, dưới 10 từ)",
+  "story": "Nội dung ${genre.type} có từ tiếng Anh trong [  ]",
+  "vietnamese": "Bản dịch hoàn toàn tiếng Việt, KHÔNG có từ tiếng Anh nào"
+}
+
+KHÔNG giải thích gì thêm, CHỈ trả về JSON.`;
+
+    try {
+      const result = await retryWithNewKey(async (apiKey) => {
+        if (!window.globalCachedModel) {
+          const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+          const listData = await listRes.json();
+          const textModels = (listData.models || []).filter(m => m.supportedGenerationMethods?.includes("generateContent"));
+          const flashModel = textModels.find(m => m.name.includes("1.5-flash")) || textModels.find(m => m.name.includes("flash"));
+          window.globalCachedModel = flashModel ? flashModel.name : (textModels[0]?.name || "models/gemini-1.5-flash");
+        }
+
+        const requestBody = { contents: [{ parts: [{ text: prompt }] }] };
+        if (window.globalCachedModel?.includes("1.5")) {
+          requestBody.generationConfig = { response_mime_type: "application/json" };
+        }
+
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${window.globalCachedModel}:generateContent?key=${apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody)
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        return data;
+      });
+
+      let rawText = result.candidates[0].content.parts[0].text;
+      rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(rawText);
+      
+      return {
+        id: storyIndex,
+        title: parsed.title,
+        story: parsed.story,
+        vietnamese: parsed.vietnamese || "", // ← THÊM
+        words: wordList, // Lưu toàn bộ danh sách từ
+        learnedWords: []
+      };
+    } catch (error) {
+      console.error("Lỗi sinh truyện:", error);
+      // Fallback: tạo truyện đơn giản với tất cả từ
+      const fallbackStory = wordDetails.map(w => `Học từ "${w.word}" (${w.meaning}). `).join(' ') + 
+        "Đây là câu chuyện luyện tập từ vựng. Hãy cố gắng ghi nhớ và chạm vào từ để học nghĩa nhé!";
+      return {
+        id: storyIndex,
+        title: `Câu chuyện từ vựng ${storyIndex + 1}`,
+        story: fallbackStory,
+        words: wordList,
+        learnedWords: []
+      };
+    }
+  };
+
+  // Lấy đúng số lượng từ theo setting và tạo NHIỀU TRUYỆN, mỗi truyện chứa TẤT CẢ từ
+  useEffect(() => {
+    if (!words || words.length === 0) return;
+    
+    const currentHash = words.map(w => w.word).sort().join(',');
+    if (hasGeneratedRef.current && wordsHashRef.current === currentHash) return;
+    if (isGeneratingRef.current) return;
+    
+    // Lấy đúng số lượng từ cần học (theo settings)
+    let selectedWords = [...words];
+    if (targetWordCount > 0 && targetWordCount < words.length) {
+      selectedWords = shuffleArray(words).slice(0, targetWordCount);
+    }
+    
+    wordsHashRef.current = selectedWords.map(w => w.word).sort().join(',');
+    isGeneratingRef.current = true;
+    hasGeneratedRef.current = true;
+
+    const generateAllStories = async () => {
+      setLoading(true);
+      const generatedStories = [];
+      
+      // Tạo STORIES_PER_BATCH truyện, MỖI TRUYỆN CHỨA TẤT CẢ selectedWords
+      for (let i = 0; i < STORIES_PER_BATCH; i++) {
+        setGeneratingProgress(((i + 1) / STORIES_PER_BATCH) * 100);
+        const story = await generateStoryWithAllWords(selectedWords, i, STORIES_PER_BATCH);
+        generatedStories.push(story);
+        await new Promise(r => setTimeout(r, 300));
+      }
+      
+      setStories(generatedStories);
+      setLoading(false);
+      isGeneratingRef.current = false;
+    };
+
+    generateAllStories();
+  }, [words, targetWordCount, STORIES_PER_BATCH]);
+
+  // Render truyện với các từ có thể chạm
+  const renderStoryWithTouchWords = (storyText, learnedSet) => {
+    const regex = /\[([A-Za-z][A-Za-z0-9_ -]*)(?:\s*\([^)]*\))?\]/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(storyText)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push({ type: 'text', content: storyText.slice(lastIndex, match.index) });
+      }
+      
+      const word = match[1].trim().toUpperCase();
+      const isLearned = learnedSet.has(word);
+      const wordObj = stories[currentStoryIndex]?.words?.find(w => {
+        if (!w.word) return false;
+        // Tách phần (n), (v), (adj)... ra khỏi w.word trước khi so sánh
+        const cleanWord = w.word.replace(/\s*\([^)]*\)\s*/g, '').trim().toUpperCase();
+        return cleanWord === word;
+      });
+      const meaning = wordObj ? (getMeaning(wordObj) || "???") : "???";
+      
+      parts.push({
+        type: 'word',
+        word: word,
+        meaning: meaning,
+        fullMatch: match[0],
+        isLearned: isLearned
+      });
+      
+      lastIndex = match.index + match[0].length;
+    }
+    
+    if (lastIndex < storyText.length) {
+      parts.push({ type: 'text', content: storyText.slice(lastIndex) });
+    }
+    
+    return parts;
+  };
+
+// Xóa hàm toggleWordLearned cũ, thay bằng:
+const openWordInput = (word, meaning) => {
+  const currentLearnedSet = new Set(stories[currentStoryIndex]?.learnedWords || []);
+  if (currentLearnedSet.has(word)) return;
+  setActiveWord({ word, meaning });
+  setInputMeaning("");
+  setInputResult(null);
+};
+
+const submitMeaning = () => {
+  if (!activeWord || !inputMeaning.trim()) return;
+  
+  // So sánh nghĩa - normalize bỏ dấu câu, lowercase
+  const normalize = (s) => s.toLowerCase()
+    .replace(/[().,\/#!$%\^&\*;:{}=\-_`~]/g, "")
+    .replace(/\s+/g, " ").trim();
+  
+  const userInput = normalize(inputMeaning);
+  const correctMeaning = normalize(activeWord.meaning);
+  
+  // Kiểm tra đúng: user gõ có chứa ít nhất 1 từ key trong nghĩa đúng
+  const correctWords = correctMeaning.split(" ").filter(w => w.length > 2);
+  const isCorrect = correctWords.some(w => userInput.includes(w)) || userInput === correctMeaning;
+  
+  setInputResult(isCorrect ? "correct" : "wrong");
+  
+  if (isCorrect) {
+    playSound("combo_1");
+    setTimeout(() => {
+      // Đánh dấu đã học
+      setScore(prev => prev + 1);
+      if (updateGlobal) updateGlobal("vocab", true, activeWord.word);
+      if (onSaveWord) onSaveWord("vocab", { word: activeWord.word.toLowerCase(), meaning: activeWord.meaning });
+      
+    setStories(prev => prev.map((s, i) => {
+      if (i !== currentStoryIndex) return s;
+      if (s.learnedWords.includes(activeWord.word)) return s;
+      return { ...s, learnedWords: [...s.learnedWords, activeWord.word] };
+    }));
+      setActiveWord(null);
+      setInputResult(null);
+    }, 800);
+  } else {
+    playSound("wrong");
+  }
+};
+
+  const completeCurrentStory = () => {
+    const currentStory = stories[currentStoryIndex];
+    const totalWords = currentStory.words.length;
+    const learnedCount = currentStory.learnedWords.length;
+    
+    if (learnedCount < totalWords) {
+      const notif = document.createElement('div');
+      notif.textContent = `🔔 Cần học ${totalWords - learnedCount} từ nữa! Chạm vào từ [${currentStory.words.filter(w => !currentStory.learnedWords.includes(w.word.toUpperCase())).map(w => w.word).join(', ')}]`;
+      notif.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:#f59e0b; color:white; padding:8px 20px; border-radius:30px; font-weight:bold; z-index:10000; animation:fadeUp 0.3s;`;
+      document.body.appendChild(notif);
+      setTimeout(() => notif.remove(), 3000);
+      return;
+    }
+    
+    playSound("finish");
+    confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 }, zIndex: 9999 });
+    
+    if (currentStoryIndex + 1 >= stories.length) {
+      setCompleted(true);
+      playSound("combo_max");
+      confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 });
+      setTimeout(() => {
+        onComplete && onComplete(score);
+      }, 1500);
+    } else {
+      setCurrentStoryIndex(prev => prev + 1);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #e8f5e9, #c8e6c9)" }}>
+        <div style={{ textAlign: "center", maxWidth: "400px", padding: "30px", background: "white", borderRadius: "24px" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>📖</div>
+          <h2 style={{ color: "#2e7d32" }}>Đang tạo truyện cho bạn...</h2>
+          <p style={{ color: "#666" }}>AI đang viết {STORIES_PER_BATCH} câu chuyện, mỗi truyện chứa <strong>{targetWordCount}</strong> từ vựng</p>
+          <div style={{ width: "100%", height: "8px", background: "#e0e0e0", borderRadius: "4px", marginTop: "20px", overflow: "hidden" }}>
+            <div style={{ width: `${generatingProgress}%`, height: "100%", background: "#4CAF50", borderRadius: "4px", transition: "width 0.3s" }} />
+          </div>
+          <p style={{ fontSize: "12px", color: "#999", marginTop: "12px" }}>{Math.round(generatingProgress)}%</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (completed || (stories.length > 0 && currentStoryIndex >= stories.length)) {
+    const totalWords = stories.reduce((acc, s) => acc + s.words.length, 0);
+    const accuracy = totalWords > 0 ? Math.round((score / totalWords) * 100) : 0;
+    return (
+      <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #e8f5e9, #c8e6c9)" }}>
+        <div style={{ textAlign: "center", maxWidth: "400px", padding: "30px", background: "white", borderRadius: "24px" }}>
+          <div style={{ fontSize: "64px", marginBottom: "16px" }}>🎉</div>
+          <h2 style={{ color: "#2e7d32" }}>Chúc mừng!</h2>
+          <p style={{ color: "#666", marginBottom: "20px" }}>Bạn đã hoàn thành {stories.length} câu chuyện</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "24px" }}>
+            <div style={{ background: "#e8f5e9", padding: "12px", borderRadius: "12px" }}>
+              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#4CAF50" }}>{score}</div>
+              <div style={{ fontSize: "12px" }}>Từ đã học</div>
+            </div>
+            <div style={{ background: "#e3f2fd", padding: "12px", borderRadius: "12px" }}>
+              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#2196F3" }}>{accuracy}%</div>
+              <div style={{ fontSize: "12px" }}>Tỷ lệ ghi nhớ</div>
+            </div>
+          </div>
+          <button onClick={onBack} style={{ width: "100%", padding: "14px", background: "linear-gradient(135deg, #2e7d32, #43a047)", color: "white", border: "none", borderRadius: "12px", fontWeight: "bold", cursor: "pointer" }}>
+            🏠 Về trang chủ
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (stories.length === 0) {
+    return (
+      <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #e8f5e9, #c8e6c9)" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>😅</div>
+          <h2>Không có từ vựng để tạo truyện!</h2>
+          <button onClick={onBack} style={{ marginTop: "20px", padding: "12px 24px", background: "#4CAF50", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>Quay lại</button>
+        </div>
+      </div>
+    );
+  }
+
+  const currentStory = stories[currentStoryIndex];
+  if (!currentStory) return null;
+
+  const learnedSet = new Set(currentStory.learnedWords);
+  const storyParts = renderStoryWithTouchWords(currentStory.story, learnedSet);
+  const totalWordsInStory = currentStory.words.length;
+  const learnedCount = currentStory.learnedWords.length;
+  const progressPercent = (learnedCount / totalWordsInStory) * 100;
+
+  // Danh sách từ chưa học để hiển thị nhắc nhở
+  const unlearnedWords = currentStory.words.filter(w => !learnedSet.has(w.word.toUpperCase()));
+
+  return (
+    <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "linear-gradient(135deg, #f5f0e8, #e8e0d0)", overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ background: "linear-gradient(135deg, #2e7d32, #43a047)", padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <button onClick={onBack} style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "white", borderRadius: "10px", padding: "6px 14px", cursor: "pointer", fontWeight: "bold" }}>← Thoát</button>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ color: "white", fontWeight: "bold", fontSize: "14px" }}>📖 {currentStoryIndex + 1}/{stories.length}</div>
+          <div style={{ color: "rgba(255,255,255,0.8)", fontSize: "12px" }}>{currentStory.title}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ color: "#FFD700", fontWeight: "bold", fontSize: "16px" }}>📚 {score}</div>
+          <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "10px" }}>từ đã học</div>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{ padding: "8px 20px", background: "rgba(255,255,255,0.5)", flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "4px" }}>
+          <span>📖 Tiến độ truyện</span>
+          <span>{learnedCount}/{totalWordsInStory} từ</span>
+        </div>
+        <div style={{ height: "6px", background: "rgba(0,0,0,0.1)", borderRadius: "3px", overflow: "hidden" }}>
+          <div style={{ width: `${progressPercent}%`, height: "100%", background: "#FF9800", borderRadius: "3px", transition: "width 0.3s" }} />
+        </div>
+        {/* Hiển thị danh sách từ chưa học */}
+        {unlearnedWords.length > 0 && (
+          <div style={{ fontSize: "10px", color: "#e65100", marginTop: "6px", textAlign: "center" }}>
+            💡 Còn {unlearnedWords.length} từ: {unlearnedWords.map(w => w.word).join(", ")}
+          </div>
+        )}
+      </div>
+
+      {/* Story content */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px", maxWidth: "700px", margin: "0 auto", width: "100%" }}>
+        <div style={{ background: "rgba(255,255,255,0.95)", borderRadius: "20px", padding: "25px", boxShadow: "0 8px 30px rgba(0,0,0,0.1)" }}>
+          <div style={{ fontSize: "13px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "16px", textAlign: "center" }}>
+            🎯 CHẠM VÀO TỪ TIẾNG ANH ĐỂ HỌC NGHĨA
+          </div>
+          <div style={{ fontSize: "16px", lineHeight: "1.8", color: "#333", textAlign: "justify" }}>
+            {storyParts.map((part, idx) => {
+              if (part.type === 'text') {
+                return <span key={idx}>{part.content}</span>;
+              }
+              return (
+                <span 
+                  key={idx} 
+                  onClick={() => openWordInput(part.word, part.meaning)}
+                  style={{ 
+                    display: "inline-block", 
+                    cursor: "pointer",
+                    position: "relative",
+                    fontSize: "18px",
+                    fontWeight: "600",
+                    padding: "2px 4px",
+                    margin: "0 1px",
+                    borderRadius: "6px",
+                    background: part.isLearned ? "#e8f5e9" : (hoveredWord === part.word ? "#fff3e0" : "transparent"),
+                    color: part.isLearned ? "#2e7d32" : (hoveredWord === part.word ? "#e65100" : "#1a237e"),
+                    borderBottom: part.isLearned ? "2px solid #4CAF50" : (hoveredWord === part.word ? "2px solid #FF9800" : "1px dotted #90caf9"),
+                    transition: "all 0.2s ease"
+                  }}
+                >
+                  {part.word}
+                  {!part.isLearned && hoveredWord === part.word && (
+                    <span style={{
+                      position: "absolute",
+                      bottom: "100%",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "#2c3e50",
+                      color: "#FFD700",
+                      fontSize: "12px",
+                      fontWeight: "normal",
+                      padding: "4px 12px",
+                      borderRadius: "20px",
+                      whiteSpace: "nowrap",
+                      zIndex: 100,
+                      marginBottom: "6px",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                      pointerEvents: "none"
+                    }}>
+                      {part.meaning}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding: "16px 20px", background: "white", borderTop: "1px solid #e0e0e0", display: "flex", gap: "12px", flexShrink: 0 }}>
+        <button 
+          onClick={completeCurrentStory} 
+          style={{ 
+            flex: 1, 
+            padding: "12px", 
+            background: learnedCount >= totalWordsInStory ? "linear-gradient(135deg, #2e7d32, #43a047)" : "#ccc", 
+            color: "white", 
+            border: "none", 
+            borderRadius: "12px", 
+            fontWeight: "bold", 
+            cursor: learnedCount >= totalWordsInStory ? "pointer" : "not-allowed", 
+            fontSize: "16px" 
+          }}
+        >
+          {learnedCount >= totalWordsInStory ? "🎉 Hoàn thành truyện" : `🔒 Cần học ${totalWordsInStory - learnedCount} từ nữa`}
+        </button>
+        {currentStoryIndex > 0 && (
+          <button 
+            onClick={() => setCurrentStoryIndex(prev => prev - 1)} 
+            style={{ padding: "12px 20px", background: "#2196F3", color: "white", border: "none", borderRadius: "12px", fontWeight: "bold", cursor: "pointer" }}
+          >
+            ← Truyện trước
+          </button>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+      `}</style>
+
+      {/* MODAL NHẬP NGHĨA */}
+      {activeWord && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:2000,
+                      display:"flex", alignItems:"center", justifyContent:"center", padding:"20px", boxSizing:"border-box" }}>
+          <div style={{ background:"white", borderRadius:"20px", padding:"28px", width:"100%", maxWidth:"380px",
+                        boxShadow:"0 10px 40px rgba(0,0,0,0.3)", textAlign:"center" }}>
+            <div style={{ fontSize:"28px", marginBottom:"8px" }}>🤔</div>
+            <div style={{ fontSize:"22px", fontWeight:"bold", color:"#1a237e", marginBottom:"6px" }}>
+              {activeWord.word}
+            </div>
+            <div style={{ fontSize:"13px", color:"#999", marginBottom:"20px" }}>Nghĩa tiếng Việt là gì?</div>
+            
+            <input
+              autoFocus
+              value={inputMeaning}
+              onChange={e => { setInputMeaning(e.target.value); setInputResult(null); }}
+              onKeyDown={e => e.key === "Enter" && submitMeaning()}
+              placeholder="Gõ nghĩa tiếng Việt..."
+              style={{ width:"100%", padding:"12px 16px", fontSize:"16px", borderRadius:"12px", boxSizing:"border-box",
+                      border: inputResult === "correct" ? "2px solid #4CAF50" 
+                            : inputResult === "wrong" ? "2px solid #f44336" 
+                            : "2px solid #e0e0e0",
+                      outline:"none", textAlign:"center", marginBottom:"12px",
+                      background: inputResult === "correct" ? "#e8f5e9" : inputResult === "wrong" ? "#ffebee" : "white" }}
+            />
+            
+            {inputResult === "correct" && (
+              <div style={{ color:"#4CAF50", fontWeight:"bold", marginBottom:"12px" }}>✅ Đúng rồi! Giỏi lắm!</div>
+            )}
+            {inputResult === "wrong" && (
+              <div style={{ color:"#f44336", marginBottom:"8px" }}>
+                ❌ Chưa đúng! Thử lại hoặc xem gợi ý:
+                <div style={{ marginTop:"6px", padding:"8px", background:"#fff3e0", borderRadius:"8px",
+                              color:"#e65100", fontWeight:"bold", fontSize:"14px" }}>
+                  💡 {activeWord.meaning}
+                </div>
+              </div>
+            )}
+            
+            <div style={{ display:"flex", gap:"10px", marginTop:"8px" }}>
+              <button onClick={submitMeaning}
+                style={{ flex:1, padding:"12px", background:"#2e7d32", color:"white", border:"none",
+                        borderRadius:"12px", fontWeight:"bold", cursor:"pointer", fontSize:"16px" }}>
+                Kiểm tra ✓
+              </button>
+              <button onClick={() => setActiveWord(null)}
+                style={{ padding:"12px 16px", background:"#eee", color:"#666", border:"none",
+                        borderRadius:"12px", cursor:"pointer" }}>
+                Bỏ qua
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SO SÁNH BẢN DỊCH - hiện khi học xong tất cả từ */}
+      {learnedCount >= totalWordsInStory && currentStory.vietnamese && (
+        <div style={{ margin:"0 20px 16px", background:"#e8f5e9", borderRadius:"16px", padding:"16px",
+                      border:"2px solid #4CAF50" }}>
+          <div style={{ fontWeight:"bold", color:"#2e7d32", marginBottom:"10px", textAlign:"center" }}>
+            🌟 Bản dịch tiếng Việt hoàn chỉnh
+          </div>
+          <div style={{ fontSize:"14px", lineHeight:"1.8", color:"#333" }}>
+            {currentStory.vietnamese}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
 // --- COMPONENT: ÔN TẬP TỪ VỰNG / COLLOCATION CHÍNH ---
 function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings, stats, isMusicPlaying, kpi }) {
   const DIFFICULTY_LEVEL = settings.difficultyLevel;
@@ -1397,6 +1967,7 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
   const [isFlipped, setIsFlipped] = useState(false); // Trạng thái lật thẻ
   const [scrambleAvailable, setScrambleAvailable] = useState([]);
   const [scrambleSelected, setScrambleSelected] = useState([]);
+  const [isStoryModeActive, setIsStoryModeActive] = useState(false);
 
   const typingValueRef = useRef("");
   useEffect(() => { typingValueRef.current = typingValue; }, [typingValue]);
@@ -2164,6 +2735,36 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
     playSound("click");
     onBack(); 
   };
+
+  // KIỂM TRA STORY MODE
+// KIỂM TRA STORY MODE - Cập nhật để truyền settings
+// KIỂM TRA STORY MODE - Cập nhật để truyền settings
+if (DIFFICULTY_LEVEL === 0 && settings.storyMode && !isStoryModeActive && questionsData.length > 0 && !loadingData) {
+  const uniqueWords = [];
+  const seen = new Set();
+  questionsData.forEach(q => {
+    if (q.word && !seen.has(q.word.toLowerCase())) {
+      seen.add(q.word.toLowerCase());
+      uniqueWords.push(q);
+    }
+  });
+  
+  if (uniqueWords.length > 0) {
+    return (
+      <StoryMode
+        words={uniqueWords}
+        settings={settings}  // ← THÊM DÒNG NÀY để truyền settings
+        onComplete={(finalScore) => {
+          setIsStoryModeActive(false);
+          setIsGameOver(true);
+        }}
+        onBack={onBack}
+        updateGlobal={updateGlobal}
+        onSaveWord={onSaveWord}
+      />
+    );
+  }
+}
 
   // ĐÃ FIX: Thông báo Loading xịn xò đổi theo từng Level
   if (loadingData) {

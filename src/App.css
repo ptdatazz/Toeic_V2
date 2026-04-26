@@ -157,3 +157,92 @@ h1, h2, h3, p, span, div {
   50% { opacity: 1; transform: translateY(-30px) scale(1.2); }
   100% { opacity: 0; transform: translateY(-60px) scale(0.8); }
 }
+
+/* Cây 3D */
+.ancient-tree-3d {
+  position: relative;
+  width: 180px;
+  height: 220px;
+  margin: 0 auto;
+  cursor: pointer;
+  transition: transform 0.3s;
+}
+.ancient-tree-3d:hover {
+  transform: scale(1.05);
+}
+
+/* Thân cây */
+.tree-trunk {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 30px;
+  height: 60px;
+  background: linear-gradient(135deg, #5d3a1a, #3e2708);
+  border-radius: 10px;
+  z-index: 1;
+}
+
+/* Tán cây */
+.tree-canopy {
+  position: absolute;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(circle at 30% 30%, #2d8a2d, #1a5c1a);
+  border-radius: 50% 50% 45% 45%;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+  z-index: 2;
+}
+
+/* Tán cây cấp cao */
+.tree-canopy.level-2 { background: radial-gradient(circle at 30% 30%, #3ca03c, #2d6a2d); width: 140px; height: 140px; }
+.tree-canopy.level-3 { background: radial-gradient(circle at 30% 30%, #4db84d, #3a8a3a); width: 160px; height: 160px; }
+.tree-canopy.level-4 { background: radial-gradient(circle at 30% 30%, #5fd05f, #4aaa4a); }
+.tree-canopy.level-5 { background: radial-gradient(circle at 30% 30%, #70e870, #5ac05a); box-shadow: 0 0 20px rgba(112,232,112,0.5); }
+
+/* Lá rung */
+@keyframes leafShake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(2deg); }
+  75% { transform: rotate(-2deg); }
+}
+.tree-canopy {
+  animation: leafShake 4s ease-in-out infinite;
+}
+
+/* Quả trên cây */
+.tree-fruit {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  background: radial-gradient(circle at 35% 35%, #ff4444, #cc0000);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.tree-fruit:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 15px rgba(255,68,68,0.6);
+}
+.tree-fruit.ready {
+  animation: fruitGlow 1.5s infinite;
+  background: radial-gradient(circle at 35% 35%, #ff6666, #ff0000);
+}
+@keyframes fruitGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(255,0,0,0.5); }
+  50% { box-shadow: 0 0 20px rgba(255,0,0,0.8); }
+}
+.tree-fruit.waiting {
+  background: radial-gradient(circle at 35% 35%, #88aa88, #446644);
+  filter: grayscale(0.5);
+}
