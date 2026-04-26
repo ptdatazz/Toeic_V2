@@ -435,24 +435,6 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
     };
   }, [question, activePanel, answered]);
 
-  // Trong useEffect cập nhật quả định kỳ
-  useEffect(() => {
-    const interval = setInterval(() => {
-      let hasUpdates = false;
-      
-      setAncientTrees(prev => prev.map(tree => {
-        const updated = updateFruitRegen(tree);
-        if (updated !== tree) hasUpdates = true;
-        return updated;
-      }));
-      
-      if (hasUpdates) {
-        notify(`🌳 Có quả mới đã mọc trên vườn cây của bạn! Hãy vào tab Cây cổ thụ để hái.`, "#22c55e");
-      }
-    }, 30000); // Kiểm tra mỗi 30 giây thay vì 60 giây
-    
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     const pestInterval = setInterval(() => {
@@ -471,22 +453,25 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
     setTimeout(() => setNotification(null), 2200);
   };
 
-  // ===== THÊM useEffect NÀY =====
 useEffect(() => {
   const interval = setInterval(() => {
-    let hasUpdates = false;
-    
-    setAncientTrees(prev => prev.map(tree => {
-      const updated = updateFruitRegen(tree);
-      if (updated !== tree) hasUpdates = true;
-      return updated;
+    setPlots(prev => prev.map(plot => {
+      if (plot.stage === 0 || plot.stage === 3) return plot;
+      if (plot.hasPest) return plot;
+      
+      // 👈 THÊM DÒNG NÀY ĐỂ DEBUG
+      //console.log("Plot:", plot.id, "stage:", plot.stage, "timeLeft:", plot.timeLeft);
+      
+      const newTimeLeft = Math.max(0, (plot.timeLeft || 0) - 1);
+      const crop = CROP_TYPES.find(c => c.id === plot.crop);
+      if (newTimeLeft <= 0 && plot.stage < 3) {
+        const newStage = plot.stage + 1;
+        const newTimeLeftForNext = newStage === 3 ? 0 : (crop ? crop.growTime : 10);
+        return { ...plot, stage: newStage, timeLeft: newTimeLeftForNext };
+      }
+      return { ...plot, timeLeft: newTimeLeft };
     }));
-    
-    if (hasUpdates) {
-      notify(`🌳 Có quả mới đã mọc trên vườn cây của bạn!`, "#22c55e");
-    }
-  }, 60000);
-  
+  }, 1000);
   return () => clearInterval(interval);
 }, []);
 
