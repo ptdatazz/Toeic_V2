@@ -1511,8 +1511,8 @@ KHÔNG giải thích gì thêm, CHỈ trả về JSON.`;
     } catch (error) {
       console.error("Lỗi sinh truyện:", error);
       // Fallback: tạo truyện đơn giản với tất cả từ
-      const fallbackStory = wordDetails.map(w => `Học từ "${w.word}" (${w.meaning}). `).join(' ') + 
-        "Đây là câu chuyện luyện tập từ vựng. Hãy cố gắng ghi nhớ và chạm vào từ để học nghĩa nhé!";
+      const fallbackStory = wordDetails.map(w => `Hãy học từ [${w.word.replace(/\s*\([^)]*\)/g, '').trim().toUpperCase()}] có nghĩa là ${w.meaning}. `).join(' ') + 
+  "Đây là câu chuyện luyện tập từ vựng. Hãy cố gắng ghi nhớ và chạm vào từ để học nghĩa nhé!";
       return {
         id: storyIndex,
         title: `Câu chuyện từ vựng ${storyIndex + 1}`,
@@ -1575,6 +1575,8 @@ KHÔNG giải thích gì thêm, CHỈ trả về JSON.`;
       
       const word = match[1].trim().toUpperCase();
       const isLearned = learnedSet.has(word);
+      //console.log(`🔍 Render từ: "${word}" | learnedSet:`, [...learnedSet], "| isLearned:", isLearned);
+
       const wordObj = stories[currentStoryIndex]?.words?.find(w => {
         if (!w.word) return false;
         // Tách phần (n), (v), (adj)... ra khỏi w.word trước khi so sánh
@@ -1628,6 +1630,9 @@ const submitMeaning = () => {
   setInputResult(isCorrect ? "correct" : "wrong");
   
   if (isCorrect) {
+    console.log("✅ Đúng! Từ cần lưu:", activeWord.word);
+  console.log("learnedWords hiện tại:", stories[currentStoryIndex]?.learnedWords);
+  console.log("learnedSet khi render sẽ check bằng UPPER:", activeWord.word.toUpperCase());
     playSound("combo_1");
     setTimeout(() => {
       // Đánh dấu đã học
@@ -1635,11 +1640,16 @@ const submitMeaning = () => {
       if (updateGlobal) updateGlobal("vocab", true, activeWord.word);
       if (onSaveWord) onSaveWord("vocab", { word: activeWord.word.toLowerCase(), meaning: activeWord.meaning });
       
-    setStories(prev => prev.map((s, i) => {
-      if (i !== currentStoryIndex) return s;
-      if (s.learnedWords.includes(activeWord.word)) return s;
-      return { ...s, learnedWords: [...s.learnedWords, activeWord.word] };
-    }));
+    setStories(prev => {
+      const updated = prev.map((s, i) => {
+        if (i !== currentStoryIndex) return s;
+        const wordUpper = activeWord.word.toUpperCase();
+        if (s.learnedWords.includes(wordUpper)) return s;
+        return { ...s, learnedWords: [...s.learnedWords, wordUpper] };
+      });
+      console.log("💾 setStories sau update:", updated[currentStoryIndex]?.learnedWords);
+      return updated;
+    });
       setActiveWord(null);
       setInputResult(null);
     }, 800);
@@ -1737,6 +1747,9 @@ const submitMeaning = () => {
 
   const learnedSet = new Set(currentStory.learnedWords);
   const storyParts = renderStoryWithTouchWords(currentStory.story, learnedSet);
+  // XÓA 2 dòng này:
+console.log("🔄 Re-render | learnedSet:", [...learnedSet]);
+console.log("🔄 storyParts isLearned:", storyParts.filter(p => p.type === 'word').map(p => `${p.word}:${p.isLearned}`));
   const totalWordsInStory = currentStory.words.length;
   const learnedCount = currentStory.learnedWords.length;
   const progressPercent = (learnedCount / totalWordsInStory) * 100;
@@ -2752,6 +2765,7 @@ if (DIFFICULTY_LEVEL === 0 && settings.storyMode && !isStoryModeActive && questi
   if (uniqueWords.length > 0) {
     return (
       <StoryMode
+        key="story-mode-stable"   // ← thêm dòng này
         words={uniqueWords}
         settings={settings}  // ← THÊM DÒNG NÀY để truyền settings
         onComplete={(finalScore) => {

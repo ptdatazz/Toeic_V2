@@ -968,7 +968,10 @@ const handleAncientSaplingHarvest = (plotId, wordData, isCorrect) => {
   confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, zIndex: 9999 });
   
   setQuizMode(null);
-  setActivePanel("ancient");
+  setAnswered(false);
+  setChosenOpt(null);
+  // Delay nhỏ để React commit ancientTrees state trước khi chuyển tab
+  setTimeout(() => setActivePanel("ancient"), 80);
 };
 
 // Xử lý diệt sâu cho mầm cây cổ thụ
@@ -1076,9 +1079,9 @@ const completeTreeLevelUp = () => {
   // Reset state
   setTreeLearningState(null);
   setQuizMode(null);
-  setActivePanel("ancient");
   setAnswered(false);
   setChosenOpt(null);
+  setTimeout(() => setActivePanel("ancient"), 80);
 };
 
 // Hàm gọi khi từ được học thuộc (chuyển từ ô vàng sang ô xanh)
@@ -1209,8 +1212,8 @@ const startLearningForTree = (tree) => {
     return;
   }
   
-  // Nếu đây là mầm cây cổ thụ
-  if (plot.isAncientSapling && ancientSapling) {
+  // Nếu đây là mầm cây cổ thụ (chỉ cần check plot flag, không cần ancientSapling state vì có thể bị mất khi reload)
+  if (plot.isAncientSapling) {
     const q = genQuestionForWord(plot.wordData);
     if (!q) {
       notify("❌ Không thể tạo câu hỏi cho từ này!", "#ef4444");
@@ -1298,15 +1301,19 @@ const startLearningForTree = (tree) => {
       // Xử lý thu hoạch mầm cây cổ thụ
   if (quizMode === "ancient_sapling_harvest") {
     const isCorrect = opt === question?.answer;
-    if (quizTarget !== null) {
-      const targetPlot = plots.find(p => p.id === quizTarget);
-      if (targetPlot && targetPlot.wordData) {
-        handleAncientSaplingHarvest(quizTarget, targetPlot.wordData, isCorrect);
-      }
-    }
+    const targetPlotId = quizTarget;
     setAnswered(true);
     setChosenOpt(opt);
-    if (quizTarget !== null) setQuizTarget(null);
+    setQuizTarget(null);
+    if (targetPlotId !== null) {
+      const targetPlot = plots.find(p => p.id === targetPlotId);
+      if (targetPlot && targetPlot.wordData) {
+        // Delay để React render kết quả đúng/sai trước khi chuyển tab
+        setTimeout(() => {
+          handleAncientSaplingHarvest(targetPlotId, targetPlot.wordData, isCorrect);
+        }, isCorrect ? 900 : 1800);
+      }
+    }
     return;
   }
   
@@ -1744,6 +1751,180 @@ const killPest = (plotId) => {
           display: flex; align-items: center; gap: 10px;
           box-shadow: 0 4px 20px rgba(139,92,246,0.4);
         }
+
+        /* ===== CÂY CỔ THỤ EPIC STYLES ===== */
+        @keyframes treeBreath { 0%,100%{transform:scaleY(1) scaleX(1)} 50%{transform:scaleY(1.012) scaleX(1.008)} }
+        @keyframes leafSway { 0%,100%{transform:rotate(-2deg)} 50%{transform:rotate(2deg)} }
+        @keyframes fruitBob { 0%,100%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-60%) scale(1.05)} }
+        @keyframes fruitGlow { 0%,100%{box-shadow:0 0 8px 2px rgba(255,180,0,0.5)} 50%{box-shadow:0 0 18px 6px rgba(255,180,0,0.9)} }
+        @keyframes fruitWaiting { 0%,100%{opacity:0.55;transform:translate(-50%,-50%) scale(0.9)} 50%{opacity:0.75;transform:translate(-50%,-50%) scale(0.95)} }
+        @keyframes bgStars { 0%{opacity:0.3;transform:scale(1)} 50%{opacity:1;transform:scale(1.1)} 100%{opacity:0.3;transform:scale(1)} }
+        @keyframes floatLeaf { 0%{transform:translateY(0) rotate(0deg);opacity:1} 100%{transform:translateY(-80px) rotate(360deg);opacity:0} }
+        @keyframes shimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
+        @keyframes levelUpPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.04)} }
+        @keyframes orbFloat { 0%,100%{transform:translateY(0px) rotate(0deg)} 50%{transform:translateY(-8px) rotate(5deg)} }
+        @keyframes expGrow { from{width:0} }
+        @keyframes glowPulse { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.25)} }
+        @keyframes quizSlideIn { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+        .ancient-panel-bg {
+          background: linear-gradient(160deg, #0a1a0a 0%, #0d2d17 30%, #0a2020 60%, #100d1a 100%);
+          min-height: 100%; position: relative; overflow: hidden;
+        }
+        .ancient-panel-bg::before {
+          content:''; position:absolute; inset:0;
+          background: radial-gradient(ellipse at 30% 20%, rgba(0,200,80,0.07) 0%, transparent 60%),
+                      radial-gradient(ellipse at 70% 70%, rgba(100,50,200,0.07) 0%, transparent 60%);
+          pointer-events:none;
+        }
+
+        .tree-world { position:relative; width:260px; height:300px; margin:0 auto; cursor:default; }
+        .tree-trunk-epic {
+          position:absolute; bottom:0; left:50%; transform:translateX(-50%);
+          border-radius:8px 8px 4px 4px;
+          background: linear-gradient(180deg, #5d3a1a 0%, #3b2008 50%, #2a1505 100%);
+          box-shadow: inset -6px 0 12px rgba(0,0,0,0.5), inset 4px 0 8px rgba(255,200,100,0.08);
+        }
+        .tree-canopy-epic {
+          position:absolute; left:50%; transform:translateX(-50%);
+          border-radius:50% 50% 40% 40%;
+          animation: treeBreath 4s ease-in-out infinite;
+          transform-origin: center bottom;
+        }
+        .tree-fruit-epic {
+          position:absolute; border-radius:50%;
+          display:flex; align-items:center; justify-content:center;
+          font-size:16px; cursor:pointer; transition:transform 0.2s;
+          user-select:none;
+        }
+        .tree-fruit-epic.ready {
+          animation: fruitBob 2s ease-in-out infinite, fruitGlow 2s ease-in-out infinite;
+          background: radial-gradient(circle at 35% 35%, #fff3, transparent 60%), #ff8c00;
+          border: 2px solid #ffd700;
+          width:32px; height:32px;
+        }
+        .tree-fruit-epic.ready:hover { transform:translate(-50%,-50%) scale(1.2) !important; }
+        .tree-fruit-epic.waiting {
+          animation: fruitWaiting 3s ease-in-out infinite;
+          background: rgba(80,80,80,0.5);
+          border: 1px solid rgba(255,255,255,0.15);
+          width:22px; height:22px; font-size:11px;
+        }
+        
+        .fruit-word-tooltip {
+          position:absolute; bottom:110%; left:50%; transform:translateX(-50%);
+          background:rgba(0,0,0,0.85); color:#ffd700; padding:3px 8px;
+          border-radius:8px; font-size:10px; white-space:nowrap;
+          pointer-events:none; opacity:0; transition:opacity 0.2s;
+          border:1px solid rgba(255,215,0,0.3);
+        }
+        .tree-fruit-epic:hover .fruit-word-tooltip { opacity:1; }
+
+        .tree-stat-card {
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius:16px; padding:10px 14px;
+          backdrop-filter: blur(8px);
+          transition: all 0.2s;
+        }
+        .tree-stat-card:hover { background:rgba(255,255,255,0.08); border-color:rgba(255,215,0,0.3); }
+
+        .harvest-btn-epic {
+          background: linear-gradient(135deg, #ff8c00, #ffd700);
+          border:none; border-radius:16px; color:#1a0a00;
+          font-weight:900; cursor:pointer; font-family:inherit;
+          transition:all 0.2s; position:relative; overflow:hidden;
+          box-shadow: 0 4px 20px rgba(255,180,0,0.4);
+        }
+        .harvest-btn-epic::before {
+          content:''; position:absolute; top:0; left:-100%;
+          width:60%; height:100%; background:rgba(255,255,255,0.2);
+          transform:skewX(-20deg); transition:left 0.4s;
+        }
+        .harvest-btn-epic:hover::before { left:140%; }
+        .harvest-btn-epic:hover { transform:translateY(-2px); box-shadow:0 6px 28px rgba(255,180,0,0.6); }
+        .harvest-btn-epic:disabled { background:#555; color:#999; cursor:not-allowed; box-shadow:none; transform:none; }
+
+        .learn-btn-epic {
+          background: linear-gradient(135deg, #4f46e5, #7c3aed);
+          border:none; border-radius:16px; color:white;
+          font-weight:900; cursor:pointer; font-family:inherit;
+          transition:all 0.2s; box-shadow:0 4px 20px rgba(124,58,237,0.4);
+        }
+        .learn-btn-epic:hover { transform:translateY(-2px); box-shadow:0 6px 28px rgba(124,58,237,0.6); }
+
+        .exp-bar-track { background:rgba(255,255,255,0.1); border-radius:10px; height:10px; overflow:hidden; }
+        .exp-bar-fill {
+          height:100%; border-radius:10px;
+          background: linear-gradient(90deg, #ffd700, #ff8c00);
+          box-shadow: 0 0 10px rgba(255,200,0,0.5);
+          animation: expGrow 0.8s ease-out;
+        }
+
+        .fruit-list-item {
+          display:flex; align-items:center; gap:10px;
+          padding:8px 12px; border-radius:12px;
+          transition:all 0.2s; cursor:pointer;
+        }
+        .fruit-list-item.ready {
+          background: linear-gradient(135deg, rgba(255,140,0,0.15), rgba(255,215,0,0.1));
+          border:1px solid rgba(255,200,0,0.3);
+        }
+        .fruit-list-item.ready:hover { background:rgba(255,180,0,0.25); transform:translateX(4px); }
+        .fruit-list-item.waiting {
+          background:rgba(255,255,255,0.03);
+          border:1px solid rgba(255,255,255,0.06);
+        }
+
+        .quiz-ancient-overlay {
+          position:fixed; inset:0; z-index:2000;
+          background:linear-gradient(160deg, #0a1a0a, #0d2d17, #100d1a);
+          display:flex; flex-direction:column; align-items:center; justify-content:center;
+          padding:20px;
+          animation: quizSlideIn 0.35s ease-out;
+        }
+        .quiz-option-ancient {
+          width:100%; padding:14px 20px; border-radius:16px;
+          border:2px solid rgba(255,215,0,0.2);
+          background:rgba(255,255,255,0.05);
+          color:#e2e8f0; font-weight:700; font-size:14px;
+          cursor:pointer; text-align:left; font-family:inherit;
+          transition:all 0.15s; display:flex; align-items:center; gap:12px;
+          backdrop-filter:blur(8px);
+        }
+        .quiz-option-ancient:hover:not(:disabled) { background:rgba(255,215,0,0.1); border-color:rgba(255,215,0,0.5); transform:translateX(4px); }
+        .quiz-option-ancient.correct { background:linear-gradient(135deg,#16a34a,#22c55e); border-color:#22c55e; color:white; transform:none; }
+        .quiz-option-ancient.wrong { background:linear-gradient(135deg,#dc2626,#ef4444); border-color:#ef4444; color:white; transform:none; }
+        .quiz-option-ancient:disabled { cursor:default; }
+
+        .timer-ring { transition:stroke-dashoffset 1s linear; }
+
+        .level-badge {
+          display:inline-flex; align-items:center; gap:6px;
+          padding:4px 14px; border-radius:20px;
+          background:linear-gradient(135deg,rgba(255,215,0,0.15),rgba(255,140,0,0.1));
+          border:1px solid rgba(255,215,0,0.4);
+          font-size:13px; font-weight:800; color:#ffd700;
+        }
+
+        .ancient-empty-state {
+          text-align:center; padding:40px 20px;
+          background:rgba(255,255,255,0.03); border-radius:24px;
+          border:1px dashed rgba(255,255,255,0.1);
+        }
+
+        .particle {
+          position:absolute; border-radius:50%;
+          animation: floatLeaf 2s ease-out forwards;
+          pointer-events:none;
+        }
+
+        .quiz-word-card {
+          background:linear-gradient(135deg,rgba(255,215,0,0.08),rgba(255,140,0,0.05));
+          border:1px solid rgba(255,215,0,0.25); border-radius:20px;
+          padding:20px; text-align:center; margin-bottom:16px;
+          backdrop-filter:blur(8px);
+        }
       `}</style>
 
       {showAchievement && (
@@ -1936,222 +2117,285 @@ const killPest = (plotId) => {
 
         {activePanel === "quiz" && (
           <div style={{ maxWidth: "480px", margin: "0 auto", width: "100%" }}>
-            {/* Hiển thị quiz cho cây cổ thụ (học từ để lên cấp) */}
-            {quizMode === "tree_learning" && treeLearningState && (
-              <>
-                <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "18px", padding: "18px", textAlign: "center", marginBottom: "14px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
-                    <span>📚 Học từ: <strong style={{ color: "#2196F3" }}>{treeLearningState.word}</strong></span>
-                    <span>✅ {treeLearningState.correctCount}/{treeLearningState.totalNeeded}</span>
-                  </div>
-                  <div style={{ width: "100%", height: "5px", background: "#e5e7eb", borderRadius: "5px", marginBottom: "14px" }}>
-                    <div style={{ 
-                      width: `${(treeLearningState.correctCount / treeLearningState.totalNeeded) * 100}%`, 
-                      height: "100%", 
-                      background: "#2196F3", 
-                      transition: "width 0.3s" 
-                    }} />
-                  </div>
-                  <div style={{ fontSize: "13px", color: "#6b7280" }}>
-                    Câu {treeLearningState.currentIndex + 1}/{treeLearningState.questions.length}
-                  </div>
-                </div>
+            {/* ===== QUIZ HỌC TỪ ĐỂ CÂY LÊN CẤP - EPIC DARK UI ===== */}
+            {quizMode === "tree_learning" && treeLearningState && (() => {
+              const currentQ = treeLearningState.questions[treeLearningState.currentIndex];
+              const prevQ = treeLearningState.questions[treeLearningState.currentIndex - 1];
+              const progress = (treeLearningState.correctCount / treeLearningState.totalNeeded) * 100;
 
-                {/* Hiển thị câu hỏi hiện tại */}
-                {(() => {
-                  const currentQ = treeLearningState.questions[treeLearningState.currentIndex];
-                  if (!currentQ) return <div>Đang tải câu hỏi...</div>;
-                  
-                  if (currentQ.type === "fill_blank" || currentQ.type === "vn_to_en") {
-                    return (
-                      <>
-                        <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "18px", padding: "18px", textAlign: "center", marginBottom: "14px" }}>
-                          <div style={{ fontSize: "14px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", fontWeight: "600" }}>
-                            Chọn từ đúng
-                          </div>
-                          <h2 style={{ fontSize: "20px", color: "#2196F3", margin: "12px 0 8px 0", fontWeight: "700" }}>
-                            "{currentQ.meaning}"
-                          </h2>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                          {currentQ.options.map((opt, i) => (
-                            <button 
-                              key={i} 
-                              disabled={answered} 
-                              onClick={() => handleAnswer(opt)} 
-                              style={{
-                                background: answered && opt === currentQ.answer ? "linear-gradient(135deg,#16a34a,#22c55e)" : answered && opt === chosenOpt ? "linear-gradient(135deg,#dc2626,#ef4444)" : "rgba(255,255,255,0.88)",
-                                color: answered && (opt === currentQ.answer || opt === chosenOpt) ? "white" : "#374151",
-                                border: "2px solid rgba(255,255,255,0.9)", borderRadius: "14px", padding: "12px 18px",
-                                fontSize: "14px", fontWeight: "700", cursor: answered ? "default" : "pointer",
-                                textAlign: "left", fontFamily: "inherit"
-                              }}
-                            >
-                              <span style={{ opacity: 0.5, marginRight: "10px" }}>{["A","B","C","D"][i]}.</span> {opt}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    );
-                  }
-                  
-                  // Mặc định: dạng En -> Vn
-                  return (
+              return (
+                <div className="quiz-ancient-overlay">
+                  {/* Header tiến trình */}
+                  <div style={{
+                    width:"100%", maxWidth:"460px", marginBottom:"16px",
+                    display:"flex", flexDirection:"column", alignItems:"center", gap:"8px",
+                  }}>
+                    <div style={{
+                      display:"flex", alignItems:"center", gap:"10px",
+                      padding:"8px 20px", borderRadius:"20px",
+                      background:"rgba(99,102,241,0.12)", border:"1px solid rgba(167,139,250,0.3)",
+                    }}>
+                      <span style={{fontSize:"20px"}}>📚</span>
+                      <span style={{fontWeight:"900", color:"#a78bfa", fontSize:"14px"}}>
+                        Học thuộc từ — <span style={{color:"#ffd700"}}>{treeLearningState.word}</span>
+                      </span>
+                    </div>
+
+                    {/* Progress bar */}
+                    <div style={{width:"100%", maxWidth:"460px"}}>
+                      <div style={{
+                        display:"flex", justifyContent:"space-between",
+                        fontSize:"11px", color:"rgba(167,139,250,0.7)", marginBottom:"5px",
+                      }}>
+                        <span>✅ Đúng: {treeLearningState.correctCount}/{treeLearningState.totalNeeded}</span>
+                        <span>Câu {treeLearningState.currentIndex + 1}/{treeLearningState.questions.length}</span>
+                      </div>
+                      <div style={{height:"8px", background:"rgba(255,255,255,0.08)", borderRadius:"10px", overflow:"hidden"}}>
+                        <div style={{
+                          width:`${progress}%`, height:"100%", borderRadius:"10px",
+                          background:"linear-gradient(90deg,#7c3aed,#a855f7)",
+                          boxShadow:"0 0 10px rgba(168,85,247,0.5)",
+                          transition:"width 0.4s ease",
+                        }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {currentQ ? (
                     <>
-                      <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "18px", padding: "18px", textAlign: "center", marginBottom: "14px" }}>
-                        <div style={{ fontSize: "14px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", fontWeight: "600" }}>
-                          Nghĩa của từ này là gì?
+                      {/* Word/Meaning card */}
+                      <div className="quiz-word-card" style={{width:"100%", maxWidth:"460px"}}>
+                        <div style={{fontSize:"11px", color:"rgba(167,139,250,0.6)", textTransform:"uppercase", letterSpacing:"2px", marginBottom:"8px"}}>
+                          {currentQ.type === "fill_blank" ? "Điền từ vào chỗ trống" :
+                           currentQ.type === "vn_to_en" ? "Chọn từ tiếng Anh đúng" :
+                           "Nghĩa của từ này là gì?"}
                         </div>
-                        <div style={{ fontSize: "28px", fontWeight: "900", color: "#1e3a5f", marginTop: "12px" }}>
-                          {currentQ.word}
+                        <div style={{
+                          fontSize: currentQ.type === "fill_blank" ? "16px" : "34px",
+                          fontWeight:"900", color:"#fff",
+                          letterSpacing:"-0.5px",
+                          textShadow:"0 0 30px rgba(167,139,250,0.3)",
+                          lineHeight:1.3,
+                        }}>
+                          {currentQ.type === "fill_blank" ? `"${currentQ.meaning}"` :
+                           currentQ.type === "vn_to_en" ? currentQ.meaning :
+                           currentQ.word}
                         </div>
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                        {currentQ.options.map((opt, i) => (
-                          <button 
-                            key={i} 
-                            disabled={answered} 
-                            onClick={() => handleAnswer(opt)} 
-                            style={{
-                              background: answered && opt === currentQ.answer ? "linear-gradient(135deg,#16a34a,#22c55e)" : answered && opt === chosenOpt ? "linear-gradient(135deg,#dc2626,#ef4444)" : "rgba(255,255,255,0.88)",
-                              color: answered && (opt === currentQ.answer || opt === chosenOpt) ? "white" : "#374151",
-                              border: "2px solid rgba(255,255,255,0.9)", borderRadius: "14px", padding: "12px 18px",
-                              fontSize: "14px", fontWeight: "700", cursor: answered ? "default" : "pointer",
-                              textAlign: "left", fontFamily: "inherit"
-                            }}
-                          >
-                            <span style={{ opacity: 0.5, marginRight: "10px" }}>{["A","B","C","D"][i]}.</span> {opt}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  );
-                })()}
 
-                {/* Hiển thị kết quả sau khi trả lời */}
-                {answered && (
-                  <div style={{ marginTop: "14px", background: "rgba(255,255,255,0.9)", borderRadius: "14px", padding: "14px", textAlign: "center" }}>
-                    {chosenOpt === treeLearningState.questions[treeLearningState.currentIndex - 1]?.answer ? (
-                      <div style={{ color: "#16a34a", fontWeight: "800" }}>✅ Chính xác! Tiếp tục nào!</div>
-                    ) : (
-                      <div style={{ color: "#dc2626", fontWeight: "800" }}>
-                        ❌ Đáp án đúng: <strong>{treeLearningState.questions[treeLearningState.currentIndex - 1]?.answer}</strong>
-                      </div>
-                    )}
-                    {treeLearningState.correctCount < treeLearningState.totalNeeded && (
-                      <button 
-                        style={{ marginTop: "10px", background: "linear-gradient(135deg,#2196F3,#1e88e5)", color: "white", border: "none", borderRadius: "12px", padding: "10px 26px", fontWeight: "800", cursor: "pointer", fontSize: "14px" }} 
-                        onClick={() => {
-                          setAnswered(false);
-                          setChosenOpt(null);
-                        }}
-                      >
-                        ➡ Câu tiếp theo
-                      </button>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Quiz hái quả cây cổ thụ */}
-            {quizMode === "ancient_harvest" && harvestQuizState && (
-              <>
-                <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "18px", padding: "18px", textAlign: "center", marginBottom: "14px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
-                    <span>🍎 Hái quả: <strong style={{ color: "#ff9800" }}>{harvestQuizState.correctCount}/{harvestQuizState.totalNeeded}</strong></span>
-                    <span style={{ color: timeLeft <= 5 ? "#ef4444" : "#374151" }}>⏱ {timeLeft}s</span>
-                  </div>
-                  <div style={{ width: "100%", height: "5px", background: "#e5e7eb", borderRadius: "5px", marginBottom: "14px" }}>
-                    <div style={{ 
-                      width: `${(harvestQuizState.correctCount / harvestQuizState.totalNeeded) * 100}%`, 
-                      height: "100%", 
-                      background: "#ff9800", 
-                      transition: "width 0.3s" 
-                    }} />
-                  </div>
-                  <div style={{ fontSize: "13px", color: "#6b7280" }}>
-                    Câu {harvestQuizState.currentIndex + 1}/{harvestQuizState.questions.length}
-                  </div>
-                </div>
-
-                {/* Hiển thị câu hỏi hiện tại */}
-                {(() => {
-                  const currentQ = harvestQuizState.questions[harvestQuizState.currentIndex];
-                  if (!currentQ) return <div>Đang tải câu hỏi...</div>;
-                  
-                  return (
-                    <>
-                      <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "18px", padding: "18px", textAlign: "center", marginBottom: "14px" }}>
-                        <div style={{ fontSize: "14px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", fontWeight: "600" }}>
-                          Nghĩa của từ này là gì?
-                        </div>
-                        <div style={{ fontSize: "28px", fontWeight: "900", color: "#1e3a5f", marginTop: "12px" }}>
-                          {currentQ.word}
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                      {/* Options */}
+                      <div style={{display:"flex", flexDirection:"column", gap:"10px", width:"100%", maxWidth:"460px"}}>
                         {currentQ.options.map((opt, i) => {
                           const isSelected = chosenOpt === opt;
-                          const isAnswerCorrect = opt === currentQ.answer;
-                          const showCorrect = answered && isAnswerCorrect;
-                          const showWrong = answered && isSelected && !isAnswerCorrect;
-                          
+                          const isCorrect = opt === currentQ.answer;
+                          const cls = answered ? (isCorrect ? "correct" : isSelected ? "wrong" : "") : "";
+                          const labels = ["A","B","C","D"];
                           return (
-                            <button 
-                              key={i} 
-                              disabled={answered} 
-                              onClick={() => handleAnswer(opt)} 
-                              style={{
-                                background: showCorrect ? "linear-gradient(135deg,#16a34a,#22c55e)" : showWrong ? "linear-gradient(135deg,#dc2626,#ef4444)" : "rgba(255,255,255,0.88)",
-                                color: showCorrect || showWrong ? "white" : "#374151",
-                                border: "2px solid rgba(255,255,255,0.9)", 
-                                borderRadius: "14px", 
-                                padding: "12px 18px",
-                                fontSize: "14px", 
-                                fontWeight: "700", 
-                                cursor: answered ? "default" : "pointer",
-                                textAlign: "left", 
-                                fontFamily: "inherit"
-                              }}
+                            <button
+                              key={i}
+                              disabled={answered}
+                              onClick={() => handleAnswer(opt)}
+                              className={`quiz-option-ancient ${cls}`}
+                              style={{borderColor: cls ? undefined : "rgba(167,139,250,0.2)"}}
                             >
-                              <span style={{ opacity: 0.5, marginRight: "10px" }}>{["A","B","C","D"][i]}.</span> {opt}
+                              <div style={{
+                                width:"28px", height:"28px", borderRadius:"8px", flexShrink:0,
+                                background: cls === "correct" ? "rgba(255,255,255,0.2)" : cls === "wrong" ? "rgba(255,255,255,0.2)" : "rgba(167,139,250,0.1)",
+                                border:"1px solid rgba(167,139,250,0.3)",
+                                display:"flex", alignItems:"center", justifyContent:"center",
+                                fontSize:"13px", fontWeight:"900", color:"#a78bfa",
+                              }}>{labels[i]}</div>
+                              <span>{opt}</span>
+                              {answered && isCorrect && <span style={{marginLeft:"auto"}}>✅</span>}
+                              {answered && isSelected && !isCorrect && <span style={{marginLeft:"auto"}}>❌</span>}
                             </button>
                           );
                         })}
                       </div>
-                    </>
-                  );
-                })()}
 
-                {/* Hiển thị kết quả và nút tiếp theo */}
-                {answered && harvestQuizState.correctCount < harvestQuizState.totalNeeded && (
-                  <div style={{ marginTop: "14px", background: "rgba(255,255,255,0.9)", borderRadius: "14px", padding: "14px", textAlign: "center" }}>
-                    {chosenOpt === harvestQuizState.questions[harvestQuizState.currentIndex - 1]?.answer ? (
-                      <div style={{ color: "#16a34a", fontWeight: "800" }}>✅ Chính xác! Tiếp tục nào!</div>
+                      {/* Feedback */}
+                      {answered && (
+                        <div style={{
+                          marginTop:"14px", width:"100%", maxWidth:"460px",
+                          padding:"12px 18px", borderRadius:"16px",
+                          background: chosenOpt === currentQ.answer ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+                          border:`1px solid ${chosenOpt === currentQ.answer ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                          display:"flex", alignItems:"center", justifyContent:"space-between", gap:"12px",
+                        }}>
+                          <div>
+                            {chosenOpt === currentQ.answer ? (
+                              <div style={{color:"#4ade80", fontWeight:"900"}}>✅ Chính xác!</div>
+                            ) : (
+                              <div>
+                                <div style={{color:"#f87171", fontWeight:"900"}}>❌ Sai rồi!</div>
+                                <div style={{color:"rgba(255,255,255,0.5)", fontSize:"11px", marginTop:"2px"}}>
+                                  Đáp án: <strong style={{color:"#ffd700"}}>{currentQ.answer}</strong>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {treeLearningState.correctCount < treeLearningState.totalNeeded && (
+                            <button
+                              className="learn-btn-epic"
+                              style={{padding:"8px 18px", fontSize:"13px", flexShrink:0}}
+                              onClick={() => { setAnswered(false); setChosenOpt(null); }}
+                            >➡ Tiếp</button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{color:"rgba(255,255,255,0.4)", fontSize:"14px"}}>Đang tải câu hỏi...</div>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setTreeLearningState(null);
+                      setQuizMode(null);
+                      setActivePanel("ancient");
+                      setAnswered(false);
+                      setChosenOpt(null);
+                    }}
+                    style={{
+                      marginTop:"14px", background:"rgba(255,255,255,0.07)",
+                      border:"1px solid rgba(255,255,255,0.12)", borderRadius:"12px",
+                      color:"rgba(255,255,255,0.4)", padding:"8px 24px",
+                      fontSize:"12px", cursor:"pointer", fontFamily:"inherit",
+                    }}
+                  >✕ Huỷ</button>
+                </div>
+              );
+            })()}
+
+            {/* ===== QUIZ HÁI QUẢ CÂY CỔ THỤ - EPIC DARK UI ===== */}
+            {quizMode === "ancient_harvest" && harvestQuizState && (
+              <div className="quiz-ancient-overlay">
+                {/* Header */}
+                <div style={{
+                  width:"100%", maxWidth:"460px", marginBottom:"18px",
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:"10px",
+                }}>
+                  {/* Tiêu đề */}
+                  <div style={{
+                    display:"flex", alignItems:"center", gap:"10px",
+                    padding:"8px 20px", borderRadius:"20px",
+                    background:"rgba(255,140,0,0.12)", border:"1px solid rgba(255,215,0,0.3)",
+                  }}>
+                    <span style={{fontSize:"22px"}}>🍎</span>
+                    <span style={{fontWeight:"900", color:"#ffd700", fontSize:"15px"}}>
+                      Hái quả — <span style={{color:"#ff9800"}}>{harvestQuizState.targetWord}</span>
+                    </span>
+                  </div>
+
+                  {/* Timer ring + countdown */}
+                  <div style={{position:"relative", width:"72px", height:"72px"}}>
+                    <svg width="72" height="72" style={{transform:"rotate(-90deg)"}}>
+                      <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="5"/>
+                      <circle
+                        className="timer-ring"
+                        cx="36" cy="36" r="30" fill="none"
+                        stroke={timeLeft <= 5 ? "#ef4444" : "#ffd700"}
+                        strokeWidth="5"
+                        strokeLinecap="round"
+                        strokeDasharray={`${2 * Math.PI * 30}`}
+                        strokeDashoffset={`${2 * Math.PI * 30 * (1 - timeLeft / 15)}`}
+                      />
+                    </svg>
+                    <div style={{
+                      position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center",
+                      fontSize:"20px", fontWeight:"900",
+                      color: timeLeft <= 5 ? "#ef4444" : "#ffd700",
+                    }}>{timeLeft}</div>
+                  </div>
+                </div>
+
+                {/* Word card */}
+                <div className="quiz-word-card" style={{width:"100%", maxWidth:"460px"}}>
+                  <div style={{fontSize:"11px", color:"rgba(255,215,0,0.6)", textTransform:"uppercase", letterSpacing:"2px", marginBottom:"8px"}}>
+                    Nghĩa của từ này là gì?
+                  </div>
+                  <div style={{
+                    fontSize:"34px", fontWeight:"900", color:"#fff",
+                    letterSpacing:"-1px", textShadow:"0 0 30px rgba(255,215,0,0.3)",
+                  }}>
+                    {harvestQuizState.question.word}
+                  </div>
+                </div>
+
+                {/* Options */}
+                <div style={{display:"flex", flexDirection:"column", gap:"10px", width:"100%", maxWidth:"460px"}}>
+                  {harvestQuizState.question.options.map((opt, i) => {
+                    const isSelected = chosenOpt === opt;
+                    const isCorrect = opt === harvestQuizState.question.answer;
+                    const cls = answered
+                      ? isCorrect ? "correct" : isSelected ? "wrong" : ""
+                      : "";
+                    const labels = ["A","B","C","D"];
+                    return (
+                      <button
+                        key={i}
+                        disabled={answered}
+                        onClick={() => handleAnswer(opt)}
+                        className={`quiz-option-ancient ${cls}`}
+                      >
+                        <div style={{
+                          width:"28px", height:"28px", borderRadius:"8px", flexShrink:0,
+                          background: cls === "correct" ? "rgba(255,255,255,0.2)" : cls === "wrong" ? "rgba(255,255,255,0.2)" : "rgba(255,215,0,0.1)",
+                          border: "1px solid rgba(255,215,0,0.2)",
+                          display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize:"13px", fontWeight:"900", color:"#ffd700",
+                        }}>{labels[i]}</div>
+                        <span>{opt}</span>
+                        {answered && isCorrect && <span style={{marginLeft:"auto"}}>✅</span>}
+                        {answered && isSelected && !isCorrect && <span style={{marginLeft:"auto"}}>❌</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Result feedback */}
+                {answered && (
+                  <div style={{
+                    marginTop:"16px", width:"100%", maxWidth:"460px",
+                    padding:"14px 20px", borderRadius:"16px", textAlign:"center",
+                    background: chosenOpt === harvestQuizState.question.answer
+                      ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+                    border: `1px solid ${chosenOpt === harvestQuizState.question.answer ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                  }}>
+                    {chosenOpt === harvestQuizState.question.answer ? (
+                      <div style={{color:"#4ade80", fontWeight:"900", fontSize:"16px"}}>
+                        🎉 Chính xác! +15🪙 +10 EXP
+                      </div>
                     ) : (
-                      <div style={{ color: "#dc2626", fontWeight: "800" }}>
-                        ❌ Đáp án đúng: <strong>{harvestQuizState.questions[harvestQuizState.currentIndex - 1]?.answer}</strong>
+                      <div>
+                        <div style={{color:"#f87171", fontWeight:"900", fontSize:"15px"}}>❌ Sai rồi!</div>
+                        <div style={{color:"rgba(255,255,255,0.6)", fontSize:"12px", marginTop:"4px"}}>
+                          Đáp án: <strong style={{color:"#ffd700"}}>{harvestQuizState.question.answer}</strong>
+                        </div>
                       </div>
                     )}
-                    <button 
-                      style={{ marginTop: "10px", background: "linear-gradient(135deg,#ff9800,#f57c00)", color: "white", border: "none", borderRadius: "12px", padding: "10px 26px", fontWeight: "800", cursor: "pointer", fontSize: "14px" }} 
-                      onClick={() => {
-                        setAnswered(false);
-                        setChosenOpt(null);
-                        setTimeLeft(15);
-                        // Khởi động lại timer cho câu mới
-                        if (timerRef.current) {
-                          clearInterval(timerRef.current);
-                          timerRef.current = null;
-                        }
-                      }}
-                    >
-                      ➡ Câu tiếp theo
-                    </button>
                   </div>
                 )}
-              </>
+
+                {/* Cancel button */}
+                <button
+                  onClick={() => {
+                    setHarvestQuizState(null);
+                    setQuizMode(null);
+                    setActivePanel("ancient");
+                    setAnswered(false);
+                    setChosenOpt(null);
+                  }}
+                  style={{
+                    marginTop:"14px", background:"rgba(255,255,255,0.07)",
+                    border:"1px solid rgba(255,255,255,0.12)", borderRadius:"12px",
+                    color:"rgba(255,255,255,0.45)", padding:"8px 24px",
+                    fontSize:"12px", cursor:"pointer", fontFamily:"inherit",
+                  }}
+                >
+                  ✕ Huỷ và quay lại
+                </button>
+              </div>
             )}
 
             {/* Quiz thông thường (cây trồng, boss, v.v) */}
@@ -2275,136 +2519,379 @@ const killPest = (plotId) => {
         {activePanel === "ancient" && ancientTrees.length > 0 && (() => {
   const tree = ancientTrees[0];
   const config = getTreeConfig(tree.level);
-  const levelEmojis = ["🌱", "🌿", "🌳", "🌲", "🏝️", "👑", "✨", "🔥", "💧", "⚡", "🐉"];
+  const levelEmojis = ["🌱","🌿","🌳","🌲","🏝️","👑","✨","🔥","💧","⚡","🐉"];
+  const levelColors = ["#22c55e","#16a34a","#15803d","#166534","#14532d","#ffd700","#a855f7","#ef4444","#3b82f6","#eab308","#f97316"];
+  const levelGlows  = ["rgba(34,197,94","rgba(34,197,94","rgba(22,163,74","rgba(22,163,74","rgba(20,83,45","rgba(255,215,0","rgba(168,85,247","rgba(239,68,68","rgba(59,130,246","rgba(234,179,8","rgba(249,115,22"];
   const treeEmoji = levelEmojis[Math.min(tree.level, 10)];
-  
-  // Tạo vị trí ngẫu nhiên cho các quả trên tán cây
+  const treeColor = levelColors[Math.min(tree.level, 10)];
+  const treeGlow  = levelGlows[Math.min(tree.level, 10)];
+  const canopySize = 110 + tree.level * 10;
+  const trunkW = 24 + tree.level * 2;
+  const trunkH = 55 + tree.level * 3;
+  const readyFruits = tree.fruits.filter(f => f.isReady).length;
+  const totalFruits = tree.fruits.length;
+
   const fruitPositions = [
-    { top: "15%", left: "20%" }, { top: "10%", left: "50%" }, { top: "18%", left: "75%" },
-    { top: "35%", left: "15%" }, { top: "30%", left: "40%" }, { top: "32%", left: "65%" },
-    { top: "50%", left: "25%" }, { top: "48%", left: "55%" }, { top: "55%", left: "80%" },
-    { top: "70%", left: "35%" }, { top: "68%", left: "60%" }, { top: "75%", left: "50%" },
+    {top:"12%",left:"30%"},{top:"10%",left:"55%"},{top:"14%",left:"75%"},
+    {top:"32%",left:"18%"},{top:"28%",left:"45%"},{top:"30%",left:"72%"},
+    {top:"50%",left:"24%"},{top:"47%",left:"52%"},{top:"52%",left:"76%"},
+    {top:"66%",left:"32%"},{top:"64%",left:"58%"},{top:"70%",left:"48%"},
   ];
-  
+
+  const expPct = tree.level < 10
+    ? Math.min(100, (tree.exp / ANCIENT_TREE_LEVELS[tree.level + 1].expRequired) * 100)
+    : 100;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px" }}>
-      
-      {/* Thông tin cây */}
-      <div style={{ textAlign: "center", marginBottom: "20px" }}>
-        <div style={{ fontSize: "20px", fontWeight: "bold", color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.3)" }}>
-          🌳 {tree.word}
-        </div>
-        <div style={{ fontSize: "14px", color: "#ffd700" }}>
-          Lv.{tree.level} {config.name} • 🍎 {tree.harvestedCount || 0} quả đã hái
-        </div>
-        {tree.level < 10 && (
-          <div style={{ marginTop: "8px", width: "200px", marginLeft: "auto", marginRight: "auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#ffd700" }}>
-              <span>📊 EXP</span>
-              <span>{tree.exp}/{ANCIENT_TREE_LEVELS[tree.level + 1].expRequired}</span>
+    <div className="ancient-panel-bg" style={{ padding:"16px 12px", minHeight:"100%", display:"flex", flexDirection:"column", alignItems:"center", gap:"16px" }}>
+
+      {/* ── HEADER CARD ── */}
+      <div style={{
+        width:"100%", maxWidth:"420px", borderRadius:"24px", padding:"16px 20px",
+        background:"rgba(255,255,255,0.04)", border:`1px solid ${treeGlow},0.35)`,
+        backdropFilter:"blur(12px)", display:"flex", alignItems:"center", gap:"14px",
+        boxShadow:`0 0 30px ${treeGlow},0.15)`,
+      }}>
+        <div style={{
+          width:"56px", height:"56px", borderRadius:"16px", flexShrink:0,
+          background:`radial-gradient(circle at 35% 35%, rgba(255,255,255,0.2), transparent 70%), ${treeGlow},0.25)`,
+          border:`2px solid ${treeGlow},0.5)`,
+          display:"flex", alignItems:"center", justifyContent:"center", fontSize:"28px",
+          boxShadow:`0 0 20px ${treeGlow},0.3)`,
+          animation:"glowPulse 3s ease-in-out infinite",
+        }}>{treeEmoji}</div>
+        <div style={{flex:1, minWidth:0}}>
+          <div style={{display:"flex", alignItems:"center", gap:"8px", marginBottom:"4px"}}>
+            <div style={{fontSize:"18px", fontWeight:"900", color:"#f8fafc", letterSpacing:"-0.3px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+              {tree.word}
             </div>
-            <div style={{ height: "6px", background: "rgba(255,255,255,0.2)", borderRadius: "3px" }}>
-              <div style={{ width: `${(tree.exp / ANCIENT_TREE_LEVELS[tree.level + 1].expRequired) * 100}%`, height: "100%", background: "linear-gradient(90deg, #ffd700, #ff9800)", borderRadius: "3px" }} />
-            </div>
+            <div className="level-badge">Lv.{tree.level}</div>
           </div>
-        )}
+          <div style={{fontSize:"12px", color:"rgba(255,255,255,0.55)", marginBottom:"6px"}}>{config.name}</div>
+          {tree.level < 10 ? (
+            <>
+              <div style={{display:"flex", justifyContent:"space-between", fontSize:"10px", color:"rgba(255,215,0,0.7)", marginBottom:"4px"}}>
+                <span>⚡ EXP tiến cấp {tree.level+1}</span>
+                <span style={{fontWeight:"800"}}>{tree.exp} / {ANCIENT_TREE_LEVELS[tree.level+1].expRequired}</span>
+              </div>
+              <div className="exp-bar-track">
+                <div className="exp-bar-fill" style={{width:`${expPct}%`}} />
+              </div>
+            </>
+          ) : (
+            <div style={{fontSize:"12px", color:"#ffd700", fontWeight:"800"}}>🐉 Đã đạt cấp tối đa!</div>
+          )}
+        </div>
       </div>
-      
-      {/* Cây 3D */}
-      <div className="ancient-tree-3d" style={{ width: "220px", height: "260px" }}>
-        {/* Thân cây */}
-        <div className="tree-trunk" style={{ width: `${30 + tree.level * 2}px`, height: `${60 + tree.level * 3}px` }} />
-        
-        {/* Tán cây */}
-        <div className={`tree-canopy level-${Math.min(tree.level, 5)}`} style={{
-          width: `${120 + tree.level * 8}px`,
-          height: `${120 + tree.level * 8}px`,
-          bottom: `${45 + tree.level * 2}px`,
+
+      {/* ── STATS ROW ── */}
+      <div style={{display:"flex", gap:"8px", width:"100%", maxWidth:"420px"}}>
+        {[
+          {icon:"🍎", label:"Sẵn hái", val:`${readyFruits}/${totalFruits}`, color:"#ff9800"},
+          {icon:"🏆", label:"Đã hái", val:tree.harvestedCount||0, color:"#ffd700"},
+          {icon:"🌱", label:"Ngày trồng", val:new Date(tree.plantedAt).toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'}), color:"#22c55e"},
+          {icon:"⏱", label:"Hồi/quả", val:`${config.regenTimeMinutes}p`, color:"#60a5fa"},
+        ].map(s => (
+          <div key={s.label} className="tree-stat-card" style={{flex:1, textAlign:"center"}}>
+            <div style={{fontSize:"18px"}}>{s.icon}</div>
+            <div style={{fontSize:"14px", fontWeight:"900", color:s.color, lineHeight:1.1}}>{s.val}</div>
+            <div style={{fontSize:"9px", color:"rgba(255,255,255,0.4)", marginTop:"2px"}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── CÂY TRỰC QUAN ── */}
+      <div style={{position:"relative"}}>
+        <div className="tree-world">
+          {/* Đất */}
+          <div style={{
+            position:"absolute", bottom:0, left:"50%", transform:"translateX(-50%)",
+            width:`${trunkW + 60}px`, height:"14px", borderRadius:"50%",
+            background:`radial-gradient(ellipse, ${treeGlow},0.25) 0%, transparent 70%)`,
+          }} />
+          {/* Thân cây */}
+          <div className="tree-trunk-epic" style={{width:`${trunkW}px`, height:`${trunkH}px`}} />
+          {/* Tán cây */}
+          <div className="tree-canopy-epic" style={{
+            width:`${canopySize}px`, height:`${Math.round(canopySize*0.85)}px`,
+            bottom:`${trunkH - 16}px`,
+            background:tree.level<=3
+              ? `radial-gradient(ellipse at 40% 35%, rgba(255,255,255,0.15), transparent 55%), linear-gradient(180deg, #22c55e, #15803d)`
+              : tree.level<=6
+              ? `radial-gradient(ellipse at 40% 35%, rgba(255,255,255,0.15), transparent 55%), linear-gradient(180deg, #d97706, #92400e)`
+              : tree.level<=8
+              ? `radial-gradient(ellipse at 40% 35%, rgba(255,255,255,0.2), transparent 55%), linear-gradient(180deg, #60a5fa, #1d4ed8)`
+              : `radial-gradient(ellipse at 40% 35%, rgba(255,255,255,0.25), transparent 55%), linear-gradient(180deg, #a855f7, #7c3aed)`,
+            boxShadow:`0 0 40px ${treeGlow},0.3), inset 0 -10px 30px rgba(0,0,0,0.3)`,
+          }}>
+            {/* Quả trên tán */}
+            {tree.fruits.map((fruit, idx) => {
+              const pos = fruitPositions[idx % fruitPositions.length];
+              return (
+                <div
+                  key={fruit.id}
+                  className={`tree-fruit-epic ${fruit.isReady ? "ready" : "waiting"}`}
+                  style={{ top:pos.top, left:pos.left, transform:"translate(-50%,-50%)" }}
+                  onClick={e => {
+                    e.stopPropagation();
+                    if (fruit.isReady) startHarvestFruit(tree, fruit.id);
+                    else {
+                      const rem = Math.max(0, fruit.availableAt - Date.now());
+                      const h = Math.floor(rem/(3600000)), m = Math.floor((rem%3600000)/60000);
+                      notify(`⏳ "${fruit.word}" còn ${h>0?`${h}h `:""}${m}p nữa`, "#ff9800");
+                    }
+                  }}
+                >
+                  <div className="fruit-word-tooltip">{fruit.word}</div>
+                  {fruit.isReady ? "🍎" : "🫧"}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {/* Hào quang dưới cây */}
+        <div style={{
+          position:"absolute", bottom:-6, left:"50%", transform:"translateX(-50%)",
+          width:`${canopySize*0.6}px`, height:"20px",
+          background:`radial-gradient(ellipse, ${treeGlow},0.4) 0%, transparent 70%)`,
+          pointerEvents:"none",
+        }} />
+      </div>
+
+      {/* ── DANH SÁCH QUẢ ── */}
+      <div style={{width:"100%", maxWidth:"420px"}}>
+        <div style={{
+          fontSize:"12px", fontWeight:"800", color:"rgba(255,255,255,0.5)",
+          textTransform:"uppercase", letterSpacing:"1px", marginBottom:"10px",
+          display:"flex", alignItems:"center", gap:"8px",
         }}>
-          {/* Các quả trên cây */}
+          <div style={{flex:1, height:"1px", background:"rgba(255,255,255,0.1)"}} />
+          🍎 Các quả trên cây ({readyFruits} sẵn hái)
+          <div style={{flex:1, height:"1px", background:"rgba(255,255,255,0.1)"}} />
+        </div>
+        <div style={{display:"flex", flexDirection:"column", gap:"6px"}}>
           {tree.fruits.map((fruit, idx) => {
-            const pos = fruitPositions[idx % fruitPositions.length];
+            const rem = !fruit.isReady ? Math.max(0, fruit.availableAt - Date.now()) : 0;
+            const h = Math.floor(rem/3600000);
+            const m = Math.floor((rem%3600000)/60000);
+            const s = Math.floor((rem%60000)/1000);
             return (
               <div
                 key={fruit.id}
-                className={`tree-fruit ${fruit.isReady ? "ready" : "waiting"}`}
-                style={{
-                  position: "absolute",
-                  top: pos.top,
-                  left: pos.left,
-                  transform: "translate(-50%, -50%)",
+                className={`fruit-list-item ${fruit.isReady ? "ready" : "waiting"}`}
+                onClick={() => {
+                  if (fruit.isReady) startHarvestFruit(tree, fruit.id);
+                  else notify(`⏳ "${fruit.word}" còn ${h>0?`${h}h `:""}${m}p ${s}s nữa`, "#ff9800");
                 }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (fruit.isReady) {
-                    startHarvestFruit(tree, fruit.id);
-                  } else {
-                    const remainingTime = Math.max(0, fruit.availableAt - Date.now());
-                    const hours = Math.floor(remainingTime / (60 * 60 * 1000));
-                    const minutes = Math.floor((remainingTime % (60 * 60 * 1000)) / (60 * 1000));
-                    notify(`🍎 Quả "${fruit.word}" sẽ mọc sau ${hours > 0 ? `${hours}h ` : ""}${minutes} phút`, "#ff9800");
-                  }
-                }}
-                title={fruit.word}
               >
-                {fruit.isReady ? "🍎" : "⏳"}
+                <div style={{
+                  width:"32px", height:"32px", borderRadius:"10px", flexShrink:0,
+                  background: fruit.isReady ? "linear-gradient(135deg,#ff8c00,#ffd700)" : "rgba(255,255,255,0.06)",
+                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:"16px",
+                  border: fruit.isReady ? "1.5px solid rgba(255,215,0,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                }}>
+                  {fruit.isReady ? "🍎" : "⏳"}
+                </div>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontSize:"13px", fontWeight:"800", color: fruit.isReady ? "#ffd700" : "rgba(255,255,255,0.5)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                    {fruit.word}
+                  </div>
+                  <div style={{fontSize:"10px", color: fruit.isReady ? "#ff9800" : "rgba(255,255,255,0.25)"}}>
+                    {fruit.isReady ? "✅ Sẵn sàng để hái" : `⏱ Còn ${h>0?`${h}h `:""}${m}p ${s}s`}
+                  </div>
+                </div>
+                {fruit.isReady && (
+                  <div style={{
+                    padding:"5px 12px", borderRadius:"10px", fontSize:"11px", fontWeight:"900",
+                    background:"linear-gradient(135deg,#ff8c00,#ffd700)", color:"#1a0a00",
+                    animation:"bounce 1s infinite",
+                  }}>Hái!</div>
+                )}
               </div>
             );
           })}
         </div>
       </div>
-      
-      {/* Danh sách quả (hiển thị bên dưới) */}
-      <div style={{ marginTop: "30px", width: "100%", maxWidth: "400px" }}>
-        <div style={{ fontSize: "13px", fontWeight: "bold", color: "#ffd700", marginBottom: "10px", textAlign: "center" }}>
-          🍎 Các quả trên cây
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
-          {tree.fruits.map((fruit, idx) => (
-            <button
-              key={fruit.id}
-              onClick={() => {
-                if (fruit.isReady) {
-                  startHarvestFruit(tree, fruit.id);
-                } else {
-                  const remainingTime = Math.max(0, fruit.availableAt - Date.now());
-                  const hours = Math.floor(remainingTime / (60 * 60 * 1000));
-                  const minutes = Math.floor((remainingTime % (60 * 60 * 1000)) / (60 * 1000));
-                  notify(`🍎 Quả "${fruit.word}" sẽ mọc sau ${hours > 0 ? `${hours}h ` : ""}${minutes} phút`, "#ff9800");
-                }
-              }}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "20px",
-                border: "none",
-                background: fruit.isReady ? "linear-gradient(135deg, #ff9800, #f57c00)" : "#555",
-                color: "white",
-                fontWeight: "bold",
-                fontSize: "12px",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
-            >
-              <span>{fruit.isReady ? "🍎" : "⏳"}</span>
-              <span>{fruit.word}</span>
-            </button>
-          ))}
-        </div>
+
+      {/* ── ACTIONS ── */}
+      <div style={{width:"100%", maxWidth:"420px", display:"flex", gap:"10px"}}>
+        <button
+          className="harvest-btn-epic"
+          disabled={readyFruits === 0}
+          style={{flex:2, padding:"14px", fontSize:"15px"}}
+          onClick={() => {
+            const firstReady = tree.fruits.find(f => f.isReady);
+            if (firstReady) startHarvestFruit(tree, firstReady.id);
+            else notify("🍎 Chưa có quả nào sẵn sàng!", "#ef4444");
+          }}
+        >
+          🍎 Hái quả {readyFruits > 0 ? `(${readyFruits})` : ""}
+        </button>
+        {tree.level === 0 && (
+          <button
+            className="learn-btn-epic"
+            style={{flex:2, padding:"14px", fontSize:"15px"}}
+            onClick={() => startLearningForTree(tree)}
+          >
+            📚 Học để lên cấp
+          </button>
+        )}
       </div>
-      
-      {/* Thông tin cấp độ tiếp theo */}
+
+      {/* ── CẤP TIẾP THEO ── */}
       {tree.level < 10 && (
-        <div style={{ marginTop: "20px", background: "rgba(255,152,0,0.2)", borderRadius: "12px", padding: "10px", textAlign: "center" }}>
-          <div style={{ fontSize: "12px", color: "#ff9800" }}>
-            ⭐ Lên cấp {tree.level + 1}: +{getTreeConfig(tree.level + 1).maxFruits - getTreeConfig(tree.level).maxFruits} quả mới
+        <div style={{
+          width:"100%", maxWidth:"420px", borderRadius:"18px", padding:"14px 16px",
+          background:"rgba(255,152,0,0.07)", border:"1px solid rgba(255,152,0,0.2)",
+        }}>
+          <div style={{fontSize:"12px", fontWeight:"800", color:"#ff9800", marginBottom:"8px"}}>
+            ⭐ Lên cấp {tree.level+1} — {getTreeConfig(tree.level+1).name}
+          </div>
+          <div style={{display:"flex", gap:"16px", flexWrap:"wrap"}}>
+            <div style={{fontSize:"12px", color:"rgba(255,255,255,0.55)"}}>
+              🍎 +{getTreeConfig(tree.level+1).maxFruits - config.maxFruits} quả mới (tổng {getTreeConfig(tree.level+1).maxFruits})
+            </div>
+            <div style={{fontSize:"12px", color:"rgba(255,255,255,0.55)"}}>
+              ⏱ Hồi {getTreeConfig(tree.level+1).regenTimeMinutes}p/quả
+            </div>
+            <div style={{fontSize:"12px", color:"rgba(255,255,255,0.55)"}}>
+              ⚡ +{getTreeConfig(tree.level+1).harvestExp} EXP/hái
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 })()}
+
+        {/* ── EMPTY STATE: Chưa có cây cổ thụ ── */}
+        {activePanel === "ancient" && ancientTrees.length === 0 && (
+          <div className="ancient-panel-bg" style={{minHeight:"100%", padding:"20px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:"16px"}}>
+
+            {/* Header */}
+            <div style={{textAlign:"center", paddingTop:"8px"}}>
+              <div style={{fontSize:"64px", marginBottom:"8px", filter:"drop-shadow(0 0 24px rgba(34,197,94,0.5))", animation:"glowPulse 3s ease-in-out infinite"}}>🌱</div>
+              <div style={{fontSize:"20px", fontWeight:"900", color:"#f8fafc"}}>Trồng Cây Cổ Thụ</div>
+              <div style={{fontSize:"13px", color:"rgba(255,255,255,0.45)", marginTop:"4px", lineHeight:"1.6"}}>
+                Chọn một từ trong Ô vàng bên dưới để trồng
+              </div>
+            </div>
+
+            {/* Mầm đang lớn */}
+            {ancientSapling && (
+              <div style={{
+                width:"100%", maxWidth:"420px", padding:"14px 16px", borderRadius:"18px",
+                background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.3)",
+                display:"flex", alignItems:"center", gap:"12px",
+              }}>
+                <div style={{fontSize:"28px", animation:"bounce 1.5s infinite"}}>🌿</div>
+                <div>
+                  <div style={{fontSize:"13px", fontWeight:"800", color:"#4ade80"}}>Mầm cây đang lớn trên nông trại!</div>
+                  <div style={{fontSize:"12px", color:"rgba(255,255,255,0.5)", marginTop:"2px"}}>
+                    Từ: <strong style={{color:"#ffd700"}}>{ancientSapling.word}</strong> — vào Tab Nông trại để thu hoạch
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActivePanel("farm")}
+                  className="harvest-btn-epic"
+                  style={{padding:"8px 14px", fontSize:"12px", flexShrink:0}}
+                >🌾 Đến ngay</button>
+              </div>
+            )}
+
+            {/* Danh sách từ Ô vàng để trồng */}
+            {!ancientSapling && (() => {
+              const plantableWords = availableWords.filter(w => w && w.word && w.meaning && w.meaning !== "???");
+              const allWords = availableWords.filter(w => w && w.word);
+              const displayWords = plantableWords.length > 0 ? plantableWords : allWords;
+
+              if (displayWords.length === 0) {
+                return (
+                  <div className="ancient-empty-state" style={{maxWidth:"380px", width:"100%"}}>
+                    <div style={{fontSize:"40px", marginBottom:"12px"}}>📖</div>
+                    <div style={{fontSize:"15px", fontWeight:"800", color:"#f8fafc", marginBottom:"8px"}}>Chưa có từ trong Ô vàng</div>
+                    <div style={{fontSize:"13px", color:"rgba(255,255,255,0.4)", lineHeight:"1.6"}}>
+                      Hãy học từ vựng và lưu từ khó vào Sổ tay (Ô vàng) trước nhé!
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{width:"100%", maxWidth:"420px"}}>
+                  <div style={{
+                    fontSize:"12px", fontWeight:"800", color:"rgba(255,215,0,0.6)",
+                    textTransform:"uppercase", letterSpacing:"1px", marginBottom:"10px",
+                    display:"flex", alignItems:"center", gap:"8px",
+                  }}>
+                    <div style={{flex:1, height:"1px", background:"rgba(255,255,255,0.08)"}} />
+                    🌟 Chọn từ để trồng ({displayWords.length} từ trong Ô vàng)
+                    <div style={{flex:1, height:"1px", background:"rgba(255,255,255,0.08)"}} />
+                  </div>
+
+                  {seeds <= 0 && (
+                    <div style={{
+                      padding:"10px 14px", borderRadius:"12px", marginBottom:"10px",
+                      background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)",
+                      fontSize:"12px", color:"#f87171", textAlign:"center",
+                    }}>⚠️ Hết hạt giống! Trả lời quiz ở Tab Nông trại để nhận thêm 🌱</div>
+                  )}
+
+                  <div style={{display:"flex", flexDirection:"column", gap:"8px", maxHeight:"360px", overflowY:"auto"}}>
+                    {displayWords.map((wordObj, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display:"flex", alignItems:"center", gap:"10px",
+                          padding:"10px 14px", borderRadius:"14px",
+                          background:"rgba(255,255,255,0.04)",
+                          border:"1px solid rgba(255,215,0,0.15)",
+                          transition:"all 0.2s", cursor: seeds > 0 ? "pointer" : "not-allowed",
+                        }}
+                        onMouseEnter={e => { if(seeds>0) e.currentTarget.style.background="rgba(255,215,0,0.08)"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background="rgba(255,255,255,0.04)"; }}
+                      >
+                        <div style={{
+                          width:"40px", height:"40px", borderRadius:"12px", flexShrink:0,
+                          background:"linear-gradient(135deg,rgba(255,215,0,0.15),rgba(255,140,0,0.1))",
+                          border:"1px solid rgba(255,215,0,0.3)",
+                          display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize:"18px",
+                        }}>🌟</div>
+                        <div style={{flex:1, minWidth:0}}>
+                          <div style={{fontSize:"14px", fontWeight:"800", color:"#ffd700", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                            {wordObj.word}
+                          </div>
+                          <div style={{fontSize:"11px", color:"rgba(255,255,255,0.4)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                            {wordObj.meaning !== "???" ? wordObj.meaning : "Chưa có nghĩa"}
+                          </div>
+                        </div>
+                        <button
+                          disabled={seeds <= 0}
+                          onClick={async () => {
+                            if (seeds <= 0) { notify("🌱 Hết hạt giống!", "#ef4444"); return; }
+                            const ok = await plantAncientTree(wordObj);
+                            if (ok) setActivePanel("farm");
+                          }}
+                          className="harvest-btn-epic"
+                          style={{padding:"8px 14px", fontSize:"12px", flexShrink:0}}
+                        >🌱 Trồng</button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{
+                    marginTop:"10px", padding:"10px", borderRadius:"12px",
+                    background:"rgba(255,255,255,0.03)", fontSize:"11px",
+                    color:"rgba(255,255,255,0.3)", textAlign:"center",
+                  }}>
+                    💡 Sau khi trồng, vào <strong style={{color:"rgba(255,255,255,0.5)"}}>Tab Nông trại</strong> → đợi cây lớn → thu hoạch để tạo cây cổ thụ
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Modal mở rộng đất */}
@@ -2467,127 +2954,133 @@ const killPest = (plotId) => {
     </div>
   </div>
 )}
-      {/* ===== THÊM MODAL CÂY CỔ THỤ VÀO ĐÂY ===== */}
+      {/* ===== MODAL CHI TIẾT CÂY CỔ THỤ - EPIC ===== */}
       {showTreeModal && selectedTree && (
         <div onClick={() => setShowTreeModal(false)} style={{
-          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: "rgba(0,0,0,0.8)", zIndex: 1200,
-          display: "flex", alignItems: "center", justifyContent: "center",
+          position:"fixed", inset:0, backgroundColor:"rgba(0,0,0,0.85)", zIndex:1200,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:"16px",
         }}>
           <div onClick={e => e.stopPropagation()} style={{
-            background: "linear-gradient(135deg, #1a3a0a, #2d5016)",
-            borderRadius: "24px", padding: "24px", maxWidth: "380px", width: "90%",
-            textAlign: "center", color: "white", border: "2px solid #ffd700",
-            maxHeight: "80vh", overflowY: "auto",
+            background:"linear-gradient(160deg,#0a1a0a,#0d2d17,#100d1a)",
+            borderRadius:"28px", padding:"24px", maxWidth:"400px", width:"100%",
+            color:"white", border:`1px solid rgba(255,215,0,0.3)`,
+            maxHeight:"88vh", overflowY:"auto",
+            boxShadow:"0 0 60px rgba(255,215,0,0.1), 0 20px 60px rgba(0,0,0,0.5)",
+            animation:"popIn 0.3s ease-out",
           }}>
-            <div style={{ fontSize: "64px", marginBottom: "8px" }}>
-              {selectedTree.level === 0 ? "🌱" : 
-              selectedTree.level === 1 ? "🌿" :
-              selectedTree.level === 2 ? "🌳" :
-              selectedTree.level === 3 ? "🌲" :
-              selectedTree.level === 4 ? "🏝️" :
-              selectedTree.level === 5 ? "👑" :
-              selectedTree.level === 6 ? "✨" :
-              selectedTree.level === 7 ? "🔥" :
-              selectedTree.level === 8 ? "💧" :
-              selectedTree.level === 9 ? "⚡" : "🐉"}
+            {/* Header */}
+            <div style={{textAlign:"center", marginBottom:"20px"}}>
+              <div style={{
+                fontSize:"56px", marginBottom:"8px",
+                filter:`drop-shadow(0 0 20px rgba(255,215,0,0.4))`,
+                animation:"glowPulse 3s ease-in-out infinite",
+              }}>
+                {["🌱","🌿","🌳","🌲","🏝️","👑","✨","🔥","💧","⚡","🐉"][Math.min(selectedTree.level,10)]}
+              </div>
+              <div style={{fontSize:"22px", fontWeight:"900", color:"#ffd700", marginBottom:"4px"}}>
+                {selectedTree.word}
+              </div>
+              <div className="level-badge">{getTreeConfig(selectedTree.level).name} • Lv.{selectedTree.level}</div>
             </div>
-            
-            <h3 style={{ margin: "0 0 4px 0", fontSize: "22px" }}>🌳 {selectedTree.word}</h3>
-            <div style={{ fontSize: "14px", color: "#ffd700", marginBottom: "16px" }}>
-              {getTreeConfig(selectedTree.level).name}
+
+            {/* Stats grid */}
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:"8px", marginBottom:"16px"}}>
+              {[
+                {label:"Ngày trồng", val:new Date(selectedTree.plantedAt).toLocaleDateString('vi-VN'), icon:"📅"},
+                {label:"Tổng quả đã hái", val:selectedTree.harvestedCount||0, icon:"🍎"},
+                {label:"Quả sẵn hái", val:`${selectedTree.fruits.filter(f=>f.isReady).length}/${selectedTree.fruits.length}`, icon:"✅"},
+                {label:"EXP hiện tại", val:selectedTree.exp, icon:"⚡"},
+              ].map(s => (
+                <div key={s.label} className="tree-stat-card" style={{textAlign:"center", padding:"10px"}}>
+                  <div style={{fontSize:"20px"}}>{s.icon}</div>
+                  <div style={{fontSize:"15px", fontWeight:"900", color:"#ffd700"}}>{s.val}</div>
+                  <div style={{fontSize:"10px", color:"rgba(255,255,255,0.4)"}}>{s.label}</div>
+                </div>
+              ))}
             </div>
-            
-            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: "12px", padding: "12px", marginBottom: "16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                <span>📅 Trồng ngày:</span>
-                <span>{new Date(selectedTree.plantedAt).toLocaleDateString('vi-VN')}</span>
+
+            {/* EXP bar */}
+            {selectedTree.level < 10 && (
+              <div style={{marginBottom:"16px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:"11px",color:"rgba(255,215,0,0.7)",marginBottom:"4px"}}>
+                  <span>Tiến độ lên cấp {selectedTree.level+1}</span>
+                  <span>{selectedTree.exp}/{ANCIENT_TREE_LEVELS[selectedTree.level+1].expRequired}</span>
+                </div>
+                <div className="exp-bar-track">
+                  <div className="exp-bar-fill" style={{width:`${Math.min(100,(selectedTree.exp/ANCIENT_TREE_LEVELS[selectedTree.level+1].expRequired)*100)}%`}} />
+                </div>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                <span>📊 Cấp độ:</span>
-                <span>Lv.{selectedTree.level}</span>
+            )}
+
+            {/* Danh sách quả chi tiết */}
+            <div style={{
+              borderTop:"1px solid rgba(255,255,255,0.08)", paddingTop:"14px", marginBottom:"16px",
+            }}>
+              <div style={{fontSize:"12px", fontWeight:"800", color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"10px"}}>
+                🍎 Chi tiết từng quả
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                <span>🍎 Tổng quả đã hái:</span>
-                <span>{selectedTree.harvestedCount || 0}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                <span>🍎 Quả hiện có:</span>
-                <span>{selectedTree.fruits.filter(f => f.isReady).length}/{selectedTree.fruits.length}</span>
-              </div>
-              
-              <div style={{ marginTop: "12px", borderTop: "1px solid rgba(255,255,255,0.2)", paddingTop: "12px" }}>
-                <div style={{ fontSize: "13px", fontWeight: "bold", marginBottom: "8px" }}>🍎 Chi tiết từng quả:</div>
+              <div style={{display:"flex", flexDirection:"column", gap:"6px"}}>
                 {selectedTree.fruits.map((fruit, idx) => {
-                  const isReady = fruit.isReady;
-                  const remainingTime = !isReady ? Math.max(0, fruit.availableAt - Date.now()) : 0;
-                  const minutes = Math.floor(remainingTime / (60 * 1000));
-                  const seconds = Math.floor((remainingTime % (60 * 1000)) / 1000);
-                  
+                  const rem = !fruit.isReady ? Math.max(0,fruit.availableAt-Date.now()) : 0;
+                  const m = Math.floor(rem/60000);
+                  const s = Math.floor((rem%60000)/1000);
                   return (
-                    <div key={fruit.id} style={{
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                      padding: "6px 8px", background: "rgba(255,255,255,0.1)", borderRadius: "8px",
-                      marginBottom: "6px",
-                    }}>
-                      <span>Quả {idx + 1}</span>
-                      {isReady ? (
-                        <button onClick={() => {
-                          setShowTreeModal(false);
-                          startHarvestFruit(selectedTree, fruit.id);
-                        }} style={{
-                          background: "#ff9800", border: "none", borderRadius: "20px",
-                          padding: "4px 12px", fontSize: "12px", fontWeight: "bold",
-                          color: "white", cursor: "pointer",
-                        }}>
-                          🍎 Hái ngay
-                        </button>
-                      ) : (
-                        <span style={{ fontSize: "12px", color: "#aaa" }}>
-                          🕐 {minutes > 0 ? `${minutes} phút ` : ""}{seconds > 0 ? `${seconds} giây` : "sắp xong"}
-                        </span>
+                    <div key={fruit.id} className={`fruit-list-item ${fruit.isReady?"ready":"waiting"}`}>
+                      <div style={{
+                        width:"28px",height:"28px",borderRadius:"8px",flexShrink:0,
+                        background:fruit.isReady?"linear-gradient(135deg,#ff8c00,#ffd700)":"rgba(255,255,255,0.06)",
+                        display:"flex",alignItems:"center",justifyContent:"center",fontSize:"14px",
+                      }}>{fruit.isReady?"🍎":"⏳"}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:"12px",fontWeight:"800",color:fruit.isReady?"#ffd700":"rgba(255,255,255,0.4)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {fruit.word}
+                        </div>
+                        <div style={{fontSize:"10px",color:fruit.isReady?"#ff9800":"rgba(255,255,255,0.2)"}}>
+                          {fruit.isReady ? "Sẵn sàng" : `⏱ ${m}p ${s}s`}
+                        </div>
+                      </div>
+                      {fruit.isReady && (
+                        <button
+                          className="harvest-btn-epic"
+                          style={{padding:"5px 12px", fontSize:"11px"}}
+                          onClick={() => { setShowTreeModal(false); startHarvestFruit(selectedTree, fruit.id); }}
+                        >Hái!</button>
                       )}
                     </div>
                   );
                 })}
               </div>
             </div>
-            
+
+            {/* Next level info */}
             {selectedTree.level < 10 && (
               <div style={{
-                background: "rgba(255,152,0,0.2)", borderRadius: "12px", padding: "12px",
-                marginBottom: "16px", border: "1px solid #ff9800",
+                padding:"12px 14px", borderRadius:"14px", marginBottom:"14px",
+                background:"rgba(255,152,0,0.07)", border:"1px solid rgba(255,152,0,0.2)",
               }}>
-                <div style={{ fontSize: "13px", fontWeight: "bold", marginBottom: "8px" }}>
-                  ⭐ Lên cấp {selectedTree.level + 1}:
+                <div style={{fontSize:"12px",fontWeight:"800",color:"#ff9800",marginBottom:"6px"}}>
+                  ⭐ Lên cấp {selectedTree.level+1}
                 </div>
-                <div style={{ fontSize: "12px" }}>
-                  • +{getTreeConfig(selectedTree.level + 1).maxFruits - getTreeConfig(selectedTree.level).maxFruits} quả mới
-                </div>
-                <div style={{ fontSize: "12px" }}>
-                  • Thời gian hồi quả: {getTreeConfig(selectedTree.level + 1).regenTimeHours} giờ/quả
-                </div>
-                <div style={{ marginTop: "8px", height: "4px", background: "rgba(255,255,255,0.2)", borderRadius: "2px" }}>
-                  <div style={{
-                    width: `${(selectedTree.exp / ANCIENT_TREE_LEVELS[selectedTree.level + 1].expRequired) * 100}%`,
-                    height: "100%", background: "#ffd700", borderRadius: "2px",
-                  }} />
-                </div>
-                <div style={{ fontSize: "10px", marginTop: "4px" }}>
-                  EXP: {selectedTree.exp}/{ANCIENT_TREE_LEVELS[selectedTree.level + 1].expRequired}
+                <div style={{display:"flex",gap:"12px",flexWrap:"wrap"}}>
+                  <span style={{fontSize:"11px",color:"rgba(255,255,255,0.5)"}}>
+                    🍎 +{getTreeConfig(selectedTree.level+1).maxFruits-getTreeConfig(selectedTree.level).maxFruits} quả
+                  </span>
+                  <span style={{fontSize:"11px",color:"rgba(255,255,255,0.5)"}}>
+                    ⏱ {getTreeConfig(selectedTree.level+1).regenTimeMinutes}p/quả
+                  </span>
                 </div>
               </div>
             )}
-            
+
             <button
               onClick={() => setShowTreeModal(false)}
               style={{
-                width: "100%", padding: "12px", background: "#555", border: "none",
-                borderRadius: "12px", fontWeight: "bold", color: "white", cursor: "pointer",
+                width:"100%",padding:"12px",borderRadius:"14px",
+                background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
+                color:"rgba(255,255,255,0.6)",fontWeight:"700",cursor:"pointer",fontFamily:"inherit",
+                fontSize:"14px",
               }}
-            >
-              Đóng
-            </button>
+            >✕ Đóng</button>
           </div>
         </div>
       )}
