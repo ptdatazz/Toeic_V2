@@ -136,6 +136,75 @@ h1, h2, h3, p, span, div {
     padding: 12px;
   }
 }
+
+/* ================================================= */
+/* 📱 HOME SCREEN MOBILE REDESIGN                    */
+/* ================================================= */
+
+/* Desktop: hiện greeting + KPI desktop, ẩn mobile row */
+.greeting-kpi-mobile-row { display: none !important; }
+.greeting-desktop { display: block; }
+.kpi-bar-desktop { display: block; }
+
+/* Mode buttons: 4 cột desktop */
+.mode-grid-4col { grid-template-columns: repeat(4, 1fr) !important; }
+
+@media screen and (max-width: 899px) {
+
+  /* Ẩn desktop version, hiện mobile row */
+  .greeting-desktop { display: none !important; }
+  .kpi-bar-desktop { display: none !important; }
+  .greeting-kpi-mobile-row {
+    display: flex !important;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  /* Mode buttons: 4 cột → 2×2 */
+  .mode-grid-4col {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+    height: auto !important;
+  }
+
+  /* Home main: cuộn được, gap nhỏ hơn */
+  .home-main {
+    padding: 8px 10px !important;
+    gap: 7px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    /* Không dùng height cứng — để nội dung tự co */
+    height: 100% !important;
+  }
+
+  /* Topbar mobile - nhỏ gọn */
+  .home-topbar {
+    margin-bottom: 0 !important;
+    padding: 8px 12px !important;
+    border-radius: 14px !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Shortcut 3 ô sổ tay */
+  .notebook-shortcut-grid { gap: 7px !important; }
+  .notebook-shortcut-card {
+    padding: 9px 8px !important;
+    border-radius: 12px !important;
+  }
+  .notebook-shortcut-card .card-icon { font-size: 17px !important; margin-bottom: 3px !important; }
+  .notebook-shortcut-card .card-label { font-size: 10px !important; margin-bottom: 5px !important; }
+  .notebook-shortcut-card .stat-row { font-size: 10px !important; }
+
+  /* Mode buttons - to, dễ bấm */
+  .mode-btn {
+    padding: 14px 8px !important;
+    border-radius: 14px !important;
+    min-height: 85px !important;
+  }
+  .mode-btn .mode-title { font-size: 12px !important; margin-bottom: 4px !important; }
+  .mode-btn .mode-count { font-size: 10px !important; padding: 2px 8px !important; }
+}
 @keyframes popIn {
   from { opacity: 0; transform: scale(0.9); }
   to { opacity: 1; transform: scale(1); }

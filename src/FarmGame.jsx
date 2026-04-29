@@ -27,16 +27,16 @@ const LEVEL_CONFIG = [
 // Cấu hình cây cổ thụ - THỜI GIAN HỒI QUẢ GIẢM XUỐNG (phút)
 const ANCIENT_TREE_LEVELS = {
   0: { name: "🌱 Mầm non", maxFruits: 0, expRequired: 50, regenTimeMinutes: 0, harvestExp: 20 },
-  1: { name: "🌿 Cây non", maxFruits: 2, expRequired: 100, regenTimeMinutes: 30, harvestExp: 30 },
-  2: { name: "🌳 Cây trưởng thành", maxFruits: 3, expRequired: 180, regenTimeMinutes: 28, harvestExp: 40 },
-  3: { name: "🌲 Đại thụ", maxFruits: 4, expRequired: 280, regenTimeMinutes: 25, harvestExp: 50 },
-  4: { name: "🏝️ Cổ thụ", maxFruits: 5, expRequired: 400, regenTimeMinutes: 22, harvestExp: 60 },
-  5: { name: "👑 Thần thụ", maxFruits: 6, expRequired: 550, regenTimeMinutes: 20, harvestExp: 75 },
-  6: { name: "✨ Vạn niên thụ", maxFruits: 7, expRequired: 750, regenTimeMinutes: 18, harvestExp: 90 },
-  7: { name: "🔥 Hỏa thụ", maxFruits: 8, expRequired: 1000, regenTimeMinutes: 15, harvestExp: 110 },
-  8: { name: "💧 Thủy thụ", maxFruits: 9, expRequired: 1300, regenTimeMinutes: 12, harvestExp: 130 },
-  9: { name: "⚡ Lôi thụ", maxFruits: 10, expRequired: 1700, regenTimeMinutes: 10, harvestExp: 150 },
-  10: { name: "🐉 Long thụ", maxFruits: 12, expRequired: 2200, regenTimeMinutes: 8, harvestExp: 180 },
+  1: { name: "🌿 Cây non", maxFruits: 5, expRequired: 100, regenTimeMinutes: 5, harvestExp: 30 },
+  2: { name: "🌳 Cây trưởng thành", maxFruits: 3, expRequired: 180, regenTimeMinutes: 4, harvestExp: 40 },
+  3: { name: "🌲 Đại thụ", maxFruits: 7, expRequired: 280, regenTimeMinutes: 4, harvestExp: 50 },
+  4: { name: "🏝️ Cổ thụ", maxFruits: 10, expRequired: 400, regenTimeMinutes: 3, harvestExp: 60 },
+  5: { name: "👑 Thần thụ", maxFruits: 15, expRequired: 550, regenTimeMinutes: 3, harvestExp: 75 },
+  6: { name: "✨ Vạn niên thụ", maxFruits: 20, expRequired: 750, regenTimeMinutes: 3, harvestExp: 90 },
+  7: { name: "🔥 Hỏa thụ", maxFruits: 23, expRequired: 1000, regenTimeMinutes: 3, harvestExp: 110 },
+  8: { name: "💧 Thủy thụ", maxFruits: 25, expRequired: 1300, regenTimeMinutes: 3, harvestExp: 130 },
+  9: { name: "⚡ Lôi thụ", maxFruits: 27, expRequired: 1700, regenTimeMinutes: 2, harvestExp: 150 },
+  10: { name: "🐉 Long thụ", maxFruits: 30, expRequired: 2200, regenTimeMinutes: 1, harvestExp: 180 },
 };
 
 const CROP_TYPES = [
@@ -120,7 +120,13 @@ const genQuestionForWord = (wordObj) => {
   };
 };
 
-export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveWord, onMoveWord, stats, currentUser, playSound }) {
+export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveWord, onMoveWord, stats, currentUser, playSound: playSoundProp }) {
+  // Bảo vệ playSound - tránh crash khi prop là undefined hoặc không phải function
+  const playSound = (sound) => {
+    if (typeof playSoundProp === "function") {
+      try { playSoundProp(sound); } catch(e) {}
+    }
+  };
   // ===== STATE CƠ BẢN =====
   const [plots, setPlots] = useState([]);
   const [plotCount, setPlotCount] = useState(DEFAULT_PLOT_COUNT);
@@ -527,6 +533,25 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, []);
 
+// ===== INTERVAL KIỂM TRA HỒI QUẢ CÂY CỔ THỤ =====
+useEffect(() => {
+  const fruitRegenInterval = setInterval(() => {
+    setAncientTrees(prev => {
+      if (!prev || prev.length === 0) return prev;
+      const now = Date.now();
+      let anyUpdated = false;
+      const updated = prev.map(tree => {
+        const needsUpdate = tree.fruits.some(f => !f.isReady && f.availableAt <= now);
+        if (!needsUpdate) return tree;
+        anyUpdated = true;
+        return updateFruitRegen(tree);
+      });
+      return anyUpdated ? updated : prev;
+    });
+  }, 5000); // kiểm tra mỗi 5 giây
+  return () => clearInterval(fruitRegenInterval);
+}, [availableWords]);
+
 // ===== LẮNG NGHE TỪ VỪA ĐƯỢC HỌC THUỘC TỪ APP.JSX =====
 useEffect(() => {
   const checkForMasteredWord = () => {
@@ -663,17 +688,32 @@ const generateFruitsForLevel = (treeLevel, existingFruits = [], wordPool = []) =
   return newFruits;
 };
 
-// Cập nhật thời gian hồi quả (đơn vị: phút)
+// Cập nhật thời gian hồi quả (đơn vị: phút) và gán từ mới khi sẵn sàng
 const updateFruitRegen = (tree) => {
   const now = Date.now();
   const config = getTreeConfig(tree.level);
-  const regenTimeMs = config.regenTimeMinutes * 60 * 1000; // Đổi từ phút sang milliseconds
+  const regenTimeMs = config.regenTimeMinutes * 60 * 1000;
   
   let updated = false;
   const updatedFruits = tree.fruits.map(fruit => {
     if (!fruit.isReady && fruit.availableAt <= now) {
       updated = true;
-      return { ...fruit, isReady: true };
+      // Chọn từ mới khác với từ hiện tại của quả này
+      let newWordData = null;
+      if (availableWords && availableWords.length > 0) {
+        const validWords = availableWords.filter(w => w && w.word && w.word !== fruit.word);
+        const pool = validWords.length > 0 ? validWords : availableWords.filter(w => w && w.word);
+        if (pool.length > 0) {
+          newWordData = pool[Math.floor(Math.random() * pool.length)];
+        }
+      }
+      if (!newWordData) newWordData = { word: "???", meaning: "Chưa có từ" };
+      return {
+        ...fruit,
+        isReady: true,
+        word: newWordData.word,
+        wordData: newWordData,
+      };
     }
     return fruit;
   });
@@ -790,8 +830,10 @@ const startHarvestFruit = (tree, fruitId) => {
   }
   
   if (!fruit.wordData || !fruit.wordData.word) {
-    notify(`❌ Quả "${fruit.word}" không có dữ liệu từ vựng!`, "#ef4444");
-    return;
+       // Nếu không có dữ liệu, tạo lại từ dựa trên fruit.word
+    const fallbackWordData = availableWords.find(w => w.word === fruit.word) || 
+                             { word: fruit.word, meaning: "Đang cập nhật..." };
+    fruit.wordData = fallbackWordData;
   }
   
   // Tạo 1 câu hỏi về chính từ của quả này
@@ -822,28 +864,37 @@ const completeHarvestFruit = () => {
   if (!tree) return;
   
   const config = getTreeConfig(tree.level);
-  
-  setAncientTrees(prev => prev.map(t => {
-    if (t.id === harvestQuizState.treeId) {
-      const updatedFruits = t.fruits.map(fruit => {
-        if (fruit.id === harvestQuizState.fruitId) {
-          const regenTimeMs = config.regenTimeMinutes * 60 * 1000;
-          return {
-            ...fruit,
-            isReady: false,
-            availableAt: Date.now() + regenTimeMs,
-          };
-        }
-        return fruit;
-      });
-      
-      const treeWithExp = addTreeExp({ ...t, fruits: updatedFruits }, config.harvestExp);
-      treeWithExp.harvestedCount = (t.harvestedCount || 0) + 1;
-      
-      return updateFruitRegen(treeWithExp);
+
+  // Tính toán trước kết quả để tránh gọi notify/playSound bên trong setter callback
+  const updatedFruitsForTree = tree.fruits.map(fruit => {
+    if (fruit.id === harvestQuizState.fruitId) {
+      const regenTimeMs = config.regenTimeMinutes * 60 * 1000;
+      let newWordData = null;
+      if (availableWords && availableWords.length > 0) {
+        const validWords = availableWords.filter(w => w && w.word && w.word !== fruit.word);
+        const pool = validWords.length > 0 ? validWords : availableWords.filter(w => w && w.word);
+        if (pool.length > 0) newWordData = pool[Math.floor(Math.random() * pool.length)];
+      }
+      if (!newWordData) newWordData = { word: "???", meaning: "Chưa có từ" };
+      return {
+        ...fruit,
+        isReady: false,
+        availableAt: Date.now() + regenTimeMs,
+        word: newWordData.word,
+        wordData: newWordData,
+      };
     }
-    return t;
-  }));
+    return fruit;
+  });
+
+  // Gọi addTreeExp bên ngoài setter — an toàn để gọi notify/playSound
+  const treeWithExp = addTreeExp({ ...tree, fruits: updatedFruitsForTree }, config.harvestExp);
+  treeWithExp.harvestedCount = (tree.harvestedCount || 0) + 1;
+  const finalTree = updateFruitRegen(treeWithExp);
+
+  setAncientTrees(prev => prev.map(t =>
+    t.id === harvestQuizState.treeId ? finalTree : t
+  ));
   
   setCoins(prev => prev + 15);
   addExp(10);
@@ -852,12 +903,7 @@ const completeHarvestFruit = () => {
   playSound("finish");
   confetti({ particleCount: 100, spread: 70, origin: { y: 0.5 }, zIndex: 9999 });
   
-  setHarvestQuizState(null);
-  setQuizMode(null);
-  setActivePanel("ancient");
-  setAnswered(false);
-  setChosenOpt(null);
-  setTimeLeft(15);
+  // Không tự thoát — để người dùng bấm nút "Tiếp tục" (handled in UI)
 };
 
 // Xử lý quiz hái quả (1 câu duy nhất)
@@ -880,16 +926,7 @@ const handleAncientQuizAnswer = (selectedOpt) => {
   } else {
     notify(`❌ Sai rồi! Đáp án đúng là "${harvestQuizState.question.answer}". Mất lượt hái quả này!`, "#ef4444");
     playSound("wrong");
-    
-    // Reset sau 2 giây
-    setTimeout(() => {
-      setHarvestQuizState(null);
-      setQuizMode(null);
-      setActivePanel("ancient");
-      setAnswered(false);
-      setChosenOpt(null);
-      setTimeLeft(15);
-    }, 2000);
+    // Người dùng tự bấm nút "Tiếp tục" để thoát
   }
 };
 
@@ -1622,10 +1659,11 @@ const killPest = (plotId) => {
 
   const S = {
     wrap: {
-      height: "100vh", width: "100vw", display: "flex", flexDirection: "column",
+      height: "calc(100vh / 0.75)", width: "calc(100vw / 0.75)", display: "flex", flexDirection: "column",
       fontFamily: "'Nunito', 'Segoe UI', system-ui, sans-serif",
       background: w.bg, transition: "background 1s", boxSizing: "border-box",
       overflow: "hidden", position: "fixed", top: 0, left: 0,
+      zoom: "0.75",
     },
     topbar: {
       background: "rgba(255,255,255,0.88)", backdropFilter: "blur(14px)",
@@ -1778,16 +1816,19 @@ const killPest = (plotId) => {
           pointer-events:none;
         }
 
-        .tree-world { position:relative; width:260px; height:300px; margin:0 auto; cursor:default; }
+        .tree-world { position:relative; width:220px; height:240px; margin:0 auto; cursor:default; }
         .tree-trunk-epic {
           position:absolute; bottom:0; left:50%; transform:translateX(-50%);
           border-radius:8px 8px 4px 4px;
           background: linear-gradient(180deg, #5d3a1a 0%, #3b2008 50%, #2a1505 100%);
           box-shadow: inset -6px 0 12px rgba(0,0,0,0.5), inset 4px 0 8px rgba(255,200,100,0.08);
         }
-        .tree-canopy-epic {
+        .tree-canopy-wrapper {
           position:absolute; left:50%; transform:translateX(-50%);
-          border-radius:50% 50% 40% 40%;
+        }
+        .tree-canopy-epic {
+          border-radius:50% 48% 46% 46% / 55% 55% 45% 45%;
+          overflow:hidden;
           animation: treeBreath 4s ease-in-out infinite;
           transform-origin: center bottom;
         }
@@ -2377,24 +2418,48 @@ const killPest = (plotId) => {
                   </div>
                 )}
 
-                {/* Cancel button */}
-                <button
-                  onClick={() => {
-                    setHarvestQuizState(null);
-                    setQuizMode(null);
-                    setActivePanel("ancient");
-                    setAnswered(false);
-                    setChosenOpt(null);
-                  }}
-                  style={{
-                    marginTop:"14px", background:"rgba(255,255,255,0.07)",
-                    border:"1px solid rgba(255,255,255,0.12)", borderRadius:"12px",
-                    color:"rgba(255,255,255,0.45)", padding:"8px 24px",
-                    fontSize:"12px", cursor:"pointer", fontFamily:"inherit",
-                  }}
-                >
-                  ✕ Huỷ và quay lại
-                </button>
+                {/* Nút Tiếp tục (chỉ hiện sau khi đã trả lời) */}
+                {answered && (
+                  <button
+                    className="harvest-btn-epic"
+                    onClick={() => {
+                      setHarvestQuizState(null);
+                      setTreeLearningState(null);
+                      setQuizMode(null);
+                      setActivePanel("ancient");
+                      setAnswered(false);
+                      setChosenOpt(null);
+                      setTimeLeft(15);
+                    }}
+                    style={{
+                      marginTop:"14px", padding:"12px 40px",
+                      fontSize:"15px", borderRadius:"16px",
+                    }}
+                  >
+                    ✓ Tiếp tục
+                  </button>
+                )}
+
+                {/* Cancel button (chỉ hiện khi chưa trả lời) */}
+                {!answered && (
+                  <button
+                    onClick={() => {
+                      setHarvestQuizState(null);
+                      setQuizMode(null);
+                      setActivePanel("ancient");
+                      setAnswered(false);
+                      setChosenOpt(null);
+                    }}
+                    style={{
+                      marginTop:"14px", background:"rgba(255,255,255,0.07)",
+                      border:"1px solid rgba(255,255,255,0.12)", borderRadius:"12px",
+                      color:"rgba(255,255,255,0.45)", padding:"8px 24px",
+                      fontSize:"12px", cursor:"pointer", fontFamily:"inherit",
+                    }}
+                  >
+                    ✕ Huỷ và quay lại
+                  </button>
+                )}
               </div>
             )}
 
@@ -2543,17 +2608,17 @@ const killPest = (plotId) => {
     : 100;
 
   return (
-    <div className="ancient-panel-bg" style={{ padding:"16px 12px", minHeight:"100%", display:"flex", flexDirection:"column", alignItems:"center", gap:"16px" }}>
+    <div className="ancient-panel-bg" style={{ padding:"12px 12px", minHeight:"100%", display:"flex", flexDirection:"column", alignItems:"center", gap:"10px" }}>
 
       {/* ── HEADER CARD ── */}
       <div style={{
-        width:"100%", maxWidth:"420px", borderRadius:"24px", padding:"16px 20px",
+        width:"100%", maxWidth:"420px", borderRadius:"24px", padding:"12px 16px",
         background:"rgba(255,255,255,0.04)", border:`1px solid ${treeGlow},0.35)`,
         backdropFilter:"blur(12px)", display:"flex", alignItems:"center", gap:"14px",
         boxShadow:`0 0 30px ${treeGlow},0.15)`,
       }}>
         <div style={{
-          width:"56px", height:"56px", borderRadius:"16px", flexShrink:0,
+          width:"44px", height:"44px", borderRadius:"16px", flexShrink:0,
           background:`radial-gradient(circle at 35% 35%, rgba(255,255,255,0.2), transparent 70%), ${treeGlow},0.25)`,
           border:`2px solid ${treeGlow},0.5)`,
           display:"flex", alignItems:"center", justifyContent:"center", fontSize:"28px",
@@ -2612,9 +2677,11 @@ const killPest = (plotId) => {
           {/* Thân cây */}
           <div className="tree-trunk-epic" style={{width:`${trunkW}px`, height:`${trunkH}px`}} />
           {/* Tán cây */}
+          <div className="tree-canopy-wrapper" style={{
+            bottom:`${trunkH - 16}px`,
+          }}>
           <div className="tree-canopy-epic" style={{
             width:`${canopySize}px`, height:`${Math.round(canopySize*0.85)}px`,
-            bottom:`${trunkH - 16}px`,
             background:tree.level<=3
               ? `radial-gradient(ellipse at 40% 35%, rgba(255,255,255,0.15), transparent 55%), linear-gradient(180deg, #22c55e, #15803d)`
               : tree.level<=6
@@ -2648,6 +2715,7 @@ const killPest = (plotId) => {
               );
             })}
           </div>
+          </div>{/* end tree-canopy-wrapper */}
         </div>
         {/* Hào quang dưới cây */}
         <div style={{

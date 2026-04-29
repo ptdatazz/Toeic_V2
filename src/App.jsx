@@ -4997,18 +4997,18 @@ function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }
     // ĐỔI grid từ 3 cột thành 4 cột
     return (
         <div style={{ width: "100%", height: "100%" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", height: "100%" }}>
+            <div className="mode-grid-4col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", height: "100%", minHeight: "90px" }}>
                 {modes.map(m => (
                     <div key={m.screen}
                         onClick={() => onModeSelect(m.screen)}
                         className="mode-btn"
-                        style={{ background: m.bg, borderRadius: "18px", color: "white", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: "12px 10px", boxShadow: "0 6px 18px rgba(0,0,0,0.15)", userSelect: "none", height: "100%" }}
+                        style={{ background: m.bg, borderRadius: "18px", color: "white", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: "12px 10px", boxShadow: "0 6px 18px rgba(0,0,0,0.15)", userSelect: "none" }}
                         onMouseEnter={e => e.currentTarget.style.transform="scale(1.05)"}
                         onMouseLeave={e => e.currentTarget.style.transform="scale(1)"}
                     >
                         <span style={{ fontSize: "32px", marginBottom: "8px", filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.2))" }}>{m.icon}</span>
-                        <span style={{ fontSize: "14px", fontWeight: "bold", textAlign: "center", textShadow: "0 1px 2px rgba(0,0,0,0.3)", marginBottom: "6px" }}>{m.title}</span>
-                        <span style={{ fontSize: "11px", backgroundColor: "rgba(0,0,0,0.18)", padding: "2px 10px", borderRadius: "20px", fontWeight: "bold" }}>{m.count} {m.label}</span>
+                        <span className="mode-title" style={{ fontSize: "14px", fontWeight: "bold", textAlign: "center", textShadow: "0 1px 2px rgba(0,0,0,0.3)", marginBottom: "6px" }}>{m.title}</span>
+                        <span className="mode-count" style={{ fontSize: "11px", backgroundColor: "rgba(0,0,0,0.18)", padding: "2px 10px", borderRadius: "20px", fontWeight: "bold" }}>{m.count} {m.label}</span>
                     </div>
                 ))}
             </div>
@@ -8286,8 +8286,8 @@ return (
         @media (max-width: 899px) {
           .home-layout { flex-direction: column; }
           .home-sidebar { display: none; }
-          .home-main { flex: 1; min-width: 0; padding: 12px; display: flex; flex-direction: column; gap: 10px; height: 100vh; overflow: hidden; box-sizing: border-box; }
-          .home-topbar { display: flex !important; }
+          .home-main { flex: 1; min-width: 0; padding: 8px 10px; display: flex; flex-direction: column; gap: 7px; height: 100vh; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+          .home-topbar { display: flex !important; margin-bottom: 0 !important; }
           .sidebar-only { display: none !important; }
           .main-only-header { display: flex !important; }
         }
@@ -8550,7 +8550,7 @@ return (
         <div className="home-main">
 
           {/* TOPBAR (mobile only) */}
-          <div className="home-topbar" style={{ display: "none", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "10px 14px", background: "linear-gradient(135deg,#1a237e,#1565c0)", borderRadius: "16px" }}>
+          <div className="home-topbar" style={{ display: "none", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "linear-gradient(135deg,#1a237e,#1565c0)", borderRadius: "14px", flexShrink: 0 }}>
             <div>
               <div style={{ color: "white", fontWeight: "900", fontSize: "20px" }}>{currentFormattedTime}</div>
               <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "11px" }}>{currentFormattedDate}</div>
@@ -8741,75 +8741,101 @@ return (
             </div>
           </div>
 
-          {/* GREETING */}
-          <div style={{ animation: "fadeSlideUp 0.4s ease-out", flexShrink: 0 }}>
-            <div style={{ 
-              background: "rgba(255, 255, 255, 0.92)", 
-              backdropFilter: "blur(12px)", 
-              borderRadius: "24px", 
-              padding: "16px 20px", 
-              boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-              border: "1px solid rgba(255,255,255,0.6)"
+          {/* GREETING + KPI — desktop: 2 block riêng | mobile: gộp 1 row ngang */}
+          <div className="greeting-kpi-wrapper" style={{ animation: "fadeSlideUp 0.4s ease-out", flexShrink: 0 }}>
+
+            {/* Desktop: Greeting đầy đủ */}
+            <div className="greeting-card greeting-desktop" style={{ 
+              background: "rgba(255,255,255,0.92)", backdropFilter: "blur(12px)", 
+              borderRadius: "20px", padding: "16px 20px",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid rgba(255,255,255,0.6)",
+              marginBottom: "0"
             }}>
-              <h1 style={{ margin: "0 0 4px 0", fontSize: "clamp(22px, 3vw, 30px)", fontWeight: "900", color: "#1a237e" }}>
+              <h1 style={{ margin: "0 0 4px 0", fontSize: "clamp(18px, 3vw, 30px)", fontWeight: "900", color: "#1a237e" }}>
                 Xin chào, {currentUser.displayName?.split(' ').pop() || currentUser.email.split('@')[0]} 👋
               </h1>
-              <p style={{ margin: 0, color: "#5a6a7a", fontSize: "14px", fontWeight: "500" }}>Đừng học cho tương lai, hãy học cho hiện tại – vì tương lai chỉ là hiện tại chưa xảy ra.</p>
+              <p style={{ margin: 0, color: "#5a6a7a", fontSize: "13px", fontWeight: "500", lineHeight: "1.4" }}>Đừng học cho tương lai, hãy học cho hiện tại – vì tương lai chỉ là hiện tại chưa xảy ra.</p>
+            </div>
+
+            {/* Mobile: Greeting + KPI nằm ngang trong 1 row */}
+            <div className="greeting-kpi-mobile-row">
+              {/* Greeting compact */}
+              <div style={{ background: "rgba(255,255,255,0.92)", backdropFilter: "blur(12px)", borderRadius: "16px", padding: "10px 14px", flex: 1, minWidth: 0, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", border: "1px solid rgba(255,255,255,0.7)" }}>
+                <div style={{ fontWeight: "900", color: "#1a237e", fontSize: "15px", marginBottom: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  Xin chào, {currentUser.displayName?.split(' ').pop() || currentUser.email.split('@')[0]} 👋
+                </div>
+                <div style={{ color: "#5a6a7a", fontSize: "10px", lineHeight: "1.3", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                  Đừng học cho tương lai, hãy học cho hiện tại.
+                </div>
+              </div>
+
+              {/* KPI compact */}
+              <div onClick={() => { playSound("click"); setShowPlanModal(true); }}
+                style={{ background: "linear-gradient(135deg,#fff8f0,#fff3e0)", borderRadius: "16px", padding: "10px 12px", border: "2px solid #ffe0b2", cursor: "pointer", minWidth: "110px", flexShrink: 0, boxShadow: "0 2px 8px rgba(255,152,0,0.12)" }}>
+                <div style={{ fontWeight: "800", color: "#e65100", fontSize: "12px", marginBottom: "3px" }}>🔥 Kỷ Luật</div>
+                <div style={{ fontSize: "10px", color: "#bf360c", marginBottom: "6px" }}><strong>{todayMasteredCount}</strong>/{dailyTarget > 0 ? dailyTarget : "?"} từ</div>
+                <div style={{ height: "5px", backgroundColor: "#ffe0b2", borderRadius: "3px", overflow: "hidden" }}>
+                  <div style={{ width: (dailyTarget > 0 ? Math.min((todayMasteredCount / dailyTarget) * 100, 100) : 0) + "%", height: "100%", background: "linear-gradient(90deg,#FF9800,#ffb74d)", borderRadius: "3px" }}/>
+                </div>
+                <div style={{ fontSize: "9px", color: "#e65100", marginTop: "3px", textAlign: "center", fontWeight: "bold" }}>
+                  {dailyTarget > 0 ? (countdownText || "⏰ " + studyTime) : "Cài đặt →"}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* KỶ LUẬT THÉP */}
-          <div className="home-card" onClick={() => { playSound("click"); setShowPlanModal(true); }}
-            style={{ background: "linear-gradient(135deg,#fff8f0,#fff3e0)", padding: "12px 18px", borderRadius: "16px", border: "2px solid #ffe0b2", cursor: "pointer", boxShadow: "0 4px 16px rgba(255,152,0,0.1)", animation: "fadeSlideUp 0.45s ease-out", flexShrink: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+          {/* KỶ LUẬT THÉP — desktop only */}
+          <div className="kpi-bar-desktop home-card kpi-bar" onClick={() => { playSound("click"); setShowPlanModal(true); }}
+            style={{ background: "linear-gradient(135deg,#fff8f0,#fff3e0)", padding: "11px 16px", borderRadius: "16px", border: "2px solid #ffe0b2", cursor: "pointer", boxShadow: "0 4px 16px rgba(255,152,0,0.1)", animation: "fadeSlideUp 0.45s ease-out", flexShrink: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
               <div>
-                <div style={{ fontWeight: "800", color: "#e65100", fontSize: "16px" }}>🔥 Kỷ Luật Thép</div>
-                <div style={{ fontSize: "12px", color: "#bf360c", marginTop: "2px" }}>Hôm nay: <strong>{todayMasteredCount}</strong> / {dailyTarget > 0 ? dailyTarget : "?"} từ</div>
+                <div className="kpi-title" style={{ fontWeight: "800", color: "#e65100", fontSize: "15px" }}>🔥 Kỷ Luật Thép</div>
+                <div style={{ fontSize: "11px", color: "#bf360c", marginTop: "2px" }}>Hôm nay: <strong>{todayMasteredCount}</strong> / {dailyTarget > 0 ? dailyTarget : "?"} từ</div>
               </div>
-              <span style={{ fontSize: "13px", backgroundColor: countdownText ? "#ffcdd2" : "#ffe0b2", color: countdownText ? "#d32f2f" : "#e65100", padding: "5px 12px", borderRadius: "20px", fontWeight: "bold", animation: countdownText ? "heartbeat 1s infinite" : "none" }}>
+              <span className="kpi-badge" style={{ fontSize: "12px", backgroundColor: countdownText ? "#ffcdd2" : "#ffe0b2", color: countdownText ? "#d32f2f" : "#e65100", padding: "5px 11px", borderRadius: "20px", fontWeight: "bold", animation: countdownText ? "heartbeat 1s infinite" : "none" }}>
                 {dailyTarget > 0 ? (countdownText || "⏰ " + studyTime) : "Cài đặt →"}
               </span>
             </div>
-            <div style={{ height: "10px", backgroundColor: "#ffe0b2", borderRadius: "5px", overflow: "hidden" }}>
+            <div style={{ height: "8px", backgroundColor: "#ffe0b2", borderRadius: "5px", overflow: "hidden" }}>
               <div style={{ width: (dailyTarget > 0 ? Math.min((todayMasteredCount / dailyTarget) * 100, 100) : 0) + "%", height: "100%", background: todayMasteredCount >= dailyTarget && dailyTarget > 0 ? "linear-gradient(90deg,#43a047,#66bb6a)" : "linear-gradient(90deg,#FF9800,#ffb74d)", transition: "width 0.5s ease-out", borderRadius: "5px" }}/>
             </div>
           </div>
 
           {/* SHORTCUT SỔ TAY 3 Ô */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", animation: "fadeSlideUp 0.5s ease-out", flexShrink: 0 }}>
+          <div className="notebook-shortcut-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", animation: "fadeSlideUp 0.5s ease-out", flexShrink: 0 }}>
             {[
               { icon: "📚", label: "Từ Vựng", tab: "vocab", saved: (globalStats.vocab.savedWords||[]).length, wrong: (globalStats.vocab.wrongWords||[]).length, mastered: (globalStats.vocab.masteredWords||[]).length, color: "#2e7d32", bg: "linear-gradient(135deg,#e8f5e9,#f1f8f1)", border: "#c8e6c9", bar: "#4CAF50" },
               { icon: "🔗", label: "Colloc.", tab: "collocation", saved: (globalStats.collocation.savedWords||[]).length, wrong: (globalStats.collocation.wrongWords||[]).length, mastered: (globalStats.collocation.masteredWords||[]).length, color: "#6a1b9a", bg: "linear-gradient(135deg,#f3e5f5,#f9f2fb)", border: "#e1bee7", bar: "#9C27B0" },
               { icon: "🤖", label: "Ngữ Pháp", tab: "grammar", saved: (globalStats.grammar.savedWords||[]).length, wrong: (globalStats.grammar.wrongWords||[]).length, mastered: (globalStats.grammar.masteredWords||[]).length, color: "#1565c0", bg: "linear-gradient(135deg,#e3f2fd,#f0f7ff)", border: "#bbdefb", bar: "#2196F3" },
             ].map(c => (
-              <div key={c.label} className="home-card" onClick={() => { playSound("click"); setNotebookTab(c.tab); setScreen("notebook"); }}
-                style={{ background: c.bg, padding: "14px 12px", borderRadius: "16px", border: `1.5px solid ${c.border}`, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", textAlign: "left", cursor: "pointer" }}>
-                <div style={{ fontSize: "20px", marginBottom: "5px" }}>{c.icon}</div>
-                <div style={{ fontWeight: "800", color: c.color, fontSize: "12px", marginBottom: "8px" }}>{c.label}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginBottom: "8px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                    <span style={{ color: "#FF9800" }}>⭐ Ghim</span>
+              <div key={c.label} className="home-card notebook-shortcut-card" onClick={() => { playSound("click"); setNotebookTab(c.tab); setScreen("notebook"); }}
+                style={{ background: c.bg, padding: "12px 10px", borderRadius: "14px", border: `1.5px solid ${c.border}`, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", textAlign: "left", cursor: "pointer" }}>
+                <div className="card-icon" style={{ fontSize: "20px", marginBottom: "4px" }}>{c.icon}</div>
+                <div className="card-label" style={{ fontWeight: "800", color: c.color, fontSize: "11px", marginBottom: "7px" }}>{c.label}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: "7px" }}>
+                  <div className="stat-row" style={{ display: "flex", justifyContent: "space-between", fontSize: "10px" }}>
+                    <span style={{ color: "#FF9800" }}>⭐</span>
                     <span style={{ fontWeight: "bold", color: "#555" }}>{c.saved}</span>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                    <span style={{ color: "#f44336" }}>❌ Sai</span>
+                  <div className="stat-row" style={{ display: "flex", justifyContent: "space-between", fontSize: "10px" }}>
+                    <span style={{ color: "#f44336" }}>❌</span>
                     <span style={{ fontWeight: "bold", color: "#555" }}>{c.wrong}</span>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                    <span style={{ color: "#4CAF50" }}>✅ Thuộc</span>
+                  <div className="stat-row" style={{ display: "flex", justifyContent: "space-between", fontSize: "10px" }}>
+                    <span style={{ color: "#4CAF50" }}>✅</span>
                     <span style={{ fontWeight: "bold", color: "#555" }}>{c.mastered}</span>
                   </div>
                 </div>
                 <div style={{ height: "3px", backgroundColor: c.border, borderRadius: "2px" }}>
                   <div style={{ width: `${c.pct}%`, height: "100%", backgroundColor: c.bar, borderRadius: "2px" }}/>
                 </div>
-                <div style={{ marginTop: "6px", fontSize: "10px", color: c.color, fontWeight: "bold", textAlign: "right" }}>Vào sổ tay →</div>
+                <div style={{ marginTop: "5px", fontSize: "9px", color: c.color, fontWeight: "bold", textAlign: "right" }}>Sổ tay →</div>
               </div>
             ))}
           </div>
 
           {/* MENU CHÍNH */}
-          <div style={{ animation: "fadeSlideUp 0.55s ease-out", flex: 1, minHeight: 0 }}>
+          <div style={{ animation: "fadeSlideUp 0.55s ease-out", flex: 1, minHeight: 0, paddingBottom: "8px" }}>
             <ModeSelectionScreen 
               onModeSelect={(targetScreen) => { playSound("click"); setScreen(targetScreen); }}
               onNotebookClick={() => { playSound("click"); setScreen("notebook"); }}
