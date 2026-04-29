@@ -8138,6 +8138,7 @@ const handleRemoveManyWords = async (type, listType, wordsArray) => {
       onMoveWord={handleMoveWord}
       stats={globalStats.vocab}
       currentUser={currentUser}
+      playSound={playSound}
     />
   );
 }

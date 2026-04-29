@@ -120,13 +120,7 @@ const genQuestionForWord = (wordObj) => {
   };
 };
 
-export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveWord, onMoveWord, stats, currentUser, playSound: playSoundProp }) {
-  // Bảo vệ playSound - tránh crash khi prop là undefined hoặc không phải function
-  const playSound = (sound) => {
-    if (typeof playSoundProp === "function") {
-      try { playSoundProp(sound); } catch(e) {}
-    }
-  };
+export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveWord, onMoveWord, stats, currentUser, playSound }) {
   // ===== STATE CƠ BẢN =====
   const [plots, setPlots] = useState([]);
   const [plotCount, setPlotCount] = useState(DEFAULT_PLOT_COUNT);
@@ -176,7 +170,8 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [selectedPlotForItem, setSelectedPlotForItem] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(null);
   
-  const [availableWords, setAvailableWords] = useState([]);
+  const [availableWords, setAvailableWords] = useState([]); // Ô vàng (chưa thuộc)
+  const [masteredWords, setMasteredWords] = useState([]);   // Ô xanh (đã thuộc)
 
     // ===== CÂY CỔ THỤ =====
   const [ancientTrees, setAncientTrees] = useState([]);
@@ -397,28 +392,44 @@ const expandWithGems = () => {
         }
         
         const userData = docSnap.data();
+        // Ô vàng: savedWords (từ chưa thuộc)
         const savedWords = userData?.vocab?.savedWords || [];
+        // Ô xanh: masteredWords (từ đã thuộc)
+        const masteredWordsRaw = userData?.vocab?.masteredWords || [];
+        // addedWordsObj chứa metadata đầy đủ cho từ ô vàng
         const addedWordsObj = userData?.vocab?.addedWordsObj || [];
         
-        const wordList = [];
-        const seen = new Set();
-        
+        // Build ô vàng: ưu tiên metadata từ addedWordsObj, fallback là savedWords
+        const yellowList = [];
+        const seenYellow = new Set();
         addedWordsObj.forEach(item => {
-          if (item.word && !seen.has(item.word.toLowerCase())) {
-            seen.add(item.word.toLowerCase());
-            wordList.push(item);
+          if (item.word && !seenYellow.has(item.word.toLowerCase())) {
+            seenYellow.add(item.word.toLowerCase());
+            yellowList.push(item);
           }
         });
-        
         savedWords.forEach(word => {
           const wordStr = typeof word === 'string' ? word : word.word;
-          if (wordStr && !seen.has(wordStr.toLowerCase())) {
-            seen.add(wordStr.toLowerCase());
-            wordList.push({ word: wordStr, meaning: "???" });
+          if (wordStr && !seenYellow.has(wordStr.toLowerCase())) {
+            seenYellow.add(wordStr.toLowerCase());
+            yellowList.push(typeof word === 'object' ? word : { word: wordStr, meaning: "???" });
           }
         });
-        
-        setAvailableWords(wordList);
+        setAvailableWords(yellowList);
+
+        // Build ô xanh: masteredWords
+        const greenList = [];
+        const seenGreen = new Set();
+        masteredWordsRaw.forEach(word => {
+          const wordStr = typeof word === 'string' ? word : word.word;
+          if (wordStr && !seenGreen.has(wordStr.toLowerCase())) {
+            seenGreen.add(wordStr.toLowerCase());
+            // Tìm metadata từ addedWordsObj nếu có
+            const meta = addedWordsObj.find(w => w.word?.toLowerCase() === wordStr.toLowerCase());
+            greenList.push(meta || (typeof word === 'object' ? word : { word: wordStr, meaning: "???" }));
+          }
+        });
+        setMasteredWords(greenList);
         
       } catch (error) {
         console.error("Lỗi load dữ liệu:", error);
@@ -550,7 +561,7 @@ useEffect(() => {
     });
   }, 5000); // kiểm tra mỗi 5 giây
   return () => clearInterval(fruitRegenInterval);
-}, [availableWords]);
+}, [masteredWords]);
 
 // ===== LẮNG NGHE TỪ VỪA ĐƯỢC HỌC THUỘC TỪ APP.JSX =====
 useEffect(() => {
@@ -645,23 +656,23 @@ const getTreeConfig = (level) => {
   return ANCIENT_TREE_LEVELS[Math.min(level, 10)] || ANCIENT_TREE_LEVELS[10];
 };
 
-// Tạo quả mới cho cây (gán 1 từ riêng)
-const createFruit = (treeLevel, availableWordsList) => {
+// Tạo quả mới cho cây - quả được gán từ Ô XANH (masteredWords)
+const createFruit = (treeLevel, masteredWordsList) => {
   const config = getTreeConfig(treeLevel);
   const now = Date.now();
   
-  // Chọn một từ ngẫu nhiên từ danh sách availableWords
+  // Chọn một từ ngẫu nhiên từ danh sách masteredWords (ô xanh)
   let randomWord = null;
-  if (availableWordsList && availableWordsList.length > 0) {
-    const validWords = availableWordsList.filter(w => w && w.word);
+  if (masteredWordsList && masteredWordsList.length > 0) {
+    const validWords = masteredWordsList.filter(w => w && w.word);
     if (validWords.length > 0) {
       randomWord = validWords[Math.floor(Math.random() * validWords.length)];
     }
   }
   
-  // Nếu không có từ, tạo quả tạm thời
+  // Fallback nếu ô xanh trống
   if (!randomWord) {
-    randomWord = { word: "???", meaning: "Chưa có từ", wordData: null };
+    randomWord = { word: "???", meaning: "Chưa có từ đã học", wordData: null };
   }
   
   return {
@@ -673,8 +684,8 @@ const createFruit = (treeLevel, availableWordsList) => {
   };
 };
 
-// Tạo mảng quả theo level cây (mỗi quả 1 từ riêng)
-const generateFruitsForLevel = (treeLevel, existingFruits = [], wordPool = []) => {
+// Tạo mảng quả theo level cây - dùng Ô XANH (masteredWords)
+const generateFruitsForLevel = (treeLevel, existingFruits = [], masteredWordPool = []) => {
   const config = getTreeConfig(treeLevel);
   const targetCount = config.maxFruits;
   const currentCount = existingFruits.length;
@@ -683,12 +694,12 @@ const generateFruitsForLevel = (treeLevel, existingFruits = [], wordPool = []) =
   
   const newFruits = [...existingFruits];
   for (let i = currentCount; i < targetCount; i++) {
-    newFruits.push(createFruit(treeLevel, wordPool));
+    newFruits.push(createFruit(treeLevel, masteredWordPool));
   }
   return newFruits;
 };
 
-// Cập nhật thời gian hồi quả (đơn vị: phút) và gán từ mới khi sẵn sàng
+// Cập nhật thời gian hồi quả và gán từ mới từ Ô XANH (masteredWords) khi sẵn sàng
 const updateFruitRegen = (tree) => {
   const now = Date.now();
   const config = getTreeConfig(tree.level);
@@ -698,16 +709,16 @@ const updateFruitRegen = (tree) => {
   const updatedFruits = tree.fruits.map(fruit => {
     if (!fruit.isReady && fruit.availableAt <= now) {
       updated = true;
-      // Chọn từ mới khác với từ hiện tại của quả này
+      // Chọn từ mới từ Ô XANH (masteredWords), khác với từ hiện tại
       let newWordData = null;
-      if (availableWords && availableWords.length > 0) {
-        const validWords = availableWords.filter(w => w && w.word && w.word !== fruit.word);
-        const pool = validWords.length > 0 ? validWords : availableWords.filter(w => w && w.word);
+      if (masteredWords && masteredWords.length > 0) {
+        const validWords = masteredWords.filter(w => w && w.word && w.word !== fruit.word);
+        const pool = validWords.length > 0 ? validWords : masteredWords.filter(w => w && w.word);
         if (pool.length > 0) {
           newWordData = pool[Math.floor(Math.random() * pool.length)];
         }
       }
-      if (!newWordData) newWordData = { word: "???", meaning: "Chưa có từ" };
+      if (!newWordData) newWordData = { word: "???", meaning: "Chưa có từ đã học" };
       return {
         ...fruit,
         isReady: true,
@@ -738,8 +749,8 @@ const addTreeExp = (tree, amount) => {
   
   if (leveledUp) {
   const newConfig = getTreeConfig(newLevel);
-  // 👈 SỬA: Truyền availableWords vào để có từ cho quả mới
-  const newFruits = generateFruitsForLevel(newLevel, tree.fruits, availableWords);
+  // 👈 SỬA: Dùng masteredWords (ô xanh) cho quả mới khi cây lên cấp
+  const newFruits = generateFruitsForLevel(newLevel, tree.fruits, masteredWords);
   
   notify(`🌳✨ Cây "${tree.word}" đã lên cấp ${newLevel}! +${newConfig.maxFruits - tree.fruits.length} quả mới!`, "#8b5cf6");
   playSound("combo_max");
@@ -864,37 +875,38 @@ const completeHarvestFruit = () => {
   if (!tree) return;
   
   const config = getTreeConfig(tree.level);
-
-  // Tính toán trước kết quả để tránh gọi notify/playSound bên trong setter callback
-  const updatedFruitsForTree = tree.fruits.map(fruit => {
-    if (fruit.id === harvestQuizState.fruitId) {
-      const regenTimeMs = config.regenTimeMinutes * 60 * 1000;
-      let newWordData = null;
-      if (availableWords && availableWords.length > 0) {
-        const validWords = availableWords.filter(w => w && w.word && w.word !== fruit.word);
-        const pool = validWords.length > 0 ? validWords : availableWords.filter(w => w && w.word);
-        if (pool.length > 0) newWordData = pool[Math.floor(Math.random() * pool.length)];
-      }
-      if (!newWordData) newWordData = { word: "???", meaning: "Chưa có từ" };
-      return {
-        ...fruit,
-        isReady: false,
-        availableAt: Date.now() + regenTimeMs,
-        word: newWordData.word,
-        wordData: newWordData,
-      };
+  
+  setAncientTrees(prev => prev.map(t => {
+    if (t.id === harvestQuizState.treeId) {
+      const updatedFruits = t.fruits.map(fruit => {
+        if (fruit.id === harvestQuizState.fruitId) {
+          const regenTimeMs = config.regenTimeMinutes * 60 * 1000;
+          // Chọn từ mới từ Ô XANH (masteredWords), khác với từ vừa hái
+          let newWordData = null;
+          if (masteredWords && masteredWords.length > 0) {
+            const validWords = masteredWords.filter(w => w && w.word && w.word !== fruit.word);
+            const pool = validWords.length > 0 ? validWords : masteredWords.filter(w => w && w.word);
+            if (pool.length > 0) newWordData = pool[Math.floor(Math.random() * pool.length)];
+          }
+          if (!newWordData) newWordData = { word: "???", meaning: "Chưa có từ đã học" };
+          return {
+            ...fruit,
+            isReady: false,
+            availableAt: Date.now() + regenTimeMs,
+            word: newWordData.word,
+            wordData: newWordData,
+          };
+        }
+        return fruit;
+      });
+      
+      const treeWithExp = addTreeExp({ ...t, fruits: updatedFruits }, config.harvestExp);
+      treeWithExp.harvestedCount = (t.harvestedCount || 0) + 1;
+      
+      return updateFruitRegen(treeWithExp);
     }
-    return fruit;
-  });
-
-  // Gọi addTreeExp bên ngoài setter — an toàn để gọi notify/playSound
-  const treeWithExp = addTreeExp({ ...tree, fruits: updatedFruitsForTree }, config.harvestExp);
-  treeWithExp.harvestedCount = (tree.harvestedCount || 0) + 1;
-  const finalTree = updateFruitRegen(treeWithExp);
-
-  setAncientTrees(prev => prev.map(t =>
-    t.id === harvestQuizState.treeId ? finalTree : t
-  ));
+    return t;
+  }));
   
   setCoins(prev => prev + 15);
   addExp(10);
@@ -956,8 +968,8 @@ const handleAncientSaplingHarvest = (plotId, wordData, isCorrect) => {
   
   // Đúng -> cây lên cấp 1 và chuyển sang tab cây cổ thụ
   const config = getTreeConfig(1);
-  // 👈 SỬA: Truyền availableWords vào để có từ cho quả
-  const newFruits = generateFruitsForLevel(1, [], availableWords);
+  // Dùng masteredWords (ô xanh) cho quả của cây cổ thụ
+  const newFruits = generateFruitsForLevel(1, [], masteredWords);
   
   // Xóa mầm cây khỏi ô đất
   setPlots((prev) =>
@@ -994,6 +1006,10 @@ const handleAncientSaplingHarvest = (plotId, wordData, isCorrect) => {
   if (onMoveWord && wordData) {
     onMoveWord("vocab", "savedWords", "masteredWords", wordData);
     setAvailableWords(prev => prev.filter(w => w.word !== wordData.word));
+    setMasteredWords(prev => {
+      if (prev.some(w => w.word === wordData.word)) return prev;
+      return [...prev, wordData];
+    });
   }
   
   // Thưởng
@@ -1085,7 +1101,7 @@ const completeTreeLevelUp = () => {
   if (!treeLearningState) return;
   
   const config = getTreeConfig(1);
-  const newFruits = generateFruitsForLevel(1, [], availableWords);
+  const newFruits = generateFruitsForLevel(1, [], masteredWords);
   
   // Cập nhật cây lên cấp 1
   setAncientTrees(prev => prev.map(tree => {
@@ -1103,6 +1119,11 @@ const completeTreeLevelUp = () => {
   // Chuyển từ từ Ô vàng sang Ô xanh
   if (onMoveWord && treeLearningState.wordData) {
     onMoveWord("vocab", "savedWords", "masteredWords", treeLearningState.wordData);
+    setAvailableWords(prev => prev.filter(w => w.word !== treeLearningState.wordData.word));
+    setMasteredWords(prev => {
+      if (prev.some(w => w.word === treeLearningState.wordData.word)) return prev;
+      return [...prev, treeLearningState.wordData];
+    });
   }
   
   // Thưởng cho người chơi
@@ -1126,8 +1147,8 @@ const onWordMastered = (word) => {
   const tree = ancientTrees.find(t => t.word.toLowerCase() === word.toLowerCase());
   if (tree && tree.level === 0) {
     const config = getTreeConfig(1);
-    // 👈 SỬA: Truyền availableWords vào để có từ cho quả
-    const newFruits = generateFruitsForLevel(1, [], availableWords);
+    // 👈 SỬA: Dùng masteredWords (ô xanh) cho quả của cây
+    const newFruits = generateFruitsForLevel(1, [], masteredWords);
     
     setAncientTrees(prev => prev.map(t => {
       if (t.id === tree.id) {
@@ -1219,6 +1240,7 @@ const startLearningForTree = (tree) => {
 
   const plantOnPlot = (plotId) => {
     if (seeds <= 0) { notify("Hết hạt giống! Trả lời đúng để nhận thêm 🌱", "#ef4444"); return; }
+    // Gieo mầm lấy từ Ô VÀNG (savedWords - chưa thuộc)
     if (availableWords.length === 0) {
       notify("📖 Không có từ trong Ô vàng! Hãy học và lưu từ mới nhé!", "#ef4444");
       return;
@@ -1234,7 +1256,7 @@ const startLearningForTree = (tree) => {
       )
     );
     setSeeds((s) => s - 1);
-    notify(`🌱 Đã trồng ${crop.name} với từ "${randomWord.word}"!`, "#22c55e");
+    notify(`🌱 Đã gieo "${randomWord.word}" (ô vàng) vào ruộng!`, "#22c55e");
   };
 
   const harvestPlot = (plotId) => {
@@ -1304,6 +1326,11 @@ const startLearningForTree = (tree) => {
     if (onMoveWord && wordData) {
       onMoveWord("vocab", "savedWords", "masteredWords", wordData);
       setAvailableWords(prev => prev.filter(w => w.word !== wordData.word));
+      // Thêm vào ô xanh trong state local
+      setMasteredWords(prev => {
+        if (prev.some(w => w.word === wordData.word)) return prev;
+        return [...prev, wordData];
+      });
     }
     
     setShowHarvest({ plotId, reward: total, bonus, exp: expReward });
@@ -1313,11 +1340,13 @@ const startLearningForTree = (tree) => {
   };
 
   const startQuiz = (targetPlotId = null) => {
-    if (!vocabData || vocabData.length < 4) { 
-      notify("Cần ít nhất 4 từ vựng để chơi!", "#ef4444"); 
+    // Kết hợp từ ô vàng + ô xanh cho quiz học từ
+    const combinedWords = [...availableWords, ...masteredWords];
+    if (!combinedWords || combinedWords.length < 4) { 
+      notify("Cần ít nhất 4 từ vựng (ô vàng + ô xanh) để chơi!", "#ef4444"); 
       return; 
     }
-    const shuffled = shuffleArray(vocabData);
+    const shuffled = shuffleArray(combinedWords);
     const item = shuffled[0];
     const wrongPool = shuffled.slice(1, 4).map((w) => getMeaning(w));
     const answer = getMeaning(item);
@@ -2726,85 +2755,45 @@ const killPest = (plotId) => {
         }} />
       </div>
 
-      {/* ── DANH SÁCH QUẢ ── */}
-      <div style={{width:"100%", maxWidth:"420px"}}>
+      {/* ── GỢI Ý TƯƠNG TÁC ── */}
+      {readyFruits > 0 && (
         <div style={{
-          fontSize:"12px", fontWeight:"800", color:"rgba(255,255,255,0.5)",
-          textTransform:"uppercase", letterSpacing:"1px", marginBottom:"10px",
           display:"flex", alignItems:"center", gap:"8px",
+          background:"rgba(255,140,0,0.12)", border:"1px solid rgba(255,215,0,0.25)",
+          borderRadius:"14px", padding:"8px 14px",
+          animation:"bounce 2s ease-in-out infinite",
         }}>
-          <div style={{flex:1, height:"1px", background:"rgba(255,255,255,0.1)"}} />
-          🍎 Các quả trên cây ({readyFruits} sẵn hái)
-          <div style={{flex:1, height:"1px", background:"rgba(255,255,255,0.1)"}} />
+          <span style={{fontSize:"18px"}}>👆</span>
+          <span style={{fontSize:"12px", color:"#ffd700", fontWeight:"700"}}>
+            Nhấn vào quả 🍎 trên cây để hái! ({readyFruits} quả sẵn sàng)
+          </span>
         </div>
-        <div style={{display:"flex", flexDirection:"column", gap:"6px"}}>
-          {tree.fruits.map((fruit, idx) => {
-            const rem = !fruit.isReady ? Math.max(0, fruit.availableAt - Date.now()) : 0;
-            const h = Math.floor(rem/3600000);
-            const m = Math.floor((rem%3600000)/60000);
-            const s = Math.floor((rem%60000)/1000);
-            return (
-              <div
-                key={fruit.id}
-                className={`fruit-list-item ${fruit.isReady ? "ready" : "waiting"}`}
-                onClick={() => {
-                  if (fruit.isReady) startHarvestFruit(tree, fruit.id);
-                  else notify(`⏳ "${fruit.word}" còn ${h>0?`${h}h `:""}${m}p ${s}s nữa`, "#ff9800");
-                }}
-              >
-                <div style={{
-                  width:"32px", height:"32px", borderRadius:"10px", flexShrink:0,
-                  background: fruit.isReady ? "linear-gradient(135deg,#ff8c00,#ffd700)" : "rgba(255,255,255,0.06)",
-                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:"16px",
-                  border: fruit.isReady ? "1.5px solid rgba(255,215,0,0.5)" : "1px solid rgba(255,255,255,0.08)",
-                }}>
-                  {fruit.isReady ? "🍎" : "⏳"}
-                </div>
-                <div style={{flex:1, minWidth:0}}>
-                  <div style={{fontSize:"13px", fontWeight:"800", color: fruit.isReady ? "#ffd700" : "rgba(255,255,255,0.5)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
-                    {fruit.word}
-                  </div>
-                  <div style={{fontSize:"10px", color: fruit.isReady ? "#ff9800" : "rgba(255,255,255,0.25)"}}>
-                    {fruit.isReady ? "✅ Sẵn sàng để hái" : `⏱ Còn ${h>0?`${h}h `:""}${m}p ${s}s`}
-                  </div>
-                </div>
-                {fruit.isReady && (
-                  <div style={{
-                    padding:"5px 12px", borderRadius:"10px", fontSize:"11px", fontWeight:"900",
-                    background:"linear-gradient(135deg,#ff8c00,#ffd700)", color:"#1a0a00",
-                    animation:"bounce 1s infinite",
-                  }}>Hái!</div>
-                )}
-              </div>
-            );
-          })}
+      )}
+      {readyFruits === 0 && totalFruits > 0 && (
+        <div style={{
+          display:"flex", alignItems:"center", gap:"8px",
+          background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)",
+          borderRadius:"14px", padding:"8px 14px",
+        }}>
+          <span style={{fontSize:"16px"}}>⏳</span>
+          <span style={{fontSize:"12px", color:"rgba(255,255,255,0.45)", fontWeight:"600"}}>
+            Quả đang chín… nhấn vào quả mờ để xem thời gian còn lại
+          </span>
         </div>
-      </div>
+      )}
 
       {/* ── ACTIONS ── */}
-      <div style={{width:"100%", maxWidth:"420px", display:"flex", gap:"10px"}}>
-        <button
-          className="harvest-btn-epic"
-          disabled={readyFruits === 0}
-          style={{flex:2, padding:"14px", fontSize:"15px"}}
-          onClick={() => {
-            const firstReady = tree.fruits.find(f => f.isReady);
-            if (firstReady) startHarvestFruit(tree, firstReady.id);
-            else notify("🍎 Chưa có quả nào sẵn sàng!", "#ef4444");
-          }}
-        >
-          🍎 Hái quả {readyFruits > 0 ? `(${readyFruits})` : ""}
-        </button>
-        {tree.level === 0 && (
+      {tree.level === 0 && (
+        <div style={{width:"100%", maxWidth:"420px", display:"flex", gap:"10px"}}>
           <button
             className="learn-btn-epic"
-            style={{flex:2, padding:"14px", fontSize:"15px"}}
+            style={{flex:1, padding:"14px", fontSize:"15px"}}
             onClick={() => startLearningForTree(tree)}
           >
             📚 Học để lên cấp
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── CẤP TIẾP THEO ── */}
       {tree.level < 10 && (
@@ -2828,6 +2817,29 @@ const killPest = (plotId) => {
           </div>
         </div>
       )}
+
+      {/* ── XÓA CÂY ── */}
+      <div style={{width:"100%", maxWidth:"420px", marginTop:"4px", paddingBottom:"16px"}}>
+        <button
+          onClick={() => {
+            if (window.confirm(`🌳 Xóa cây "${tree.word}"?\n\nCây sẽ bị chặt, toàn bộ quả mất đi và bạn có thể trồng lại từ đầu.`)) {
+              setAncientTrees([]);
+              playSound("wrong");
+            }
+          }}
+          style={{
+            width:"100%", padding:"11px", borderRadius:"14px", border:"1px solid rgba(239,68,68,0.3)",
+            background:"rgba(239,68,68,0.08)", color:"rgba(239,68,68,0.7)",
+            fontSize:"13px", fontWeight:"700", cursor:"pointer",
+            display:"flex", alignItems:"center", justifyContent:"center", gap:"6px",
+            transition:"all 0.2s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background="rgba(239,68,68,0.18)"; e.currentTarget.style.borderColor="rgba(239,68,68,0.6)"; e.currentTarget.style.color="#ef4444"; }}
+          onMouseLeave={e => { e.currentTarget.style.background="rgba(239,68,68,0.08)"; e.currentTarget.style.borderColor="rgba(239,68,68,0.3)"; e.currentTarget.style.color="rgba(239,68,68,0.7)"; }}
+        >
+          🪓 Chặt cây & trồng lại
+        </button>
+      </div>
     </div>
   );
 })()}
