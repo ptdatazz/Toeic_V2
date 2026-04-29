@@ -1437,7 +1437,8 @@ function StoryMode({ words, onComplete, onBack, updateGlobal, onSaveWord, settin
       { type: "thông báo", instruction: "Viết 1 thông báo chính thức bằng TIẾNG VIỆT (khoảng 80-120 từ), ví dụ thông báo công ty, trường học, sự kiện." },
       { type: "đối thoại", instruction: "Viết 1 đoạn hội thoại ngắn bằng TIẾNG VIỆT giữa 2 người (khoảng 100-140 từ), ghi rõ tên người nói, tình huống thực tế đời thường hoặc công sở." },
       { type: "phỏng vấn", instruction: "Viết 1 đoạn phỏng vấn xin việc hoặc phỏng vấn nhân vật bằng TIẾNG VIỆT (khoảng 100-140 từ), ghi rõ câu hỏi và câu trả lời." },
-      { type: "bài thuyết trình", instruction: "Viết phần mở đầu của 1 bài thuyết trình ngắn bằng TIẾNG VIỆT (khoảng 100-150 từ), có chào hỏi, giới thiệu chủ đề, nêu dàn ý chính." },
+      { type: "bài giới thiệu về công nghệ điện tử", instruction: "Viết 1 bài giới thiệu về công nghệ điện tử bằng TIẾNG VIỆT (khoảng 100-150 từ), giới thiệu chủ đề, giải thích nội dung." },
+      { type: "bài giới thiệu về linh kiện điện tử", instruction: "Viết 1 bài giới thiệu về linh kiện điện tử bằng TIẾNG VIỆT (khoảng 100-150 từ), giới thiệu chủ đề, giải thích nội dung." },
     ];
 
     const genre = genres[Math.floor(Math.random() * genres.length)]; // ✅ Chọn ngẫu nhiên
