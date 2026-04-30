@@ -3632,158 +3632,165 @@ const killPest = (plotId) => {
             <div style={{
               padding: "14px 12px",
               minHeight: "100%",
-              background: "linear-gradient(160deg,#1e1b4b 0%,#312e81 40%,#1e1b4b 100%)",
+              background: "linear-gradient(160deg,#fdf6ec 0%,#fffbf0 60%,#fef9f0 100%)",
               borderRadius: "16px",
             }}>
               {/* Header tổng quan */}
               <div style={{
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(251,191,36,0.25)",
+                background: "linear-gradient(135deg,#fff7ed,#fef3c7)",
+                border: "1.5px solid #fcd34d",
                 borderRadius: "18px",
-                padding: "16px",
-                marginBottom: "14px",
+                padding: "14px 16px",
+                marginBottom: "16px",
                 display: "flex",
                 alignItems: "center",
-                gap: "16px",
+                gap: "14px",
+                boxShadow: "0 2px 12px rgba(251,191,36,0.15)",
               }}>
                 <div style={{
-                  width: "56px", height: "56px", borderRadius: "18px", flexShrink: 0,
-                  background: "linear-gradient(135deg,rgba(251,191,36,0.3),rgba(245,158,11,0.15))",
-                  border: "2px solid rgba(251,191,36,0.4)",
-                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px",
+                  width: "52px", height: "52px", borderRadius: "16px", flexShrink: 0,
+                  background: "linear-gradient(135deg,#fbbf24,#f59e0b)",
+                  boxShadow: "0 4px 12px rgba(251,191,36,0.4)",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: "26px",
                 }}>🏆</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "16px", fontWeight: "900", color: "#fef3c7", marginBottom: "2px" }}>
-                    Nhiệm vụ · <span style={{ color: "#fbbf24" }}>{completedCount}</span> hoàn thành
+                  <div style={{ fontSize: "15px", fontWeight: "900", color: "#78350f", marginBottom: "1px" }}>
+                    Nhiệm vụ · <span style={{ color: "#d97706" }}>{completedCount}</span> hoàn thành
                   </div>
-                  <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.45)", marginBottom: "8px" }}>
+                  <div style={{ fontSize: "11px", color: "#92400e", opacity: 0.7, marginBottom: "7px" }}>
                     {earnedGems.toLocaleString()} 💎 đã nhận · Nhiệm vụ tự tăng vô hạn!
                   </div>
-                  <div style={{ height: "8px", background: "rgba(255,255,255,0.1)", borderRadius: "99px", overflow: "hidden" }}>
+                  <div style={{ height: "8px", background: "rgba(120,53,15,0.12)", borderRadius: "99px", overflow: "hidden" }}>
                     <div style={{
                       height: "100%",
                       width: `${allQuests.length ? (completedCount / allQuests.length) * 100 : 0}%`,
-                      background: "linear-gradient(90deg,#f59e0b,#fbbf24)",
+                      background: "linear-gradient(90deg,#f59e0b,#fbbf24,#fde68a)",
                       borderRadius: "99px",
                       transition: "width 0.5s ease",
                     }} />
                   </div>
-                  <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.25)", marginTop: "3px" }}>
+                  <div style={{ fontSize: "10px", color: "#92400e", opacity: 0.5, marginTop: "3px" }}>
                     {completedCount}/{allQuests.length} nhiệm vụ hiện tại
                   </div>
                 </div>
               </div>
 
-              {/* Label phân loại */}
+              {/* Label phân loại — đang thực hiện */}
               {pending.length > 0 && (
-                <div style={{ fontSize: "11px", fontWeight: "800", color: "#a78bfa", textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div style={{ flex: 1, height: "1px", background: "rgba(167,139,250,0.2)" }} />
+                <div style={{ fontSize: "11px", fontWeight: "800", color: "#7c3aed", textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "10px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div style={{ flex: 1, height: "1.5px", background: "linear-gradient(90deg,transparent,#c4b5fd)" }} />
                   ⏳ Đang thực hiện ({pending.length})
-                  <div style={{ flex: 1, height: "1px", background: "rgba(167,139,250,0.2)" }} />
+                  <div style={{ flex: 1, height: "1.5px", background: "linear-gradient(90deg,#c4b5fd,transparent)" }} />
                 </div>
               )}
 
               {/* Danh sách nhiệm vụ */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {sorted.map((q, idx) => {
                   const qDone = isDone(q);
                   const pct = Math.min(100, Math.round((q.cur / q.max) * 100));
                   const isAlmost = !qDone && pct >= 60;
 
-                  // Divider khi chuyển từ pending sang done
                   const showDoneLabel = qDone && (idx === 0 || !isDone(sorted[idx - 1]));
+
+                  // Color scheme per state
+                  const cardBg = qDone
+                    ? "linear-gradient(135deg,#f0fdf4,#dcfce7)"
+                    : isAlmost
+                    ? "linear-gradient(135deg,#f5f3ff,#ede9fe)"
+                    : "linear-gradient(135deg,#ffffff,#f9fafb)";
+                  const cardBorder = qDone ? "1.5px solid #86efac" : isAlmost ? "1.5px solid #c4b5fd" : "1.5px solid #e5e7eb";
+                  const cardShadow = qDone ? "0 2px 8px rgba(34,197,94,0.10)" : isAlmost ? "0 2px 8px rgba(139,92,246,0.10)" : "0 1px 4px rgba(0,0,0,0.05)";
+                  const nameColor = qDone ? "#15803d" : isAlmost ? "#6d28d9" : "#1f2937";
+                  const descColor = qDone ? "#166534" : isAlmost ? "#7c3aed" : "#6b7280";
+                  const barBg = qDone ? "rgba(34,197,94,0.15)" : isAlmost ? "rgba(139,92,246,0.12)" : "#e5e7eb";
+                  const barFill = qDone
+                    ? "linear-gradient(90deg,#22c55e,#4ade80)"
+                    : isAlmost
+                    ? "linear-gradient(90deg,#7c3aed,#a78bfa)"
+                    : "linear-gradient(90deg,#93c5fd,#60a5fa)";
+                  const tagBg = qDone ? "#dcfce7" : isAlmost ? "#ede9fe" : "#f3f4f6";
+                  const tagColor = qDone ? "#15803d" : isAlmost ? "#6d28d9" : "#6b7280";
+                  const gemBg = qDone ? "#dcfce7" : isAlmost ? "#ede9fe" : "#f3f4f6";
+                  const gemBorder = qDone ? "#86efac" : isAlmost ? "#c4b5fd" : "#e5e7eb";
+                  const gemColor = qDone ? "#15803d" : isAlmost ? "#6d28d9" : "#9ca3af";
 
                   return (
                     <div key={q.id}>
                       {showDoneLabel && (
-                        <div style={{ fontSize: "11px", fontWeight: "800", color: "#fbbf24", textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "8px", marginTop: "4px", display: "flex", alignItems: "center", gap: "8px" }}>
-                          <div style={{ flex: 1, height: "1px", background: "rgba(251,191,36,0.2)" }} />
+                        <div style={{ fontSize: "11px", fontWeight: "800", color: "#15803d", textTransform: "uppercase", letterSpacing: "1.5px", margin: "6px 0 10px", display: "flex", alignItems: "center", gap: "8px" }}>
+                          <div style={{ flex: 1, height: "1.5px", background: "linear-gradient(90deg,transparent,#86efac)" }} />
                           ✅ Đã hoàn thành ({done.length})
-                          <div style={{ flex: 1, height: "1px", background: "rgba(251,191,36,0.2)" }} />
+                          <div style={{ flex: 1, height: "1.5px", background: "linear-gradient(90deg,#86efac,transparent)" }} />
                         </div>
                       )}
                       <div style={{
-                        background: qDone
-                          ? "linear-gradient(135deg,rgba(251,191,36,0.1),rgba(245,158,11,0.05))"
-                          : isAlmost
-                          ? "linear-gradient(135deg,rgba(99,102,241,0.1),rgba(139,92,246,0.05))"
-                          : "rgba(255,255,255,0.04)",
-                        border: qDone
-                          ? "1px solid rgba(251,191,36,0.3)"
-                          : isAlmost
-                          ? "1px solid rgba(139,92,246,0.35)"
-                          : "1px solid rgba(255,255,255,0.07)",
-                        borderRadius: "16px",
-                        padding: "12px 14px",
+                        background: cardBg,
+                        border: cardBorder,
+                        borderRadius: "14px",
+                        padding: "11px 12px",
                         display: "flex",
                         alignItems: "center",
-                        gap: "12px",
-                        opacity: qDone ? 0.7 : 1,
+                        gap: "11px",
+                        boxShadow: cardShadow,
+                        opacity: qDone ? 0.82 : 1,
+                        transition: "transform 0.15s",
                       }}>
                         {/* Icon */}
                         <div style={{
-                          width: "44px", height: "44px", borderRadius: "14px", flexShrink: 0,
-                          background: qDone
-                            ? "rgba(251,191,36,0.15)"
-                            : isAlmost
-                            ? "rgba(139,92,246,0.15)"
-                            : "rgba(255,255,255,0.06)",
-                          border: qDone ? "1px solid rgba(251,191,36,0.3)" : isAlmost ? "1px solid rgba(139,92,246,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                          width: "42px", height: "42px", borderRadius: "12px", flexShrink: 0,
+                          background: qDone ? "#bbf7d0" : isAlmost ? "#ddd6fe" : "#f3f4f6",
+                          border: qDone ? "1.5px solid #86efac" : isAlmost ? "1.5px solid #c4b5fd" : "1.5px solid #e5e7eb",
                           display: "flex", alignItems: "center", justifyContent: "center",
-                          fontSize: "22px",
-                          filter: qDone ? "grayscale(30%)" : "none",
+                          fontSize: "20px",
                         }}>
                           {qDone ? "✅" : q.icon}
                         </div>
 
                         {/* Info */}
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px", flexWrap: "wrap" }}>
-                            <span style={{
-                              fontSize: "13px", fontWeight: "800",
-                              color: qDone ? "rgba(251,191,36,0.7)" : isAlmost ? "#c4b5fd" : "rgba(255,255,255,0.85)",
-                            }}>{q.name}</span>
+                          {/* Name row */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "3px", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: "13px", fontWeight: "800", color: nameColor, lineHeight: 1.2 }}>
+                              {q.name}
+                            </span>
                             <span style={{
                               fontSize: "9px", fontWeight: "700",
-                              color: qDone ? "#92400e" : isAlmost ? "#6d28d9" : "rgba(255,255,255,0.3)",
-                              background: qDone ? "#fbbf24" : isAlmost ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.07)",
-                              borderRadius: "99px", padding: "1px 7px", flexShrink: 0,
+                              color: tagColor, background: tagBg,
+                              borderRadius: "99px", padding: "2px 7px", flexShrink: 0,
+                              border: `1px solid ${gemBorder}`,
                             }}>{catLabel[q.category] || q.category}</span>
-                            {qDone && <span style={{ fontSize: "9px", fontWeight: "800", color: "#92400e", background: "#fbbf24", borderRadius: "99px", padding: "1px 7px" }}>✓ XONG</span>}
                           </div>
-                          <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)", marginBottom: "6px" }}>{q.desc}</div>
+                          {/* Desc */}
+                          <div style={{ fontSize: "11px", color: descColor, marginBottom: "6px", lineHeight: 1.3 }}>{q.desc}</div>
 
                           {/* Progress bar */}
-                          <div style={{ height: "5px", background: "rgba(255,255,255,0.08)", borderRadius: "99px", overflow: "hidden" }}>
+                          <div style={{ height: "6px", background: barBg, borderRadius: "99px", overflow: "hidden" }}>
                             <div style={{
                               height: "100%",
                               width: `${pct}%`,
-                              background: qDone
-                                ? "linear-gradient(90deg,#f59e0b,#fbbf24)"
-                                : isAlmost
-                                ? "linear-gradient(90deg,#6366f1,#8b5cf6)"
-                                : "linear-gradient(90deg,rgba(255,255,255,0.2),rgba(255,255,255,0.35))",
+                              background: barFill,
                               borderRadius: "99px",
                               transition: "width 0.5s ease",
                             }} />
                           </div>
-                          <div style={{ fontSize: "10px", color: qDone ? "rgba(251,191,36,0.5)" : "rgba(255,255,255,0.3)", marginTop: "3px" }}>
-                            {qDone ? "Hoàn thành! 🎉" : `${q.cur.toLocaleString()} / ${q.max.toLocaleString()} (${pct}%)`}
+                          {/* Progress text */}
+                          <div style={{ fontSize: "10px", color: descColor, opacity: 0.7, marginTop: "3px", fontWeight: "600" }}>
+                            {qDone ? "Hoàn thành! 🎉" : `${q.cur.toLocaleString()} / ${q.max.toLocaleString()} · ${pct}%`}
                           </div>
                         </div>
 
                         {/* Gem reward */}
                         <div style={{
                           flexShrink: 0, textAlign: "center",
-                          background: qDone ? "rgba(251,191,36,0.1)" : isAlmost ? "rgba(139,92,246,0.1)" : "rgba(255,255,255,0.05)",
-                          border: qDone ? "1px solid rgba(251,191,36,0.25)" : isAlmost ? "1px solid rgba(139,92,246,0.25)" : "1px solid rgba(255,255,255,0.08)",
-                          borderRadius: "12px", padding: "6px 10px", minWidth: "52px",
+                          background: gemBg,
+                          border: `1.5px solid ${gemBorder}`,
+                          borderRadius: "12px", padding: "7px 10px", minWidth: "50px",
                         }}>
-                          <div style={{ fontSize: "16px" }}>{qDone ? "💎" : "🔮"}</div>
-                          <div style={{
-                            fontSize: "12px", fontWeight: "900",
-                            color: qDone ? "#fbbf24" : isAlmost ? "#a78bfa" : "rgba(255,255,255,0.3)",
-                          }}>+{q.gem.toLocaleString()}</div>
+                          <div style={{ fontSize: "15px", lineHeight: 1 }}>{qDone ? "💎" : "🔮"}</div>
+                          <div style={{ fontSize: "11px", fontWeight: "900", color: gemColor, marginTop: "3px" }}>
+                            +{q.gem.toLocaleString()}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3794,11 +3801,11 @@ const killPest = (plotId) => {
               {/* Footer */}
               <div style={{
                 marginTop: "14px", padding: "12px", borderRadius: "12px",
-                background: "rgba(255,255,255,0.03)", fontSize: "11px",
-                color: "rgba(255,255,255,0.3)", textAlign: "center", lineHeight: 1.7,
+                background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)",
+                fontSize: "11px", color: "#92400e", textAlign: "center", lineHeight: 1.7,
               }}>
                 ♾️ Nhiệm vụ mới tự xuất hiện khi bạn hoàn thành mốc hiện tại<br/>
-                <span style={{ color: "rgba(251,191,36,0.5)" }}>💎 Phần thưởng tăng dần theo cấp độ mốc</span>
+                <span style={{ color: "#d97706", fontWeight: "700" }}>💎 Phần thưởng tăng dần theo cấp độ mốc</span>
               </div>
             </div>
           );
