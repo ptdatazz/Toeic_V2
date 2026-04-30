@@ -261,18 +261,13 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
     updateLevel(exp + amount, plots, plotCount);
   };
 
-  // ===== KIỂM TRA THÀNH TỰU =====
+  // ===== KIỂM TRA THÀNH TỰU (cũ + mới vô hạn) =====
   const checkAchievements = (stateUpdate) => {
-    const currentState = {
-      score, coins, streak, plotCount, pestKilled, wordsMastered, level,
-      ...stateUpdate
-    };
-    
-    const newlyUnlocked = [];
-    
+    const st = { score, coins, streak, plotCount, pestKilled, wordsMastered, level, ...stateUpdate };
+
+    // 1. Thành tựu cũ (ACHIEVEMENTS cố định)
     ACHIEVEMENTS.forEach(ach => {
-      if (!achievements.includes(ach.id) && ach.condition(currentState)) {
-        newlyUnlocked.push(ach);
+      if (!achievements.includes(ach.id) && ach.condition(st)) {
         setAchievements(prev => [...prev, ach.id]);
         setGems(prev => prev + ach.rewardGem);
         setShowAchievement(ach);
@@ -280,6 +275,26 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
         notify(`🏆 Thành tựu: ${ach.name}! +${ach.rewardGem}💎`, "#8b5cf6");
       }
     });
+
+    // 2. Nhiệm vụ vô hạn — kiểm tra các id động
+    const checkInfinite = (milestones, statVal, prefix, gemBase, gemMult, nameFn, iconFn) => {
+      milestones.forEach((m, i) => {
+        const id = `${prefix}_${m}`;
+        const gem = Math.round(gemBase * Math.pow(gemMult, i));
+        if (statVal >= m && !achievements.includes(id)) {
+          setAchievements(prev => [...prev, id]);
+          setGems(prev => prev + gem);
+          notify(`🏆 ${nameFn(m)}! +${gem}💎`, "#f59e0b");
+        }
+      });
+    };
+
+    checkInfinite([1,10,50,100,250,500,1000,2500,5000,10000], st.score, "harvest", 5, 1.8, m => `Thu hoạch ${m} cây`, m => "🌾");
+    checkInfinite([5,10,20,30,50,75,100,150,200,300,500], st.streak, "streak", 8, 1.6, m => `Streak x${m}`, m => "⚡");
+    checkInfinite([100,500,1000,5000,10000,50000,100000,500000], st.coins, "coins", 15, 2, m => `${m} xu`, m => "💰");
+    checkInfinite([5,10,15,20,30,40,50,75,100], st.level, "level", 25, 1.7, m => `Cấp ${m}`, m => "⭐");
+    checkInfinite([10,50,100,500,1000,5000,10000], st.pestKilled, "pest", 10, 1.9, m => `Diệt ${m} sâu`, m => "🐛");
+    checkInfinite([20,50,100,250,500,1000,2500,5000], st.wordsMastered, "words", 20, 1.7, m => `${m} từ vựng`, m => "📖");
   };
 
   // ===== TÍNH TOÁN MỞ RỘNG THỦ CÔNG (bằng xu) =====
@@ -2481,8 +2496,8 @@ const killPest = (plotId) => {
           { id: "farm", label: "🌾 Nông trại", color: "#16a34a" },
           { id: "quiz", label: "📝 Học từ",    color: "#1d4ed8" },
           { id: "shop", label: "🏪 Cửa hàng",  color: "#7c3aed" },
-          { id: "ancient", label: "🌳 Cây cổ thụ", color: "#8b5cf6" }, // 👈 THÊM DÒNG NÀY
-
+          { id: "ancient", label: "🌳 Cây cổ thụ", color: "#8b5cf6" },
+          { id: "quests", label: "🏆 Nhiệm vụ", color: "#f59e0b" },
         ].map((tab) => (
           <button key={tab.id} className="tab-btn" style={S.tab(activePanel === tab.id, tab.color)} onClick={() => { if (tab.id === "quiz") startQuiz(null); else setActivePanel(tab.id); }}>{tab.label}</button>
         ))}
@@ -3446,6 +3461,348 @@ const killPest = (plotId) => {
             })()}
           </div>
         )}
+
+        {/* ===== TAB NHIỆM VỤ ===== */}
+        {activePanel === "quests" && (() => {
+          // ===== HỆ THỐNG NHIỆM VỤ VÔ HẠN =====
+          // Tự sinh ra các mốc theo cấp số: cứ hoàn thành mốc N thì xuất hiện mốc N+1
+          const buildInfiniteQuests = () => {
+            const quests = [];
+
+            // --- Thu hoạch (cây) ---
+            // Mốc: 1,10,50,100,250,500,1000,2500,5000,10000,...
+            const harvestMilestones = [1,10,50,100,250,500,1000,2500,5000,10000];
+            for (let i = 0; i < harvestMilestones.length; i++) {
+              const m = harvestMilestones[i];
+              // Chỉ hiển thị đến mốc tiếp theo của mốc hiện tại đã vượt
+              if (score < harvestMilestones[i-1] && i > 0) break;
+              const gem = i === 0 ? 5 : Math.round(5 * Math.pow(1.8, i));
+              quests.push({
+                id: `harvest_${m}`,
+                name: m === 1 ? "Mùa màng đầu tiên" : m <= 50 ? "Nông dân chăm chỉ" : m <= 500 ? "Chủ trang trại" : m <= 5000 ? "Nông trại huyền thoại" : "Nông thần",
+                icon: m === 1 ? "🌾" : m <= 10 ? "🌽" : m <= 100 ? "🚜" : m <= 1000 ? "🏆" : "👑",
+                desc: `Thu hoạch ${m.toLocaleString()} cây`,
+                cur: score, max: m,
+                gem,
+                category: "harvest",
+              });
+              if (score < m) break; // chỉ hiện mốc kế tiếp chưa xong
+            }
+            // Mốc tiếp theo ngoài bảng
+            const lastHarvest = harvestMilestones[harvestMilestones.length - 1];
+            if (score >= lastHarvest) {
+              let next = lastHarvest * 2;
+              while (score >= next) next *= 2;
+              const gem = Math.round(5 * Math.pow(1.8, harvestMilestones.length) * Math.log2(next / lastHarvest));
+              quests.push({ id: `harvest_${next}`, name: "Nông thần vô hạn", icon: "🌟", desc: `Thu hoạch ${next.toLocaleString()} cây`, cur: score, max: next, gem, category: "harvest" });
+            }
+
+            // --- Streak ---
+            const streakMilestones = [5,10,20,30,50,75,100,150,200,300,500];
+            for (let i = 0; i < streakMilestones.length; i++) {
+              const m = streakMilestones[i];
+              if (streak < (streakMilestones[i-1] || 0) && i > 0) break;
+              const gem = Math.round(8 * Math.pow(1.6, i));
+              quests.push({
+                id: `streak_${m}`,
+                name: m <= 5 ? "Bất bại" : m <= 20 ? "Thần đồng" : m <= 50 ? "Chiến thần" : m <= 100 ? "Huyền thoại" : "Bất tử",
+                icon: m <= 5 ? "⚡" : m <= 20 ? "👑" : m <= 50 ? "🔥" : m <= 100 ? "💫" : "∞",
+                desc: `Đạt Streak x${m}`,
+                cur: streak, max: m,
+                gem,
+                category: "streak",
+              });
+              if (streak < m) break;
+            }
+            const lastStreak = streakMilestones[streakMilestones.length - 1];
+            if (streak >= lastStreak) {
+              let next = Math.ceil(lastStreak * 1.5 / 10) * 10;
+              while (streak >= next) next = Math.ceil(next * 1.5 / 10) * 10;
+              quests.push({ id: `streak_${next}`, name: "Streak vô cực", icon: "♾️", desc: `Đạt Streak x${next}`, cur: streak, max: next, gem: Math.round(8 * Math.pow(1.6, streakMilestones.length + Math.floor(Math.log(next/lastStreak)/Math.log(1.5)))), category: "streak" });
+            }
+
+            // --- Xu (coins) ---
+            const coinMilestones = [100,500,1000,5000,10000,50000,100000,500000];
+            for (let i = 0; i < coinMilestones.length; i++) {
+              const m = coinMilestones[i];
+              if (coins < (coinMilestones[i-1] || 0) && i > 0) break;
+              const gem = Math.round(15 * Math.pow(2, i));
+              quests.push({
+                id: `coins_${m}`,
+                name: m <= 100 ? "Triệu phú" : m <= 1000 ? "Đại gia" : m <= 10000 ? "Tỷ phú" : m <= 100000 ? "Vua tài chính" : "Chúa tể vàng",
+                icon: m <= 100 ? "💰" : m <= 1000 ? "💎" : m <= 10000 ? "🏦" : "👑",
+                desc: `Sở hữu ${m.toLocaleString()} xu`,
+                cur: coins, max: m,
+                gem,
+                category: "coins",
+              });
+              if (coins < m) break;
+            }
+            const lastCoin = coinMilestones[coinMilestones.length - 1];
+            if (coins >= lastCoin) {
+              let next = lastCoin * 10;
+              while (coins >= next) next *= 10;
+              quests.push({ id: `coins_${next}`, name: "Chúa tể vàng", icon: "🌟", desc: `Sở hữu ${next.toLocaleString()} xu`, cur: coins, max: next, gem: Math.round(15 * Math.pow(2, coinMilestones.length) * Math.log10(next/lastCoin)), category: "coins" });
+            }
+
+            // --- Cấp độ ---
+            const levelMilestones = [5,10,15,20,30,40,50,75,100];
+            for (let i = 0; i < levelMilestones.length; i++) {
+              const m = levelMilestones[i];
+              if (level < (levelMilestones[i-1] || 0) && i > 0) break;
+              const gem = Math.round(25 * Math.pow(1.7, i));
+              quests.push({
+                id: `level_${m}`,
+                name: m <= 5 ? "Cao thủ" : m <= 10 ? "Bậc thầy" : m <= 20 ? "Đại sư" : m <= 50 ? "Huyền thoại" : "Thần nông",
+                icon: m <= 5 ? "⭐" : m <= 10 ? "👑" : m <= 20 ? "🌟" : m <= 50 ? "💫" : "🐉",
+                desc: `Đạt cấp độ ${m}`,
+                cur: level, max: m,
+                gem,
+                category: "level",
+              });
+              if (level < m) break;
+            }
+            const lastLevel = levelMilestones[levelMilestones.length - 1];
+            if (level >= lastLevel) {
+              let next = Math.ceil(lastLevel * 1.5 / 5) * 5;
+              while (level >= next) next = Math.ceil(next * 1.5 / 5) * 5;
+              quests.push({ id: `level_${next}`, name: "Thần nông bất tử", icon: "♾️", desc: `Đạt cấp độ ${next}`, cur: level, max: next, gem: Math.round(25 * Math.pow(1.7, levelMilestones.length)), category: "level" });
+            }
+
+            // --- Diệt sâu ---
+            const pestMilestones = [10,50,100,500,1000,5000,10000];
+            for (let i = 0; i < pestMilestones.length; i++) {
+              const m = pestMilestones[i];
+              if (pestKilled < (pestMilestones[i-1] || 0) && i > 0) break;
+              const gem = Math.round(10 * Math.pow(1.9, i));
+              quests.push({
+                id: `pest_${m}`,
+                name: m <= 10 ? "Thợ săn sâu bọ" : m <= 100 ? "Sát thủ sâu bọ" : m <= 1000 ? "Đại đao thủ" : "Thần diệt sâu",
+                icon: m <= 10 ? "🔫" : m <= 100 ? "⚔️" : m <= 1000 ? "🗡️" : "💀",
+                desc: `Diệt ${m.toLocaleString()} con sâu`,
+                cur: pestKilled, max: m,
+                gem,
+                category: "pest",
+              });
+              if (pestKilled < m) break;
+            }
+
+            // --- Từ vựng ---
+            const wordMilestones = [20,50,100,250,500,1000,2500,5000];
+            for (let i = 0; i < wordMilestones.length; i++) {
+              const m = wordMilestones[i];
+              if (wordsMastered < (wordMilestones[i-1] || 0) && i > 0) break;
+              const gem = Math.round(20 * Math.pow(1.7, i));
+              quests.push({
+                id: `words_${m}`,
+                name: m <= 20 ? "Từ vựng thông thái" : m <= 100 ? "Học giả" : m <= 500 ? "Giáo sư ngôn ngữ" : "Ngôn ngữ thần",
+                icon: m <= 20 ? "📖" : m <= 100 ? "📚" : m <= 500 ? "🎓" : "🧠",
+                desc: `Thu hoạch ${m.toLocaleString()} từ vựng`,
+                cur: wordsMastered, max: m,
+                gem,
+                category: "words",
+              });
+              if (wordsMastered < m) break;
+            }
+
+            return quests;
+          };
+
+          const allQuests = buildInfiniteQuests();
+
+          // Kiểm tra quest hoàn thành dựa theo id lưu trong achievements
+          const isDone = (q) => achievements.includes(q.id);
+
+          // Sắp xếp: chưa xong lên đầu (theo % tiến độ giảm dần), xong xuống dưới
+          const pending = allQuests.filter(q => !isDone(q)).sort((a, b) => {
+            const pctA = a.cur / a.max;
+            const pctB = b.cur / b.max;
+            return pctB - pctA; // gần xong nhất lên trước
+          });
+          const done = allQuests.filter(q => isDone(q));
+          const sorted = [...pending, ...done];
+
+          const earnedGems = done.reduce((s, q) => s + q.gem, 0);
+          const completedCount = done.length;
+
+          // Category labels
+          const catLabel = { harvest: "🌾 Thu hoạch", streak: "⚡ Streak", coins: "🪙 Xu", level: "⭐ Cấp độ", pest: "🐛 Diệt sâu", words: "📖 Từ vựng" };
+
+          return (
+            <div style={{
+              padding: "14px 12px",
+              minHeight: "100%",
+              background: "linear-gradient(160deg,#1e1b4b 0%,#312e81 40%,#1e1b4b 100%)",
+              borderRadius: "16px",
+            }}>
+              {/* Header tổng quan */}
+              <div style={{
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(251,191,36,0.25)",
+                borderRadius: "18px",
+                padding: "16px",
+                marginBottom: "14px",
+                display: "flex",
+                alignItems: "center",
+                gap: "16px",
+              }}>
+                <div style={{
+                  width: "56px", height: "56px", borderRadius: "18px", flexShrink: 0,
+                  background: "linear-gradient(135deg,rgba(251,191,36,0.3),rgba(245,158,11,0.15))",
+                  border: "2px solid rgba(251,191,36,0.4)",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px",
+                }}>🏆</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "16px", fontWeight: "900", color: "#fef3c7", marginBottom: "2px" }}>
+                    Nhiệm vụ · <span style={{ color: "#fbbf24" }}>{completedCount}</span> hoàn thành
+                  </div>
+                  <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.45)", marginBottom: "8px" }}>
+                    {earnedGems.toLocaleString()} 💎 đã nhận · Nhiệm vụ tự tăng vô hạn!
+                  </div>
+                  <div style={{ height: "8px", background: "rgba(255,255,255,0.1)", borderRadius: "99px", overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%",
+                      width: `${allQuests.length ? (completedCount / allQuests.length) * 100 : 0}%`,
+                      background: "linear-gradient(90deg,#f59e0b,#fbbf24)",
+                      borderRadius: "99px",
+                      transition: "width 0.5s ease",
+                    }} />
+                  </div>
+                  <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.25)", marginTop: "3px" }}>
+                    {completedCount}/{allQuests.length} nhiệm vụ hiện tại
+                  </div>
+                </div>
+              </div>
+
+              {/* Label phân loại */}
+              {pending.length > 0 && (
+                <div style={{ fontSize: "11px", fontWeight: "800", color: "#a78bfa", textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div style={{ flex: 1, height: "1px", background: "rgba(167,139,250,0.2)" }} />
+                  ⏳ Đang thực hiện ({pending.length})
+                  <div style={{ flex: 1, height: "1px", background: "rgba(167,139,250,0.2)" }} />
+                </div>
+              )}
+
+              {/* Danh sách nhiệm vụ */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {sorted.map((q, idx) => {
+                  const qDone = isDone(q);
+                  const pct = Math.min(100, Math.round((q.cur / q.max) * 100));
+                  const isAlmost = !qDone && pct >= 60;
+
+                  // Divider khi chuyển từ pending sang done
+                  const showDoneLabel = qDone && (idx === 0 || !isDone(sorted[idx - 1]));
+
+                  return (
+                    <div key={q.id}>
+                      {showDoneLabel && (
+                        <div style={{ fontSize: "11px", fontWeight: "800", color: "#fbbf24", textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "8px", marginTop: "4px", display: "flex", alignItems: "center", gap: "8px" }}>
+                          <div style={{ flex: 1, height: "1px", background: "rgba(251,191,36,0.2)" }} />
+                          ✅ Đã hoàn thành ({done.length})
+                          <div style={{ flex: 1, height: "1px", background: "rgba(251,191,36,0.2)" }} />
+                        </div>
+                      )}
+                      <div style={{
+                        background: qDone
+                          ? "linear-gradient(135deg,rgba(251,191,36,0.1),rgba(245,158,11,0.05))"
+                          : isAlmost
+                          ? "linear-gradient(135deg,rgba(99,102,241,0.1),rgba(139,92,246,0.05))"
+                          : "rgba(255,255,255,0.04)",
+                        border: qDone
+                          ? "1px solid rgba(251,191,36,0.3)"
+                          : isAlmost
+                          ? "1px solid rgba(139,92,246,0.35)"
+                          : "1px solid rgba(255,255,255,0.07)",
+                        borderRadius: "16px",
+                        padding: "12px 14px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        opacity: qDone ? 0.7 : 1,
+                      }}>
+                        {/* Icon */}
+                        <div style={{
+                          width: "44px", height: "44px", borderRadius: "14px", flexShrink: 0,
+                          background: qDone
+                            ? "rgba(251,191,36,0.15)"
+                            : isAlmost
+                            ? "rgba(139,92,246,0.15)"
+                            : "rgba(255,255,255,0.06)",
+                          border: qDone ? "1px solid rgba(251,191,36,0.3)" : isAlmost ? "1px solid rgba(139,92,246,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: "22px",
+                          filter: qDone ? "grayscale(30%)" : "none",
+                        }}>
+                          {qDone ? "✅" : q.icon}
+                        </div>
+
+                        {/* Info */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px", flexWrap: "wrap" }}>
+                            <span style={{
+                              fontSize: "13px", fontWeight: "800",
+                              color: qDone ? "rgba(251,191,36,0.7)" : isAlmost ? "#c4b5fd" : "rgba(255,255,255,0.85)",
+                            }}>{q.name}</span>
+                            <span style={{
+                              fontSize: "9px", fontWeight: "700",
+                              color: qDone ? "#92400e" : isAlmost ? "#6d28d9" : "rgba(255,255,255,0.3)",
+                              background: qDone ? "#fbbf24" : isAlmost ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.07)",
+                              borderRadius: "99px", padding: "1px 7px", flexShrink: 0,
+                            }}>{catLabel[q.category] || q.category}</span>
+                            {qDone && <span style={{ fontSize: "9px", fontWeight: "800", color: "#92400e", background: "#fbbf24", borderRadius: "99px", padding: "1px 7px" }}>✓ XONG</span>}
+                          </div>
+                          <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)", marginBottom: "6px" }}>{q.desc}</div>
+
+                          {/* Progress bar */}
+                          <div style={{ height: "5px", background: "rgba(255,255,255,0.08)", borderRadius: "99px", overflow: "hidden" }}>
+                            <div style={{
+                              height: "100%",
+                              width: `${pct}%`,
+                              background: qDone
+                                ? "linear-gradient(90deg,#f59e0b,#fbbf24)"
+                                : isAlmost
+                                ? "linear-gradient(90deg,#6366f1,#8b5cf6)"
+                                : "linear-gradient(90deg,rgba(255,255,255,0.2),rgba(255,255,255,0.35))",
+                              borderRadius: "99px",
+                              transition: "width 0.5s ease",
+                            }} />
+                          </div>
+                          <div style={{ fontSize: "10px", color: qDone ? "rgba(251,191,36,0.5)" : "rgba(255,255,255,0.3)", marginTop: "3px" }}>
+                            {qDone ? "Hoàn thành! 🎉" : `${q.cur.toLocaleString()} / ${q.max.toLocaleString()} (${pct}%)`}
+                          </div>
+                        </div>
+
+                        {/* Gem reward */}
+                        <div style={{
+                          flexShrink: 0, textAlign: "center",
+                          background: qDone ? "rgba(251,191,36,0.1)" : isAlmost ? "rgba(139,92,246,0.1)" : "rgba(255,255,255,0.05)",
+                          border: qDone ? "1px solid rgba(251,191,36,0.25)" : isAlmost ? "1px solid rgba(139,92,246,0.25)" : "1px solid rgba(255,255,255,0.08)",
+                          borderRadius: "12px", padding: "6px 10px", minWidth: "52px",
+                        }}>
+                          <div style={{ fontSize: "16px" }}>{qDone ? "💎" : "🔮"}</div>
+                          <div style={{
+                            fontSize: "12px", fontWeight: "900",
+                            color: qDone ? "#fbbf24" : isAlmost ? "#a78bfa" : "rgba(255,255,255,0.3)",
+                          }}>+{q.gem.toLocaleString()}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Footer */}
+              <div style={{
+                marginTop: "14px", padding: "12px", borderRadius: "12px",
+                background: "rgba(255,255,255,0.03)", fontSize: "11px",
+                color: "rgba(255,255,255,0.3)", textAlign: "center", lineHeight: 1.7,
+              }}>
+                ♾️ Nhiệm vụ mới tự xuất hiện khi bạn hoàn thành mốc hiện tại<br/>
+                <span style={{ color: "rgba(251,191,36,0.5)" }}>💎 Phần thưởng tăng dần theo cấp độ mốc</span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Modal mở rộng đất */}
