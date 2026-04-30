@@ -218,50 +218,47 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [treeLearningState, setTreeLearningState] = useState(null);
 
   // ===== HÀM CẬP NHẬP CẤP ĐỘ =====
-  const updateLevel = (newExp) => {
-    const currentLevelConfig = LEVEL_CONFIG.find(l => l.level === level);
-    let currentLevel = level;
-    let currentExp = newExp;
-    
-    while (currentLevel < LEVEL_CONFIG.length && currentExp >= LEVEL_CONFIG[currentLevel].expRequired) {
-      const nextLevelConfig = LEVEL_CONFIG[currentLevel];
-      if (currentExp >= nextLevelConfig.expRequired) {
-        currentExp -= nextLevelConfig.expRequired;
-        currentLevel++;
-        
-        // Thông báo lên cấp
-        notify(`🎉 CHÚC MỪNG! Lên cấp ${currentLevel}! 🎉`, "#8b5cf6");
-        
-        // Tự động mở rộng đất (nếu cấp độ cho phép mở thêm ô)
-        const targetPlots = nextLevelConfig.plotUnlock;
-        if (targetPlots > plotCount) {
-          const newPlots = [...plots];
-          for (let i = plots.length; i < targetPlots; i++) {
-            newPlots.push({
-              id: i, crop: null, stage: 0, hasPest: false,
-              linkedWord: null, wordData: null, timeLeft: 0,
-            });
-          }
-          setPlots(newPlots);
-          setPlotCount(targetPlots);
-          notify(`🌍 Đã mở rộng đất lên ${targetPlots} ô! (Không tốn kim cương)`, "#22c55e");
+  const updateLevel = (newExp, currentPlots, currentPlotCount) => {
+    let curLevel = level;
+    let curExp = newExp;
+    let didLevelUp = false;
+    let finalPlotCount = currentPlotCount;
+    let finalPlots = [...currentPlots];
+
+    while (curLevel < LEVEL_CONFIG.length) {
+      const nextConfig = LEVEL_CONFIG[curLevel];
+      if (!nextConfig || curExp < nextConfig.expRequired) break;
+      curExp -= nextConfig.expRequired;
+      curLevel++;
+      didLevelUp = true;
+      notify(`🎉 CHÚC MỪNG! Lên cấp ${curLevel}! 🎉`, "#8b5cf6");
+
+      // Mở rộng đất tự động theo plotUnlock của cấp vừa đạt
+      const targetPlots = nextConfig.plotUnlock;
+      if (targetPlots > finalPlotCount) {
+        for (let i = finalPlots.length; i < targetPlots; i++) {
+          finalPlots.push({ id: i, crop: null, stage: 0, hasPest: false, linkedWord: null, wordData: null, timeLeft: 0 });
         }
+        finalPlotCount = targetPlots;
+        notify(`🌍 Mở rộng đất lên ${targetPlots} ô!`, "#22c55e");
       }
     }
-    
-    setLevel(currentLevel);
-    setExp(currentExp);
-    
-    const nextExpNeeded = LEVEL_CONFIG[currentLevel]?.expRequired || 9999;
-    setNextLevelExp(nextExpNeeded);
-    
-    checkAchievements({ level: currentLevel });
+
+    setLevel(curLevel);
+    setExp(curExp);
+    setNextLevelExp(LEVEL_CONFIG[curLevel]?.expRequired || 9999);
+    // So sánh với currentPlotCount (tham số), không phải plotCount (stale closure)
+    if (finalPlotCount > currentPlotCount) {
+      setPlots(finalPlots);
+      setPlotCount(finalPlotCount);
+    }
+    if (didLevelUp) checkAchievements({ level: curLevel });
   };
 
   // ===== HÀM NHẬN EXP =====
   const addExp = (amount) => {
-    const newExp = exp + amount;
-    updateLevel(newExp);
+    // Truyền plots và plotCount tại thời điểm gọi để tránh stale closure
+    updateLevel(exp + amount, plots, plotCount);
   };
 
   // ===== KIỂM TRA THÀNH TỰU =====
@@ -1800,6 +1797,12 @@ const killPest = (plotId) => {
     h: `${22 + (i%6)*4}px`,
   })), []);
 
+  const lightningBolts = useMemo(() => [
+    { left: "22%", delay: "0s",   dur: "4.5s" },
+    { left: "58%", delay: "1.8s", dur: "5.2s" },
+    { left: "79%", delay: "3.1s", dur: "3.8s" },
+  ], []);
+
   if (isLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
@@ -1925,63 +1928,168 @@ const killPest = (plotId) => {
 
   return (
     <div style={S.wrap}>
-      {/* ===== WEATHER PARTICLE OVERLAY ===== */}
+      {/* ===== WEATHER OVERLAY ===== */}
+
+      {/* SUNNY — màn hình sáng, tia nắng */}
+      {weather === "sunny" && (
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          <div style={{
+            position:"absolute",inset:0,
+            background:"radial-gradient(ellipse at 65% 0%,rgba(255,240,120,0.20) 0%,transparent 60%)",
+            animation:"sunBrighten 4s ease-in-out infinite",
+          }}/>
+          {[0,1,2,3,4].map(i=>(
+            <div key={i} style={{
+              position:"absolute",top:"-20%",left:"64%",
+              width:"2px",height:"160%",
+              background:"linear-gradient(180deg,rgba(255,230,80,0.28),transparent 65%)",
+              transformOrigin:"top center",
+              transform:`rotate(${i*16-18}deg)`,
+              animation:`sunRay ${3+i*0.6}s ease-in-out ${i*0.55}s infinite alternate`,
+            }}/>
+          ))}
+        </div>
+      )}
+
+      {/* CLOUDY — tối lại + mây trôi */}
+      {weather === "cloudy" && (
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          <div style={{
+            position:"absolute",inset:0,
+            background:"rgba(45,55,75,0.30)",
+            animation:"cloudDim 6s ease-in-out infinite",
+          }}/>
+          {[
+            {top:"5%",  size:200, delay:"0s",  dur:"20s", opacity:0.50},
+            {top:"12%", size:150, delay:"5s",  dur:"25s", opacity:0.40},
+            {top:"2%",  size:240, delay:"11s", dur:"30s", opacity:0.35},
+          ].map((c,i)=>(
+            <div key={i} style={{
+              position:"absolute",top:c.top,left:"-280px",
+              width:`${c.size}px`,height:`${c.size*0.55}px`,
+              background:"radial-gradient(ellipse at 40% 50%,rgba(170,185,205,0.90),rgba(130,148,175,0.3) 70%,transparent)",
+              borderRadius:"50%",opacity:c.opacity,
+              animation:`cloudMove ${c.dur} linear ${c.delay} infinite`,
+              filter:"blur(10px)",
+            }}/>
+          ))}
+        </div>
+      )}
+
+      {/* RAINY — tối + mây nặng + 2 lớp mưa */}
       {weather === "rainy" && (
         <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          {/* Lớp tối */}
+          <div style={{position:"absolute",inset:0,background:"rgba(25,38,62,0.42)"}}/>
+          {/* Mây xám trên đỉnh */}
+          <div style={{
+            position:"absolute",top:0,left:0,right:0,height:"25%",
+            background:"linear-gradient(180deg,rgba(50,60,85,0.80) 0%,transparent 100%)",
+          }}/>
+          {/* Layer mưa 1 — mảnh, xa */}
           {rainDrops.map((d,i)=>(
-            <div key={i} style={{
-              position:"absolute",
-              left:d.left,
-              top:"-20px",
-              width:"1.5px",
-              height:d.h,
-              background:"linear-gradient(180deg,transparent,rgba(100,170,255,0.75))",
-              animation:`rainFall ${d.dur} linear ${d.delay} infinite`,
-              transform:"rotate(10deg)",
+            <div key={`r1-${i}`} style={{
+              position:"absolute",left:d.left,top:"-30px",
+              width:"1px",height:`${parseInt(d.h)*0.7}px`,
+              background:"linear-gradient(180deg,transparent,rgba(150,195,255,0.50))",
+              animation:`rainFall ${(parseFloat(d.dur)*1.5).toFixed(2)}s linear ${d.delay} infinite`,
+              transform:"rotate(12deg)",
             }}/>
           ))}
+          {/* Layer mưa 2 — to, gần */}
+          {rainDrops.map((d,i)=>(
+            <div key={`r2-${i}`} style={{
+              position:"absolute",
+              left:`${(parseFloat(d.left)+2.5).toFixed(1)}%`,
+              top:"-30px",
+              width:"1.8px",height:d.h,
+              background:"linear-gradient(180deg,transparent,rgba(110,165,255,0.85))",
+              animation:`rainFall ${d.dur} linear ${(parseFloat(d.delay)+0.18).toFixed(2)}s infinite`,
+              transform:"rotate(12deg)",
+            }}/>
+          ))}
+          {/* Gợn nước đáy */}
+          <div style={{
+            position:"absolute",bottom:0,left:0,right:0,height:"5px",
+            background:"linear-gradient(90deg,transparent,rgba(110,175,255,0.35),transparent)",
+            animation:"rainPuddle 1.8s ease-in-out infinite",
+          }}/>
         </div>
       )}
+
+      {/* STORMY — rất tối + mưa nặng + sét */}
       {weather === "stormy" && (
         <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          {/* Tối đậm */}
+          <div style={{position:"absolute",inset:0,background:"rgba(12,18,32,0.65)"}}/>
+          {/* Mây bão đen */}
+          <div style={{
+            position:"absolute",top:0,left:0,right:0,height:"32%",
+            background:"linear-gradient(180deg,rgba(15,20,38,0.92) 0%,rgba(35,42,62,0.55) 65%,transparent 100%)",
+            animation:"stormCloud 7s ease-in-out infinite",
+          }}/>
+          {/* Mưa bão layer 1 */}
           {stormDrops.map((d,i)=>(
-            <div key={i} style={{
-              position:"absolute",
-              left:d.left,
-              top:"-20px",
-              width:"2px",
-              height:d.h,
-              background:"linear-gradient(180deg,transparent,rgba(80,50,160,0.65))",
-              animation:`rainFall ${d.dur} linear ${d.delay} infinite`,
-              transform:"rotate(18deg)",
+            <div key={`s1-${i}`} style={{
+              position:"absolute",left:d.left,top:"-30px",
+              width:"1.2px",height:`${parseInt(d.h)*0.75}px`,
+              background:"linear-gradient(180deg,transparent,rgba(130,155,200,0.55))",
+              animation:`rainFall ${(parseFloat(d.dur)*1.3).toFixed(2)}s linear ${d.delay} infinite`,
+              transform:"rotate(22deg)",
             }}/>
           ))}
-          <div style={{position:"absolute",inset:0,background:"rgba(100,30,200,0.035)",animation:"stormFlash 2.8s ease-in-out infinite"}}/>
+          {/* Mưa bão layer 2 — nặng */}
+          {stormDrops.map((d,i)=>(
+            <div key={`s2-${i}`} style={{
+              position:"absolute",
+              left:`${(parseFloat(d.left)+1.8).toFixed(1)}%`,
+              top:"-30px",
+              width:"2.5px",height:d.h,
+              background:"linear-gradient(180deg,transparent,rgba(95,125,200,0.90))",
+              animation:`rainFall ${d.dur} linear ${(parseFloat(d.delay)+0.09).toFixed(2)}s infinite`,
+              transform:"rotate(22deg)",
+            }}/>
+          ))}
+          {/* 3 tia sét */}
+          {lightningBolts.map((b,i)=>(
+            <div key={`bolt-${i}`} style={{
+              position:"absolute",left:b.left,top:"0",
+              width:"4px",height:"42%",
+              background:"linear-gradient(180deg,rgba(255,255,255,0.98),rgba(180,205,255,0.65),transparent)",
+              clipPath:"polygon(42% 0%,58% 0%,54% 38%,72% 38%,28% 100%,40% 52%,18% 52%)",
+              filter:"drop-shadow(0 0 6px white) drop-shadow(0 0 18px rgba(160,185,255,0.95))",
+              animation:`lightning ${b.dur} ease-in ${b.delay} infinite`,
+            }}/>
+          ))}
+          {/* Flash màn hình theo từng tia sét */}
+          {lightningBolts.map((b,i)=>(
+            <div key={`flash-${i}`} style={{
+              position:"absolute",inset:0,
+              background:"rgba(210,225,255,0)",
+              animation:`lightningFlash ${b.dur} ease-in ${b.delay} infinite`,
+            }}/>
+          ))}
         </div>
       )}
+
+      {/* MÙA — hoa/lá/tuyết rơi (layer riêng, không bị thời tiết che) */}
       {season === "winter" && (
-        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:51,overflow:"hidden"}}>
           {snowflakes.map((f,i)=>(
             <div key={i} style={{
-              position:"absolute",
-              left:f.left,
-              top:"-30px",
-              fontSize:f.size,
-              opacity:f.opacity,
+              position:"absolute",left:f.left,top:"-30px",
+              fontSize:f.size,opacity:f.opacity,
               animation:`flakefall ${f.dur} linear ${f.delay} infinite`,
             }}>❄️</div>
           ))}
         </div>
       )}
       {season === "spring" && (
-        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:51,overflow:"hidden"}}>
           {springPetals.map((p,i)=>(
             <div key={i} style={{
-              position:"absolute",
-              left:p.left,
-              top:"-40px",
-              fontSize:p.size,
-              opacity:0.75,
+              position:"absolute",left:p.left,top:"-40px",
+              fontSize:p.size,opacity:0.78,
               animation:`petalFall ${p.dur} ease-in ${p.delay} infinite`,
               filter:"drop-shadow(0 2px 4px rgba(255,150,180,0.4))",
             }}>{p.emoji}</div>
@@ -1989,14 +2097,11 @@ const killPest = (plotId) => {
         </div>
       )}
       {season === "autumn" && (
-        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:51,overflow:"hidden"}}>
           {autumnLeaves.map((l,i)=>(
             <div key={i} style={{
-              position:"absolute",
-              left:l.left,
-              top:"-40px",
-              fontSize:l.size,
-              opacity:0.80,
+              position:"absolute",left:l.left,top:"-40px",
+              fontSize:l.size,opacity:0.82,
               animation:`leafFall ${l.dur} ease-in ${l.delay} infinite`,
               filter:"drop-shadow(0 2px 4px rgba(200,100,0,0.3))",
             }}>{l.emoji}</div>
@@ -2012,13 +2117,50 @@ const killPest = (plotId) => {
         @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} }
         @keyframes harvestPop { 0%{opacity:0;transform:translateY(0) scale(0.5)} 50%{opacity:1;transform:translateY(-28px) scale(1.2)} 100%{opacity:0;transform:translateY(-58px) scale(0.8)} }
         @keyframes rainFall {
-          0%   { transform: translateY(-20px) rotate(10deg); opacity: 0; }
-          5%   { opacity: 1; }
-          95%  { opacity: 0.8; }
-          100% { transform: translateY(110vh) rotate(10deg); opacity: 0; }
+          0%   { transform: translateY(-30px) rotate(12deg); opacity: 0; }
+          6%   { opacity: 1; }
+          94%  { opacity: 0.85; }
+          100% { transform: translateY(112vh) rotate(12deg); opacity: 0; }
+        }
+        @keyframes sunBrighten {
+          0%,100% { opacity: 0.65; }
+          50%     { opacity: 1; }
+        }
+        @keyframes sunRay {
+          from { opacity: 0.12; transform: rotate(0deg) scaleY(0.88); }
+          to   { opacity: 0.42; transform: rotate(0deg) scaleY(1.12); }
+        }
+        @keyframes cloudDim {
+          0%,100% { opacity: 0.80; }
+          50%     { opacity: 1; }
+        }
+        @keyframes cloudMove {
+          0%   { transform: translateX(0); }
+          100% { transform: translateX(calc(100vw + 300px)); }
+        }
+        @keyframes stormCloud {
+          0%,100% { opacity: 0.88; transform: scaleX(1); }
+          50%     { opacity: 1;    transform: scaleX(1.05); }
+        }
+        @keyframes lightning {
+          0%,7%,100%  { opacity: 0; }
+          2%          { opacity: 1; }
+          4%          { opacity: 0.25; }
+          5%          { opacity: 0.92; }
+          6%          { opacity: 0; }
+        }
+        @keyframes lightningFlash {
+          0%,7%,100%  { background: rgba(210,225,255,0); }
+          2%          { background: rgba(210,225,255,0.38); }
+          4%          { background: rgba(210,225,255,0.07); }
+          5%          { background: rgba(210,225,255,0.30); }
+        }
+        @keyframes rainPuddle {
+          0%,100% { opacity: 0.35; transform: scaleX(0.97); }
+          50%     { opacity: 0.75; transform: scaleX(1.03); }
         }
         @keyframes stormFlash { 0%,100%{opacity:0.5} 48%,52%{opacity:1} 50%{opacity:0.2} }
-        @keyframes sunGlow { 0%,100%{transform:scale(1);opacity:0.7} 50%{transform:scale(1.3);opacity:1} }
+        @keyframes sunGlow    { 0%,100%{transform:scale(1);opacity:0.7} 50%{transform:scale(1.3);opacity:1} }
         @keyframes petalFall {
           0%   { transform: translateY(-40px) rotate(0deg) translateX(0px); opacity: 0; }
           8%   { opacity: 0.85; }
@@ -3501,20 +3643,79 @@ const killPest = (plotId) => {
       {showItemMenu && selectedItemId && (
         <div onClick={() => { setShowItemMenu(false); setSelectedItemId(null); }} style={S.itemMenuOverlay}>
           <div onClick={e => e.stopPropagation()} style={S.itemMenuBox}>
-            <div style={{ fontSize: "32px", marginBottom: "10px" }}>🎯</div>
-            <h3 style={{ margin: "0 0 10px 0" }}>Chọn ô đất để dùng</h3>
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(3, plotCount)}, 1fr)`, gap: "10px", marginBottom: "20px" }}>
-              {plots.map((plot, idx) => (
-                <button key={plot.id} onClick={() => useItemOnPlot(plot.id, selectedItemId)} style={{
-                  padding: "15px 5px", background: plot.stage === 0 ? "#f0f0f0" : plot.stage === 3 ? "#d1fae5" : "#e3f2fd",
-                  border: "2px solid #ccc", borderRadius: "10px", cursor: "pointer"
-                }}>
-                  <div>Ô {idx + 1}</div>
-                  <div style={{ fontSize: "20px" }}>{plot.stage === 0 ? "🟫" : plot.stage === 3 ? "🌾" : "🌱"}</div>
-                </button>
-              ))}
+            <div style={{ fontSize: "32px", marginBottom: "6px" }}>🎯</div>
+            <h3 style={{ margin: "0 0 4px 0" }}>Chọn ô đất để dùng</h3>
+
+            {selectedItemId === "pesticide_single" && (
+              <div style={{
+                fontSize: "12px", color: "#ef4444", fontWeight: "700",
+                background: "#fef2f2", border: "1px solid #fecaca",
+                borderRadius: "8px", padding: "5px 10px", marginBottom: "10px",
+              }}>
+                🐛 Chỉ dùng được trên ô đang có sâu (viền đỏ)
+              </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(3, plotCount)}, 1fr)`, gap: "10px", marginBottom: "16px" }}>
+              {plots.map((plot, idx) => {
+                const isPest = plot.hasPest;
+                const isPesticide = selectedItemId === "pesticide_single";
+                const isDisabled = isPesticide ? !isPest : (plot.stage === 0 || plot.stage === 3);
+
+                let bg, border, labelColor, shadow;
+                if (isPest) {
+                  bg = "linear-gradient(135deg,#fee2e2,#fecaca)";
+                  border = "2.5px solid #ef4444";
+                  shadow = "0 0 12px rgba(239,68,68,0.40)";
+                  labelColor = "#b91c1c";
+                } else if (plot.stage === 0) {
+                  bg = "#f3f4f6"; border = "2px solid #d1d5db"; shadow = "none"; labelColor = "#9ca3af";
+                } else if (plot.stage === 3) {
+                  bg = "linear-gradient(135deg,#d1fae5,#a7f3d0)"; border = "2px solid #34d399"; shadow = "none"; labelColor = "#065f46";
+                } else {
+                  bg = "linear-gradient(135deg,#eff6ff,#dbeafe)"; border = "2px solid #93c5fd"; shadow = "none"; labelColor = "#1e40af";
+                }
+
+                return (
+                  <button
+                    key={plot.id}
+                    onClick={() => !isDisabled && useItemOnPlot(plot.id, selectedItemId)}
+                    disabled={isDisabled}
+                    style={{
+                      padding: "12px 6px", background: bg, border, borderRadius: "12px",
+                      cursor: isDisabled ? "not-allowed" : "pointer",
+                      opacity: isDisabled ? 0.38 : 1,
+                      boxShadow: shadow,
+                      transition: "transform 0.15s",
+                      position: "relative",
+                    }}
+                  >
+                    {isPest && (
+                      <div style={{
+                        position: "absolute", top: "-9px", right: "-7px",
+                        background: "#ef4444", color: "white",
+                        fontSize: "10px", fontWeight: "800",
+                        borderRadius: "20px", padding: "2px 6px",
+                        boxShadow: "0 2px 6px rgba(239,68,68,0.5)",
+                        animation: "shake 0.45s infinite",
+                      }}>🐛 SÂU!</div>
+                    )}
+                    <div style={{ fontSize: "11px", fontWeight: "700", color: labelColor, marginBottom: "4px" }}>Ô {idx + 1}</div>
+                    <div style={{ fontSize: "22px" }}>
+                      {isPest ? "🐛" : plot.stage === 0 ? "🟫" : plot.stage === 3 ? "🌾" : "🌱"}
+                    </div>
+                    {isPest && (
+                      <div style={{ fontSize: "10px", color: "#dc2626", fontWeight: "700", marginTop: "3px" }}>Có sâu!</div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
-            <button onClick={() => { setShowItemMenu(false); setSelectedItemId(null); }} style={{ width: "100%", padding: "10px", background: "#e0e0e0", border: "none", borderRadius: "10px", cursor: "pointer" }}>Hủy</button>
+            <button onClick={() => { setShowItemMenu(false); setSelectedItemId(null); }} style={{
+              width: "100%", padding: "10px", background: "#e5e7eb",
+              border: "none", borderRadius: "10px", cursor: "pointer",
+              fontWeight: "600", fontSize: "14px",
+            }}>Hủy</button>
           </div>
         </div>
       )}
