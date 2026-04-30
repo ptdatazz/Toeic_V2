@@ -3,7 +3,7 @@
 // (Thành tựu, Kim cương, Cấp độ, Mở rộng đất, Phân cấp vật phẩm)
 // ============================================================
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { db } from "./firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 
@@ -39,12 +39,45 @@ const ANCIENT_TREE_LEVELS = {
   10: { name: "🐉 Long thụ", maxFruits: 30, expRequired: 2200, regenTimeMinutes: 1, harvestExp: 180 },
 };
 
+// ===== HỆ THỐNG MÙA =====
+const SEASONS = {
+  spring: { name: "Xuân",  emoji: "🌸", color: "#f9a8d4", bg: "linear-gradient(160deg,#fce7f3 0%,#fdf2f8 40%,#e0f2fe 100%)", tip: "Mùa xuân — vạn vật sinh sôi!", icon: "🌸" },
+  summer: { name: "Hạ",   emoji: "☀️", color: "#fbbf24", bg: "linear-gradient(160deg,#fef3c7 0%,#fffbeb 40%,#ecfdf5 100%)", tip: "Mùa hạ — cây lớn nhanh hơn!", icon: "☀️" },
+  autumn: { name: "Thu",  emoji: "🍂", color: "#f97316", bg: "linear-gradient(160deg,#ffedd5 0%,#fef3c7 40%,#fef9c3 100%)", tip: "Mùa thu — thu hoạch bội thu!", icon: "🍂" },
+  winter: { name: "Đông", emoji: "❄️", color: "#93c5fd", bg: "linear-gradient(160deg,#eff6ff 0%,#e0f2fe 40%,#f0f9ff 100%)", tip: "Mùa đông — chỉ trồng được cây đặc biệt!", icon: "❄️" },
+};
+
+const SEASON_ORDER = ["spring", "summer", "autumn", "winter"];
+// Thời gian 1 mùa (giây thực) - 3 phút/mùa = 12 phút/năm
+const SEASON_DURATION_SEC = 180;
+
+// ===== THỜI TIẾT =====
+const WEATHER_TYPES = {
+  sunny:   { emoji: "☀️",  label: "Nắng",    tip: "Cây mọc bình thường",     growMult: 1.0,  rewardMult: 1.0,  pestChance: 0.10 },
+  cloudy:  { emoji: "⛅",  label: "Sáng tối", tip: "Cây mọc chậm hơn 20%",   growMult: 0.8,  rewardMult: 1.0,  pestChance: 0.12 },
+  rainy:   { emoji: "🌧️", label: "Mưa",     tip: "Cây mọc nhanh 30%, +50% xu!", growMult: 1.3, rewardMult: 1.5, pestChance: 0.08 },
+  stormy:  { emoji: "⛈️",  label: "Bão",     tip: "Cây dễ bị sâu, hái +20% xu!", growMult: 0.6, rewardMult: 1.2, pestChance: 0.35 },
+};
+
+// Thời tiết cho phép theo mùa
+const SEASON_WEATHER = {
+  spring: ["sunny", "rainy", "cloudy"],
+  summer: ["sunny", "sunny", "cloudy", "stormy"],
+  autumn: ["sunny", "rainy", "cloudy"],
+  winter: ["cloudy", "rainy", "stormy"],
+};
+
+// Cây trồng theo mùa — mỗi cây chỉ trồng được trong mùa của mình
+// seasons: mảng mùa cho phép trồng; nếu không có field seasons thì trồng quanh năm
 const CROP_TYPES = [
-  { id: "wheat",      name: "Lúa mì",    emoji: "🌾", growTime: 30,   reward: 10, expReward: 5,  color: "#f59e0b" },
-  { id: "carrot",     name: "Cà rốt",    emoji: "🥕", growTime: 45,   reward: 15, expReward: 8,  color: "#f97316" },
-  { id: "strawberry", name: "Dâu tây",   emoji: "🍓", growTime: 60,   reward: 25, expReward: 12, color: "#ec4899" },
-  { id: "corn",       name: "Ngô",       emoji: "🌽", growTime: 75,   reward: 30, expReward: 15, color: "#eab308" },
-  { id: "watermelon", name: "Dưa hấu",   emoji: "🍉", growTime: 120,  reward: 50, expReward: 25, color: "#22c55e" },
+  { id: "wheat",      name: "Lúa mì",    emoji: "🌾", growTime: 30,  reward: 10, expReward: 5,  color: "#f59e0b", seasons: ["spring","summer","autumn"] },
+  { id: "carrot",     name: "Cà rốt",    emoji: "🥕", growTime: 45,  reward: 15, expReward: 8,  color: "#f97316", seasons: ["spring","autumn"] },
+  { id: "strawberry", name: "Dâu tây",   emoji: "🍓", growTime: 60,  reward: 25, expReward: 12, color: "#ec4899", seasons: ["spring","summer"] },
+  { id: "corn",       name: "Ngô",       emoji: "🌽", growTime: 75,  reward: 30, expReward: 15, color: "#eab308", seasons: ["summer"] },
+  { id: "watermelon", name: "Dưa hấu",   emoji: "🍉", growTime: 120, reward: 50, expReward: 25, color: "#22c55e", seasons: ["summer"] },
+  { id: "mushroom",   name: "Nấm tuyết", emoji: "🍄", growTime: 90,  reward: 40, expReward: 20, color: "#94a3b8", seasons: ["winter","autumn"] },
+  { id: "pumpkin",    name: "Bí ngô",    emoji: "🎃", growTime: 100, reward: 45, expReward: 22, color: "#ea580c", seasons: ["autumn"] },
+  { id: "cherry",     name: "Anh đào",   emoji: "🍒", growTime: 80,  reward: 35, expReward: 18, color: "#be123c", seasons: ["spring"] },
 ];
 
 const SHOP_ITEMS = [
@@ -130,6 +163,9 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [weather, setWeather] = useState("sunny");
+  const [season, setSeason] = useState("spring");
+  const [seasonTimer, setSeasonTimer] = useState(SEASON_DURATION_SEC); // giây còn lại trong mùa
+  const [weatherTimer, setWeatherTimer] = useState(60); // giây còn lại của thời tiết hiện tại
   const [inventory, setInventory] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [remainingKills, setRemainingKills] = useState(0);
@@ -371,6 +407,9 @@ const expandWithGems = () => {
             setScore(farmState.score ?? 0);
             setStreak(farmState.streak ?? 0);
             setWeather(farmState.weather ?? "sunny");
+            setSeason(farmState.season ?? "spring");
+            setSeasonTimer(farmState.seasonTimer ?? SEASON_DURATION_SEC);
+            setWeatherTimer(farmState.weatherTimer ?? 60);
             setInventory(farmState.inventory ?? {});
             setRemainingKills(farmState.remainingKills ?? 0);
             setLastStreakValue(farmState.streak ?? 0);
@@ -447,7 +486,7 @@ const expandWithGems = () => {
     const saveTimeout = setTimeout(async () => {
       try {
         const farmState = {
-          plots, plotCount, coins, gems, seeds, score, streak, weather, 
+          plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
           inventory, remainingKills, pestKilled, wordsMastered, achievements,
           level, exp,ancientTrees,
           lastSaved: Date.now()
@@ -460,7 +499,7 @@ const expandWithGems = () => {
     }, 1000);
     
     return () => clearTimeout(saveTimeout);
-  }, [plots, plotCount, coins, gems, seeds, score, streak, weather, 
+  }, [plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
       inventory, remainingKills, pestKilled, wordsMastered, achievements, level, exp, ancientTrees, currentUser, isLoading]);
 
   // ===== THEO DÕI STREAK =====
@@ -517,21 +556,63 @@ const expandWithGems = () => {
     return () => clearInterval(pestInterval);
   }, []);
 
+  // ===== SEASON & WEATHER TICKER =====
+  useEffect(() => {
+    const tick = setInterval(() => {
+      // --- Thời tiết ---
+      setWeatherTimer(prev => {
+        if (prev <= 1) {
+          // Đổi thời tiết ngẫu nhiên theo mùa hiện tại
+          setSeason(currentSeason => {
+            const pool = SEASON_WEATHER[currentSeason];
+            const next = pool[Math.floor(Math.random() * pool.length)];
+            setWeather(next);
+            return currentSeason;
+          });
+          return 45 + Math.floor(Math.random() * 30); // 45–75 giây mỗi thời tiết
+        }
+        return prev - 1;
+      });
+
+      // --- Mùa ---
+      setSeasonTimer(prev => {
+        if (prev <= 1) {
+          setSeason(currentSeason => {
+            const idx = SEASON_ORDER.indexOf(currentSeason);
+            const nextSeason = SEASON_ORDER[(idx + 1) % 4];
+            notify(`🌿 Mùa ${SEASONS[nextSeason].name} đã đến! ${SEASONS[nextSeason].emoji}`, SEASONS[nextSeason].color);
+            // Đổi thời tiết phù hợp với mùa mới
+            const pool = SEASON_WEATHER[nextSeason];
+            setWeather(pool[Math.floor(Math.random() * pool.length)]);
+            return nextSeason;
+          });
+          return SEASON_DURATION_SEC;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, []);
+
   const notify = (text, color = "#22c55e") => {
     setNotification({ text, color });
     setTimeout(() => setNotification(null), 2200);
   };
 
+// Ref để timer luôn đọc được giá trị mới nhất của weather
+  const weatherRef = useRef("sunny");
+  useEffect(() => { weatherRef.current = weather; }, [weather]);
+
 useEffect(() => {
   const interval = setInterval(() => {
+    const wMult = WEATHER_TYPES[weatherRef.current]?.growMult ?? 1.0;
     setPlots(prev => prev.map(plot => {
       if (plot.stage === 0 || plot.stage === 3) return plot;
       if (plot.hasPest) return plot;
       
-      // 👈 THÊM DÒNG NÀY ĐỂ DEBUG
-      //console.log("Plot:", plot.id, "stage:", plot.stage, "timeLeft:", plot.timeLeft);
-      
-      const newTimeLeft = Math.max(0, (plot.timeLeft || 0) - 1);
+      // Giảm timeLeft theo growMult: >1 giảm nhiều hơn, <1 ít hơn
+      const decrease = wMult >= 1 ? Math.ceil(wMult) : (Math.random() < wMult ? 1 : 0);
+      const newTimeLeft = Math.max(0, (plot.timeLeft || 0) - decrease);
       const crop = CROP_TYPES.find(c => c.id === plot.crop);
       if (newTimeLeft <= 0 && plot.stage < 3) {
         const newStage = plot.stage + 1;
@@ -1240,6 +1321,11 @@ const startLearningForTree = (tree) => {
 
   const plantOnPlot = (plotId) => {
     if (seeds <= 0) { notify("Hết hạt giống! Trả lời đúng để nhận thêm 🌱", "#ef4444"); return; }
+    // Kiểm tra cây có trồng được trong mùa này không
+    if (selectedCrop.seasons && !selectedCrop.seasons.includes(season)) {
+      notify(`❌ ${selectedCrop.emoji} ${selectedCrop.name} không trồng được vào mùa ${SEASONS[season].name}!`, "#ef4444");
+      return;
+    }
     // Gieo mầm lấy từ Ô VÀNG (savedWords - chưa thuộc)
     if (availableWords.length === 0) {
       notify("📖 Không có từ trong Ô vàng! Hãy học và lưu từ mới nhé!", "#ef4444");
@@ -1304,10 +1390,11 @@ const startLearningForTree = (tree) => {
     const plot = plots.find((p) => p.id === plotId);
     if (!plot) return;
     const crop = CROP_TYPES.find((c) => c.id === plot.crop);
-    const reward = crop ? crop.reward : 10;
+    const baseReward = crop ? crop.reward : 10;
     const expReward = crop ? crop.expReward : 5;
-    const bonus = weather === "rainy" ? Math.floor(reward * 0.5) : 0;
-    const total = reward + bonus;
+    const wMult = WEATHER_TYPES[weather]?.rewardMult ?? 1.0;
+    const bonus = wMult > 1 ? Math.floor(baseReward * (wMult - 1)) : 0;
+    const total = Math.floor(baseReward * wMult);
     
     setCoins((c) => c + total);
     setSeeds((s) => s + 1);
@@ -1612,6 +1699,9 @@ const killPest = (plotId) => {
     setRemainingKills(0);
     setLastStreakValue(0);
     setWeather("sunny");
+    setSeason("spring");
+    setSeasonTimer(SEASON_DURATION_SEC);
+    setWeatherTimer(60);
     setInventory({});
     setPestKilled(0);
     setWordsMastered(0);
@@ -1641,12 +1731,8 @@ const killPest = (plotId) => {
   }
 };
 
-  const weatherInfo = {
-    sunny:  { emoji: "☀️",  label: "Nắng đẹp", tip: "Trồng cây bình thường",       bg: "linear-gradient(160deg,#e8f5e9 0%,#f0f9f0 40%,#e3f2fd 100%)" },
-    rainy:  { emoji: "🌧️", label: "Mưa vàng",  tip: "Thu hoạch +50% xu!",          bg: "linear-gradient(160deg,#e3f2fd 0%,#f0f9f0 40%,#e8f5e9 100%)" },
-    stormy: { emoji: "⛈️",  label: "Bão tố",   tip: "Cây dễ bị sâu hơn",           bg: "linear-gradient(160deg,#ede7f6 0%,#fce4ec 40%,#e8eaf6 100%)" },
-  };
-  const w = weatherInfo[weather];
+  const w = WEATHER_TYPES[weather] || WEATHER_TYPES.sunny;
+  const s = SEASONS[season] || SEASONS.spring;
 
   const cropEmoji = (plot) => {
     if (plot.hasPest) return "🐛";
@@ -1675,6 +1761,45 @@ const killPest = (plotId) => {
 
   const expandInfo = canExpandManually();
 
+  // ===== PRE-COMPUTE PARTICLE POSITIONS — phải đặt TRƯỚC mọi early return =====
+  const springPetals = useMemo(() => Array.from({length:18}, (_,i) => ({
+    left: `${(i * 5.7 + Math.sin(i*2.3)*8 + 3)}%`,
+    delay: `${(i * 0.38) % 3.2}s`,
+    dur: `${4.5 + Math.sin(i*1.7)*1.2}s`,
+    size: `${20 + (i%4)*5}px`,
+    emoji: i%5===0 ? "🌺" : "🌸",
+  })), []);
+
+  const autumnLeaves = useMemo(() => Array.from({length:18}, (_,i) => ({
+    left: `${(i * 5.4 + Math.sin(i*1.9)*9 + 2)}%`,
+    delay: `${(i * 0.35) % 3.0}s`,
+    dur: `${4.0 + Math.sin(i*2.1)*1.0}s`,
+    size: `${20 + (i%4)*5}px`,
+    emoji: i%3===0 ? "🍁" : i%3===1 ? "🍂" : "🍃",
+  })), []);
+
+  const snowflakes = useMemo(() => Array.from({length:20}, (_,i) => ({
+    left: `${(i * 5.0 + Math.sin(i*2.5)*7)}%`,
+    delay: `${(i * 0.28) % 2.8}s`,
+    dur: `${3.5 + Math.sin(i*1.3)*0.8}s`,
+    size: `${14 + (i%3)*5}px`,
+    opacity: 0.55 + (i%4)*0.1,
+  })), []);
+
+  const rainDrops = useMemo(() => Array.from({length:28}, (_,i) => ({
+    left: `${(i * 3.6 + Math.sin(i*1.1)*4)}%`,
+    delay: `${(i * 0.07) % 0.9}s`,
+    dur: `${0.55 + Math.sin(i*2.2)*0.1}s`,
+    h: `${16 + (i%5)*4}px`,
+  })), []);
+
+  const stormDrops = useMemo(() => Array.from({length:35}, (_,i) => ({
+    left: `${(i * 2.9 + Math.sin(i*1.4)*5)}%`,
+    delay: `${(i * 0.055) % 0.7}s`,
+    dur: `${0.35 + Math.sin(i*1.8)*0.08}s`,
+    h: `${22 + (i%6)*4}px`,
+  })), []);
+
   if (isLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
@@ -1690,7 +1815,7 @@ const killPest = (plotId) => {
     wrap: {
       height: "calc(100vh / 0.75)", width: "calc(100vw / 0.75)", display: "flex", flexDirection: "column",
       fontFamily: "'Nunito', 'Segoe UI', system-ui, sans-serif",
-      background: w.bg, transition: "background 1s", boxSizing: "border-box",
+      background: s.bg, transition: "background 1.5s", boxSizing: "border-box",
       overflow: "hidden", position: "fixed", top: 0, left: 0,
       zoom: "0.75",
     },
@@ -1797,8 +1922,87 @@ const killPest = (plotId) => {
     },
   };
 
+
   return (
     <div style={S.wrap}>
+      {/* ===== WEATHER PARTICLE OVERLAY ===== */}
+      {weather === "rainy" && (
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          {rainDrops.map((d,i)=>(
+            <div key={i} style={{
+              position:"absolute",
+              left:d.left,
+              top:"-20px",
+              width:"1.5px",
+              height:d.h,
+              background:"linear-gradient(180deg,transparent,rgba(100,170,255,0.75))",
+              animation:`rainFall ${d.dur} linear ${d.delay} infinite`,
+              transform:"rotate(10deg)",
+            }}/>
+          ))}
+        </div>
+      )}
+      {weather === "stormy" && (
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          {stormDrops.map((d,i)=>(
+            <div key={i} style={{
+              position:"absolute",
+              left:d.left,
+              top:"-20px",
+              width:"2px",
+              height:d.h,
+              background:"linear-gradient(180deg,transparent,rgba(80,50,160,0.65))",
+              animation:`rainFall ${d.dur} linear ${d.delay} infinite`,
+              transform:"rotate(18deg)",
+            }}/>
+          ))}
+          <div style={{position:"absolute",inset:0,background:"rgba(100,30,200,0.035)",animation:"stormFlash 2.8s ease-in-out infinite"}}/>
+        </div>
+      )}
+      {season === "winter" && (
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          {snowflakes.map((f,i)=>(
+            <div key={i} style={{
+              position:"absolute",
+              left:f.left,
+              top:"-30px",
+              fontSize:f.size,
+              opacity:f.opacity,
+              animation:`flakefall ${f.dur} linear ${f.delay} infinite`,
+            }}>❄️</div>
+          ))}
+        </div>
+      )}
+      {season === "spring" && (
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          {springPetals.map((p,i)=>(
+            <div key={i} style={{
+              position:"absolute",
+              left:p.left,
+              top:"-40px",
+              fontSize:p.size,
+              opacity:0.75,
+              animation:`petalFall ${p.dur} ease-in ${p.delay} infinite`,
+              filter:"drop-shadow(0 2px 4px rgba(255,150,180,0.4))",
+            }}>{p.emoji}</div>
+          ))}
+        </div>
+      )}
+      {season === "autumn" && (
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          {autumnLeaves.map((l,i)=>(
+            <div key={i} style={{
+              position:"absolute",
+              left:l.left,
+              top:"-40px",
+              fontSize:l.size,
+              opacity:0.80,
+              animation:`leafFall ${l.dur} ease-in ${l.delay} infinite`,
+              filter:"drop-shadow(0 2px 4px rgba(200,100,0,0.3))",
+            }}>{l.emoji}</div>
+          ))}
+        </div>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
         html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; }
@@ -1807,6 +2011,40 @@ const killPest = (plotId) => {
         @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
         @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} }
         @keyframes harvestPop { 0%{opacity:0;transform:translateY(0) scale(0.5)} 50%{opacity:1;transform:translateY(-28px) scale(1.2)} 100%{opacity:0;transform:translateY(-58px) scale(0.8)} }
+        @keyframes rainFall {
+          0%   { transform: translateY(-20px) rotate(10deg); opacity: 0; }
+          5%   { opacity: 1; }
+          95%  { opacity: 0.8; }
+          100% { transform: translateY(110vh) rotate(10deg); opacity: 0; }
+        }
+        @keyframes stormFlash { 0%,100%{opacity:0.5} 48%,52%{opacity:1} 50%{opacity:0.2} }
+        @keyframes sunGlow { 0%,100%{transform:scale(1);opacity:0.7} 50%{transform:scale(1.3);opacity:1} }
+        @keyframes petalFall {
+          0%   { transform: translateY(-40px) rotate(0deg) translateX(0px); opacity: 0; }
+          8%   { opacity: 0.85; }
+          25%  { transform: translateY(22vh) rotate(60deg) translateX(18px); }
+          50%  { transform: translateY(48vh) rotate(140deg) translateX(-14px); }
+          75%  { transform: translateY(74vh) rotate(220deg) translateX(20px); }
+          92%  { opacity: 0.7; }
+          100% { transform: translateY(110vh) rotate(300deg) translateX(-10px); opacity: 0; }
+        }
+        @keyframes leafFall {
+          0%   { transform: translateY(-40px) rotate(0deg) translateX(0px); opacity: 0; }
+          8%   { opacity: 0.85; }
+          20%  { transform: translateY(18vh) rotate(80deg) translateX(22px); }
+          45%  { transform: translateY(44vh) rotate(180deg) translateX(-18px); }
+          70%  { transform: translateY(70vh) rotate(260deg) translateX(24px); }
+          92%  { opacity: 0.7; }
+          100% { transform: translateY(110vh) rotate(360deg) translateX(-12px); opacity: 0; }
+        }
+        @keyframes flakefall {
+          0%   { transform: translateY(-30px) translateX(0px); opacity: 0; }
+          8%   { opacity: 0.7; }
+          30%  { transform: translateY(28vh) translateX(10px); }
+          60%  { transform: translateY(58vh) translateX(-8px); }
+          92%  { opacity: 0.5; }
+          100% { transform: translateY(110vh) translateX(6px); opacity: 0; }
+        }
         .plot-cell:hover { transform: scale(1.02); }
         .plot-ready { animation: bounce 1.3s infinite; }
         .plot-pest { animation: shake 0.45s infinite; }
@@ -2026,19 +2264,68 @@ const killPest = (plotId) => {
         <div style={{ position: "fixed", top: "68px", left: "50%", transform: "translateX(-50%)", background: notification.color, color: "white", padding: "8px 20px", borderRadius: "20px", fontWeight: "800", fontSize: "13px", zIndex: 9999, animation: "popIn 0.3s", whiteSpace: "nowrap" }}>{notification.text}</div>
       )}
 
-      <div style={S.weatherBar}>
-        <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <span>{w.emoji} <strong>{w.label}</strong> — {w.tip}</span>
+      <div style={{...S.weatherBar, position:"relative", overflow:"hidden"}}>
+        {/* Weather overlay effect */}
+        {weather === "rainy" && (
+          <div style={{position:"absolute",inset:0,pointerEvents:"none",overflow:"hidden",zIndex:0}}>
+            {Array.from({length:12}).map((_,i)=>(
+              <div key={i} style={{
+                position:"absolute",left:`${i*9+Math.random()*5}%`,top:0,
+                width:"1px",height:"100%",
+                background:"linear-gradient(180deg,transparent,rgba(100,180,255,0.6),transparent)",
+                animation:`rainFall ${0.5+Math.sin(i*0.4+1)*0.15}s linear ${i*0.08}s infinite`,
+              }}/>
+            ))}
+          </div>
+        )}
+        {weather === "stormy" && (
+          <div style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:0,
+            background:"linear-gradient(90deg,rgba(80,0,120,0.07),transparent,rgba(80,0,120,0.07))",
+            animation:"stormFlash 2s ease-in-out infinite"}}>
+          </div>
+        )}
+        {weather === "sunny" && (
+          <div style={{position:"absolute",right:"-10px",top:"-10px",width:"50px",height:"50px",
+            background:"radial-gradient(circle,rgba(255,220,0,0.25),transparent 70%)",
+            borderRadius:"50%",animation:"sunGlow 3s ease-in-out infinite",pointerEvents:"none",zIndex:0}}/>
+        )}
+        {/* Season badge */}
+        <span style={{display:"flex",alignItems:"center",gap:"8px",position:"relative",zIndex:1}}>
+          {/* Season indicator */}
+          <span style={{
+            background:`linear-gradient(135deg,${s.color}33,${s.color}22)`,
+            border:`1px solid ${s.color}66`,
+            borderRadius:"20px",padding:"3px 10px",
+            fontWeight:"800",fontSize:"12px",color:s.color,
+            display:"flex",alignItems:"center",gap:"4px",
+          }}>
+            {s.icon} Mùa {s.name}
+            <span style={{fontSize:"9px",opacity:0.7,marginLeft:"2px"}}>
+              {Math.floor(seasonTimer/60)}p{seasonTimer%60}s
+            </span>
+          </span>
+          {/* Weather indicator */}
+          <span style={{
+            background:"rgba(255,255,255,0.6)",
+            border:"1px solid rgba(0,0,0,0.08)",
+            borderRadius:"20px",padding:"3px 10px",
+            fontWeight:"700",fontSize:"12px",color:"#374151",
+            display:"flex",alignItems:"center",gap:"4px",
+          }}>
+            {w.emoji} {w.label}
+            <span style={{fontSize:"9px",color:"#9ca3af"}}>— {w.tip}</span>
+          </span>
+          {/* Level */}
           <span style={{ background: "#f3e8ff", padding: "4px 12px", borderRadius: "20px", display: "flex", alignItems: "center", gap: "6px" }}>
-            <span>⭐ Cấp {level}</span>
+            <span style={{fontSize:"12px",fontWeight:"800"}}>⭐ Cấp {level}</span>
             <div style={S.levelBar}>
               <div style={{ ...S.levelFill, width: `${expProgress}%` }} />
             </div>
             <span style={{ fontSize: "11px" }}>{exp}/{nextLevelExp}</span>
           </span>
         </span>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <span style={{ color: "#9ca3af" }}>📚 Từ Ô vàng: {availableWords.length}</span>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", position:"relative",zIndex:1 }}>
+          <span style={{ color: "#9ca3af", fontSize:"12px" }}>📚 Từ Ô vàng: {availableWords.length}</span>
           {expandInfo && (
             <button style={S.expandBtn} onClick={() => setShowExpandModal(true)}>
               🌍 Mở rộng ({plotCount}→{expandInfo.targetPlots}) {expandInfo.cost}🪙
@@ -2066,15 +2353,60 @@ const killPest = (plotId) => {
       <div style={S.main}>
         {activePanel === "farm" && (
           <div>
+            {/* Weather ambient overlay */}
+            <div style={{position:"relative",marginBottom:"4px"}}>
+              {weather === "rainy" && (
+                <div style={{
+                  background:"linear-gradient(135deg,rgba(59,130,246,0.08),rgba(147,197,253,0.12))",
+                  border:"1px solid rgba(59,130,246,0.2)",
+                  borderRadius:"12px",padding:"6px 12px",fontSize:"11px",
+                  color:"#1d4ed8",fontWeight:"700",display:"flex",alignItems:"center",gap:"6px",marginBottom:"6px",
+                }}>
+                  🌧️ Trời đang mưa — Cây mọc nhanh hơn 30% và thu hoạch +50% xu!
+                </div>
+              )}
+              {weather === "stormy" && (
+                <div style={{
+                  background:"linear-gradient(135deg,rgba(109,40,217,0.08),rgba(196,181,253,0.12))",
+                  border:"1px solid rgba(109,40,217,0.2)",
+                  borderRadius:"12px",padding:"6px 12px",fontSize:"11px",
+                  color:"#7c3aed",fontWeight:"700",display:"flex",alignItems:"center",gap:"6px",marginBottom:"6px",
+                }}>
+                  ⛈️ Bão tố! — Cây mọc chậm hơn và sâu xuất hiện nhiều hơn. Cẩn thận!
+                </div>
+              )}
+              {weather === "cloudy" && (
+                <div style={{
+                  background:"linear-gradient(135deg,rgba(107,114,128,0.08),rgba(209,213,219,0.15))",
+                  border:"1px solid rgba(107,114,128,0.15)",
+                  borderRadius:"12px",padding:"6px 12px",fontSize:"11px",
+                  color:"#4b5563",fontWeight:"700",display:"flex",alignItems:"center",gap:"6px",marginBottom:"6px",
+                }}>
+                  ⛅ Trời âm u — Cây mọc chậm hơn 20% hôm nay.
+                </div>
+              )}
+            </div>
             <div>
               <div style={S.sectionLabel}>🌱 Chọn giống cây trồng:</div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                {CROP_TYPES.map((crop) => (
-                  <button key={crop.id} style={S.cropBtn(selectedCrop.id === crop.id, crop)} onClick={() => setSelectedCrop(crop)}>
-                    {crop.emoji} {crop.name}
-                    <span style={S.cropBadge}>(🪙{crop.reward} | +{crop.expReward}EXP | ⏱{crop.growTime}s)</span>
-                  </button>
-                ))}
+                {CROP_TYPES.map((crop) => {
+                  const canPlant = !crop.seasons || crop.seasons.includes(season);
+                  return (
+                    <button key={crop.id}
+                      style={{
+                        ...S.cropBtn(selectedCrop.id === crop.id && canPlant, crop),
+                        opacity: canPlant ? 1 : 0.45,
+                        cursor: canPlant ? "pointer" : "not-allowed",
+                        position:"relative",
+                      }}
+                      onClick={() => { if(canPlant) setSelectedCrop(crop); else notify(`❌ ${crop.emoji} Chỉ trồng được vào: mùa ${crop.seasons.map(ss=>SEASONS[ss].name).join(", ")}`, "#ef4444"); }}
+                    >
+                      {crop.emoji} {crop.name}
+                      <span style={S.cropBadge}>(🪙{crop.reward} | +{crop.expReward}EXP | ⏱{crop.growTime}s)</span>
+                      {!canPlant && <span style={{position:"absolute",top:2,right:4,fontSize:"10px"}}>🚫</span>}
+                    </button>
+                  );
+                })}
               </div>
               {availableWords.length === 0 && (
                 <div style={{ marginTop: "10px", padding: "8px", background: "#fff3cd", borderRadius: "8px", color: "#856404", fontSize: "12px" }}>

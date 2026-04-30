@@ -148,6 +148,11 @@ const getRandomWrongOptions = (fullData, currentItem, fieldToGet) => {
   return wrongOptions;
 };
 
+const getDisplayMeaning = (item) => {
+  const raw = getMeaning(item);
+  return raw.replace(/^\s*\([^)]*\)\s*[-–]\s*/, '').trim();
+};
+
 // --- BỘ MÁY TẠO ĐỀ THI ĐA DẠNG (TỪ VỰNG) ---
 const generateVocabQuestions = (selectedData, fullData, level) => {
   return selectedData.map((item) => {
@@ -176,15 +181,25 @@ const generateVocabQuestions = (selectedData, fullData, level) => {
     const itemMeaning = getMeaning(item);
     let questionObj = { ...item, type: qType, meaning: itemMeaning };
 
-    if (qType === "en_to_vn" || qType === "listening") {
-      const wrongOptions = fullData
-        .filter(d => getMeaning(d) !== itemMeaning && getMeaning(d))
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 3)
-        .map(d => getMeaning(d));
-      questionObj.options = shuffleArray([...wrongOptions, itemMeaning]);
-      questionObj.answer = itemMeaning;
-    } else if (qType === "vn_to_en" || qType === "part5_vocab") {
+   if (qType === "en_to_vn" || qType === "listening") {
+    const displayAnswer = getDisplayMeaning(item);
+    const correctLen = displayAnswer.length;
+    const similarPool = fullData.filter(d => {
+      const m = getDisplayMeaning(d);
+      if (!m || m === displayAnswer) return false;
+      const ratio = m.length / correctLen;
+      return ratio >= 0.5 && ratio <= 2.0;
+    });
+    const pool = similarPool.length >= 3
+      ? similarPool
+      : fullData.filter(d => getDisplayMeaning(d) && getDisplayMeaning(d) !== displayAnswer);
+    const wrongOptions = pool
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3)
+      .map(d => getDisplayMeaning(d));
+    questionObj.options = shuffleArray([...wrongOptions, displayAnswer]);
+    questionObj.answer = displayAnswer;
+  } else if (qType === "vn_to_en" || qType === "part5_vocab") {
       const wrongOptions = getRandomWrongOptions(fullData, item, "word");
       questionObj.options = shuffleArray([...wrongOptions, item.word]);
       questionObj.answer = item.word;
@@ -1423,6 +1438,13 @@ function StoryMode({ words, onComplete, onBack, updateGlobal, onSaveWord, settin
     return parts.length > 0 ? parts.join(" / ") : "???";
   };
 
+  // Làm sạch nghĩa để hiển thị trong đáp án — bỏ prefix (n), (v), (plan, approach) - ...
+  const getDisplayMeaning = (item) => {
+    const raw = getMeaning(item);
+    // Bỏ phần "(xxx, yyy) - " ở đầu nếu có
+    return raw.replace(/^\s*\([^)]*\)\s*[-–]\s*/, '').trim();
+  };
+
   // Sinh truyện cho 1 bộ từ (CHỨA TẤT CẢ các từ)
  const generateStoryWithAllWords = async (wordList, storyIndex, totalStories) => {
     const wordDetails = wordList.map(w => ({
@@ -2137,7 +2159,8 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
             wordsToLearn = [...masteredWords];
         }
         
-        const customWordSet = new Set(wordsToLearn.map(w => w.toLowerCase().trim()));
+        const customWordSet = new Set(wordsToLearn.filter(w => typeof w === "string").map(w => w.toLowerCase().trim()));
+
         let sourceData = fullData;
 
         // 1. Lọc nguồn Sổ Tay
