@@ -3022,7 +3022,7 @@ return (
       borderRadius: "20px", 
       boxShadow: "0 20px 40px rgba(0,0,0,0.12)", 
       padding: "20px", 
-      overflowY: "auto", 
+      overflowY: "auto",
       maxHeight: "calc(100vh - 24px)",
       border: "1px solid rgba(0,0,0,0.05)",
       display: "flex",
@@ -3338,7 +3338,8 @@ return (
               </div>
               <p style={{ color: "#F44336", textAlign: "center", marginBottom: "20px", fontWeight: "bold", fontSize: "14px" }}>Điền từ để tìm TỪ KHÓA BÍ ẨN dọc màu cam!</p>
 
-              <div style={{ display: "flex", flexDirection: currentQ.isVerticalKeyword ? "column" : "row", gap: "6px", justifyContent: "center", alignItems: "center", marginBottom: "30px", padding: "20px", backgroundColor: "#f0f8ff", borderRadius: "12px", overflowX: "auto" }}>
+              <div style={{ width: "100%", overflowX: "auto", marginBottom: "30px", borderRadius: "12px" }}>
+              <div style={{ display: "flex", flexDirection: currentQ.isVerticalKeyword ? "column" : "row", gap: "6px", justifyContent: currentQ.isVerticalKeyword ? "center" : "flex-start", alignItems: currentQ.isVerticalKeyword ? "center" : "flex-start", padding: "20px", backgroundColor: "#f0f8ff", borderRadius: "12px", width: currentQ.isVerticalKeyword ? "100%" : "max-content", minWidth: "100%", boxSizing: "border-box" }}>
                 {currentQ.words.map((item, idx) => {
                   const userInput = (crosswordInputs[idx] || "").toLowerCase();
                   const maxShift = Math.max(...currentQ.words.map(w => w.alignIdx));
@@ -3358,6 +3359,7 @@ return (
                     </div>
                   );
                 })}
+              </div>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
