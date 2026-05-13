@@ -6362,7 +6362,7 @@ const handleSaveToFile = async () => {
             <span style={{ marginLeft:"auto", background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.wrongWords||[]).length}</span>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
-            {renderTags(stats.wrongWords, "#F44336", "#ffebee", "wrongWords", null, true)}
+            {renderTags(stats.masteredWords, "#4CAF50", "#e8f5e9", "masteredWords", null, true)}
           </div>
         </div>
 
@@ -7942,6 +7942,7 @@ const handleMoveWord = async (type, fromList, toList, wordToMove) => {
     let saved = [...(currentState.savedWords || [])];
     let wrong = [...(currentState.wrongWords || [])];
     let mastered = [...(currentState.masteredWords || [])];
+    let addedObjs = [...(currentState.addedWordsObj || [])];
     
     // ===== XÓA KHỎI MẢNG NGUỒN (fromList) =====
     if (fromList === "savedWords") {
@@ -7989,13 +7990,21 @@ const handleMoveWord = async (type, fromList, toList, wordToMove) => {
           });
         }
       }
+      
+      // ===== XÓA KHỎI addedWordsObj KHI CHUYỂN SANG Ô XANH =====
+      // Từ đã thuộc thì không cần giữ lại trong addedWordsObj (ô vàng) nữa
+      addedObjs = addedObjs.filter(obj => {
+        const objWord = obj.question || obj.word || "";
+        return normalizeWord(objWord) !== normStr;
+      });
     }
     
     // Cập nhật lên Firebase
     const updatePayload = {
       [`${type}.savedWords`]: saved,
       [`${type}.wrongWords`]: wrong,
-      [`${type}.masteredWords`]: mastered
+      [`${type}.masteredWords`]: mastered,
+      [`${type}.addedWordsObj`]: addedObjs
     };
     
     await updateDoc(doc(db, "users", currentUser.uid), updatePayload);
@@ -8007,7 +8016,8 @@ const handleMoveWord = async (type, fromList, toList, wordToMove) => {
         ...newState[type], 
         savedWords: saved, 
         wrongWords: wrong, 
-        masteredWords: mastered 
+        masteredWords: mastered,
+        addedWordsObj: addedObjs
       };
       return newState;
     });

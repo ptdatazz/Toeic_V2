@@ -1343,7 +1343,11 @@ const startLearningForTree = (tree) => {
       notify("📖 Không có từ trong Ô vàng! Hãy học và lưu từ mới nhé!", "#ef4444");
       return;
     }
-    const randomWord = availableWords[Math.floor(Math.random() * availableWords.length)];
+    // Ưu tiên chọn từ chưa được gán cho ô nào khác đang trồng
+    const usedWords = new Set(plots.filter(p => p.stage > 0 && p.linkedWord).map(p => p.linkedWord.toLowerCase()));
+    const unusedWords = availableWords.filter(w => w && w.word && !usedWords.has(w.word.toLowerCase()));
+    const pool = unusedWords.length > 0 ? unusedWords : availableWords;
+    const randomWord = pool[Math.floor(Math.random() * pool.length)];
     const crop = selectedCrop;
     setPlots((prev) =>
       prev.map((p) =>
