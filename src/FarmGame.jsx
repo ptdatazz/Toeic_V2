@@ -48,8 +48,19 @@ const SEASONS = {
 };
 
 const SEASON_ORDER = ["spring", "summer", "autumn", "winter"];
-// Thời gian 1 mùa (giây thực) - 3 phút/mùa = 12 phút/năm
-const SEASON_DURATION_SEC = 180;
+
+// ===== LỊCH NÔNG TRẠI =====
+// 1 ngày  = 10 phút thực      = 600 giây
+// 1 tháng = 30 ngày            = 300 phút = 18.000 giây (~5 tiếng thực)
+// 1 mùa   = 3 tháng            = 90 ngày  = 54.000 giây (~15 tiếng thực)
+// 1 năm   = 4 mùa              = 12 tháng = 360 ngày
+const FARM_DAY_SEC          = 600;                                  // 10 phút / ngày
+const FARM_DAYS_PER_MONTH   = 30;                                   // 30 ngày / tháng
+const FARM_MONTHS_PER_SEASON = 3;                                   // 3 tháng / mùa
+const FARM_DAYS_PER_SEASON  = FARM_DAYS_PER_MONTH * FARM_MONTHS_PER_SEASON; // 90 ngày / mùa
+const SEASON_DURATION_SEC   = FARM_DAY_SEC * FARM_DAYS_PER_SEASON; // 54.000 giây / mùa
+// Thời tiết đổi mỗi ngày (600s), để nhất quán với 1 ngày = 1 thời tiết
+const WEATHER_DURATION_SEC  = FARM_DAY_SEC;
 
 // ===== THỜI TIẾT =====
 const WEATHER_TYPES = {
@@ -69,16 +80,55 @@ const SEASON_WEATHER = {
 
 // Cây trồng theo mùa — mỗi cây chỉ trồng được trong mùa của mình
 // seasons: mảng mùa cho phép trồng; nếu không có field seasons thì trồng quanh năm
+// produce: { id, name, emoji, qty } — vật phẩm thu được khi thu hoạch cây đó
+// maxSeeds: số mầm tối đa được trồng cùng lúc cho loài này
 const CROP_TYPES = [
-  { id: "wheat",      name: "Lúa mì",    emoji: "🌾", growTime: 30,  reward: 10, expReward: 5,  color: "#f59e0b", seasons: ["spring","summer","autumn"] },
-  { id: "carrot",     name: "Cà rốt",    emoji: "🥕", growTime: 45,  reward: 15, expReward: 8,  color: "#f97316", seasons: ["spring","autumn"] },
-  { id: "strawberry", name: "Dâu tây",   emoji: "🍓", growTime: 60,  reward: 25, expReward: 12, color: "#ec4899", seasons: ["spring","summer"] },
-  { id: "corn",       name: "Ngô",       emoji: "🌽", growTime: 75,  reward: 30, expReward: 15, color: "#eab308", seasons: ["summer"] },
-  { id: "watermelon", name: "Dưa hấu",   emoji: "🍉", growTime: 120, reward: 50, expReward: 25, color: "#22c55e", seasons: ["summer"] },
-  { id: "mushroom",   name: "Nấm tuyết", emoji: "🍄", growTime: 90,  reward: 40, expReward: 20, color: "#94a3b8", seasons: ["winter","autumn"] },
-  { id: "pumpkin",    name: "Bí ngô",    emoji: "🎃", growTime: 100, reward: 45, expReward: 22, color: "#ea580c", seasons: ["autumn"] },
-  { id: "cherry",     name: "Anh đào",   emoji: "🍒", growTime: 80,  reward: 35, expReward: 18, color: "#be123c", seasons: ["spring"] },
+  { id: "wheat",      name: "Lúa mì",    emoji: "🌾", growTime: 30,  reward: 10, expReward: 5,  color: "#f59e0b", seasons: ["spring","summer","autumn"], maxSeeds: 4, produce: { id: "wheat_bundle",  name: "Bó lúa",    emoji: "🌾", qty: 2 } },
+  { id: "carrot",     name: "Cà rốt",    emoji: "🥕", growTime: 45,  reward: 15, expReward: 8,  color: "#f97316", seasons: ["spring","autumn"],          maxSeeds: 3, produce: { id: "carrot_item",    name: "Củ cà rốt", emoji: "🥕", qty: 3 } },
+  { id: "strawberry", name: "Dâu tây",   emoji: "🍓", growTime: 60,  reward: 25, expReward: 12, color: "#ec4899", seasons: ["spring","summer"],          maxSeeds: 3, produce: { id: "strawberry_item",name: "Quả dâu",   emoji: "🍓", qty: 4 } },
+  { id: "corn",       name: "Ngô",       emoji: "🌽", growTime: 75,  reward: 30, expReward: 15, color: "#eab308", seasons: ["summer"],                   maxSeeds: 2, produce: { id: "corn_item",      name: "Bắp ngô",   emoji: "🌽", qty: 2 } },
+  { id: "watermelon", name: "Dưa hấu",   emoji: "🍉", growTime: 120, reward: 50, expReward: 25, color: "#22c55e", seasons: ["summer"],                   maxSeeds: 1, produce: { id: "watermelon_item",name: "Dưa hấu",   emoji: "🍉", qty: 1 } },
+  { id: "mushroom",   name: "Nấm tuyết", emoji: "🍄", growTime: 90,  reward: 40, expReward: 20, color: "#94a3b8", seasons: ["winter","autumn"],          maxSeeds: 2, produce: { id: "mushroom_item",  name: "Nấm tươi",  emoji: "🍄", qty: 3 } },
+  { id: "pumpkin",    name: "Bí ngô",    emoji: "🎃", growTime: 100, reward: 45, expReward: 22, color: "#ea580c", seasons: ["autumn"],                   maxSeeds: 2, produce: { id: "pumpkin_item",   name: "Quả bí",    emoji: "🎃", qty: 2 } },
+  { id: "cherry",     name: "Anh đào",   emoji: "🍒", growTime: 80,  reward: 35, expReward: 18, color: "#be123c", seasons: ["spring"],                   maxSeeds: 3, produce: { id: "cherry_item",    name: "Quả anh đào",emoji: "🍒", qty: 5 } },
 ];
+
+// Bảng giá bán nông sản ở chợ (coins mỗi đơn vị — giá gốc)
+const PRODUCE_SELL_PRICE = {
+  wheat_bundle:   { coins: 8  },
+  carrot_item:    { coins: 12 },
+  strawberry_item:{ coins: 18 },
+  corn_item:      { coins: 22 },
+  watermelon_item:{ coins: 40 },
+  mushroom_item:  { coins: 28 },
+  pumpkin_item:   { coins: 32 },
+  cherry_item:    { coins: 25 },
+};
+
+// ===== CÂY GEM ĐẶC BIỆT THEO NGÀY =====
+// Mỗi ngày game (600s) sẽ có 1 loại cây bán được 💎 thay vì 🪙
+// Dùng seed tất định: (năm * 1000 + ngày_trong_năm) để nhất quán giữa các lần reload
+// dayOfYear = (seasonIdx * FARM_DAYS_PER_SEASON) + dayInSeason  →  1..360
+const getDailyGemCropId = (farmYear, dayInSeason, seasonIdx) => {
+  const dayOfYear = seasonIdx * FARM_DAYS_PER_SEASON + dayInSeason; // 1–360
+  const seed = (farmYear * 1000 + dayOfYear) % 9999;
+  // Lọc cây trồng được trong mùa hiện tại để kết quả hợp lý
+  const seasonKey = SEASON_ORDER[seasonIdx] || "spring";
+  const eligible = CROP_TYPES.filter(c => !c.seasons || c.seasons.includes(seasonKey));
+  if (!eligible.length) return CROP_TYPES[0].id;
+  return eligible[seed % eligible.length].id;
+};
+
+// Giá thực tế: cây gem hôm nay → bán được 💎, còn lại → 🪙
+const getProduceSellPrice = (produceId, dailyGemCropId) => {
+  const crop = CROP_TYPES.find(c => c.produce?.id === produceId);
+  const baseCoins = PRODUCE_SELL_PRICE[produceId]?.coins || 10;
+  if (crop && crop.id === dailyGemCropId) {
+    // Giá kim cương: 1💎 mỗi 8 xu (tối thiểu 1💎)
+    return { coins: 0, gems: Math.max(1, Math.floor(baseCoins / 8)) };
+  }
+  return { coins: baseCoins, gems: 0 };
+};
 
 const SHOP_ITEMS = [
   { id: "fertilizer_single", name: "Phân bón (1 ô)", emoji: "💊", price: 20, priceGem: 0, desc: "Cây mọc tức thì trên 1 ô", type: "single" },
@@ -165,8 +215,17 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [weather, setWeather] = useState("sunny");
   const [season, setSeason] = useState("spring");
   const [seasonTimer, setSeasonTimer] = useState(SEASON_DURATION_SEC); // giây còn lại trong mùa
-  const [weatherTimer, setWeatherTimer] = useState(60); // giây còn lại của thời tiết hiện tại
+  const [weatherTimer, setWeatherTimer] = useState(WEATHER_DURATION_SEC); // giây còn lại trong ngày
+
+  // ===== LỊCH NÔNG TRẠI =====
+  const [farmDay, setFarmDay]     = useState(1);   // ngày trong mùa: 1–90
+  const [farmMonth, setFarmMonth] = useState(1);   // tháng trong mùa: 1–3
+  const [farmYear, setFarmYear]   = useState(1);   // năm nông trại
+  const [dailyGemCrop, setDailyGemCrop] = useState(() =>
+    getDailyGemCropId(1, 1, 0) // khởi tạo ban đầu: năm 1, ngày 1, xuân
+  );
   const [inventory, setInventory] = useState({});
+  const [produceInventory, setProduceInventory] = useState({}); // kho nông sản thu hoạch được
   const [isLoading, setIsLoading] = useState(true);
   const [remainingKills, setRemainingKills] = useState(0);
   const [lastStreakValue, setLastStreakValue] = useState(0);
@@ -421,8 +480,19 @@ const expandWithGems = () => {
             setWeather(farmState.weather ?? "sunny");
             setSeason(farmState.season ?? "spring");
             setSeasonTimer(farmState.seasonTimer ?? SEASON_DURATION_SEC);
-            setWeatherTimer(farmState.weatherTimer ?? 60);
+            setWeatherTimer(farmState.weatherTimer ?? WEATHER_DURATION_SEC);
+            // Lịch nông trại
+            const loadedDay   = farmState.farmDay   ?? 1;
+            const loadedMonth = farmState.farmMonth ?? 1;
+            const loadedYear  = farmState.farmYear  ?? 1;
+            const loadedSeason = farmState.season ?? "spring";
+            const loadedSeasonIdx = Math.max(0, SEASON_ORDER.indexOf(loadedSeason));
+            setFarmDay(loadedDay);
+            setFarmMonth(loadedMonth);
+            setFarmYear(loadedYear);
+            setDailyGemCrop(getDailyGemCropId(loadedYear, loadedDay, loadedSeasonIdx));
             setInventory(farmState.inventory ?? {});
+            setProduceInventory(farmState.produceInventory ?? {});
             setRemainingKills(farmState.remainingKills ?? 0);
             setLastStreakValue(farmState.streak ?? 0);
             setPestKilled(farmState.pestKilled ?? 0);
@@ -439,6 +509,9 @@ const expandWithGems = () => {
             }));
             setPlots(newPlots);
             setPlotCount(DEFAULT_PLOT_COUNT);
+            // Lịch mới: ngày 1, tháng 1, năm 1, mùa xuân
+            setFarmDay(1); setFarmMonth(1); setFarmYear(1);
+            setDailyGemCrop(getDailyGemCropId(1, 1, 0));
           }
         }
         
@@ -499,8 +572,9 @@ const expandWithGems = () => {
       try {
         const farmState = {
           plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
-          inventory, remainingKills, pestKilled, wordsMastered, achievements,
-          level, exp,ancientTrees,
+          farmDay, farmMonth, farmYear,
+          inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements,
+          level, exp, ancientTrees,
           lastSaved: Date.now()
         };
         const userDocRef = doc(db, "users", currentUser.uid);
@@ -512,7 +586,8 @@ const expandWithGems = () => {
     
     return () => clearTimeout(saveTimeout);
   }, [plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
-      inventory, remainingKills, pestKilled, wordsMastered, achievements, level, exp, ancientTrees, currentUser, isLoading]);
+      farmDay, farmMonth, farmYear,
+      inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements, level, exp, ancientTrees, currentUser, isLoading]);
 
   // ===== THEO DÕI STREAK =====
   useEffect(() => {
@@ -568,40 +643,100 @@ const expandWithGems = () => {
     return () => clearInterval(pestInterval);
   }, []);
 
-  // ===== SEASON & WEATHER TICKER =====
+  // ===== LỊCH NÔNG TRẠI & THỜI TIẾT =====
+  // weatherTimer đếm ngược 1 ngày (600s) → sang ngày mới, đổi thời tiết, tính cây gem
+  // seasonTimer  đếm ngược 1 mùa (54.000s = 90 ngày × 600s) → đổi mùa
   useEffect(() => {
     const tick = setInterval(() => {
-      // --- Thời tiết ---
+
+      // ── Mỗi giây: đếm ngày (weatherTimer) ──
       setWeatherTimer(prev => {
-        if (prev <= 1) {
-          // Đổi thời tiết ngẫu nhiên theo mùa hiện tại
-          setSeason(currentSeason => {
-            const pool = SEASON_WEATHER[currentSeason];
-            const next = pool[Math.floor(Math.random() * pool.length)];
-            setWeather(next);
-            return currentSeason;
+        if (prev > 1) return prev - 1;
+
+        // ── Hết 1 ngày → sang ngày mới ──
+        setSeason(currentSeason => {
+          const seasonIdx = SEASON_ORDER.indexOf(currentSeason);
+
+          setFarmYear(currentYear => {
+            setFarmDay(currentDay => {
+              const nextDay = currentDay + 1;
+
+              setFarmMonth(currentMonth => {
+                const nextMonth = nextDay > FARM_DAYS_PER_MONTH ? currentMonth + 1 : currentMonth;
+                const realNextDay = nextDay > FARM_DAYS_PER_MONTH ? 1 : nextDay;
+                const dayInSeason = (nextMonth - 1) * FARM_DAYS_PER_MONTH + realNextDay;
+
+                // Tính cây gem cho ngày mới
+                const newGemCropId = getDailyGemCropId(currentYear, dayInSeason, seasonIdx);
+                setDailyGemCrop(newGemCropId);
+
+                // Thay đổi thời tiết ngẫu nhiên theo mùa
+                const pool = SEASON_WEATHER[currentSeason];
+                setWeather(pool[Math.floor(Math.random() * pool.length)]);
+
+                const gemCropName = CROP_TYPES.find(c => c.id === newGemCropId)?.name || "";
+                const gemCropEmoji = CROP_TYPES.find(c => c.id === newGemCropId)?.emoji || "🌾";
+
+                notify(
+                  `📅 Ngày ${realNextDay} Tháng ${nextMonth} — ${gemCropEmoji} ${gemCropName} bán được 💎 hôm nay!`,
+                  "#8b5cf6"
+                );
+
+                return nextMonth > FARM_MONTHS_PER_SEASON ? currentMonth : nextMonth;
+              });
+
+              return nextDay > FARM_DAYS_PER_MONTH ? 1 : nextDay;
+            });
+            return currentYear;
           });
-          return 45 + Math.floor(Math.random() * 30); // 45–75 giây mỗi thời tiết
-        }
-        return prev - 1;
+
+          return currentSeason;
+        });
+
+        return WEATHER_DURATION_SEC; // reset về 600s (1 ngày)
       });
 
-      // --- Mùa ---
+      // ── Mỗi giây: đếm mùa (seasonTimer) ──
       setSeasonTimer(prev => {
-        if (prev <= 1) {
-          setSeason(currentSeason => {
-            const idx = SEASON_ORDER.indexOf(currentSeason);
-            const nextSeason = SEASON_ORDER[(idx + 1) % 4];
-            notify(`🌿 Mùa ${SEASONS[nextSeason].name} đã đến! ${SEASONS[nextSeason].emoji}`, SEASONS[nextSeason].color);
-            // Đổi thời tiết phù hợp với mùa mới
+        if (prev > 1) return prev - 1;
+
+        // ── Hết 1 mùa → đổi mùa, reset ngày/tháng ──
+        setSeason(currentSeason => {
+          const idx = SEASON_ORDER.indexOf(currentSeason);
+          const nextSeasonIdx = (idx + 1) % 4;
+          const nextSeason = SEASON_ORDER[nextSeasonIdx];
+
+          setFarmYear(currentYear => {
+            const nextYear = nextSeasonIdx === 0 ? currentYear + 1 : currentYear;
+
+            // Reset ngày/tháng về đầu mùa
+            setFarmDay(1);
+            setFarmMonth(1);
+
+            // Tính cây gem cho ngày đầu mùa mới
+            const newGemCropId = getDailyGemCropId(nextYear, 1, nextSeasonIdx);
+            setDailyGemCrop(newGemCropId);
+
+            // Đổi thời tiết theo mùa mới
             const pool = SEASON_WEATHER[nextSeason];
             setWeather(pool[Math.floor(Math.random() * pool.length)]);
-            return nextSeason;
+
+            const gemCropObj = CROP_TYPES.find(c => c.id === newGemCropId);
+            notify(
+              `🌿 Mùa ${SEASONS[nextSeason].name} bắt đầu! ${SEASONS[nextSeason].emoji}  ` +
+              `Năm ${nextYear} • ${gemCropObj?.emoji} ${gemCropObj?.name} bán được 💎 hôm nay!`,
+              SEASONS[nextSeason].color
+            );
+
+            return nextYear;
           });
-          return SEASON_DURATION_SEC;
-        }
-        return prev - 1;
+
+          return nextSeason;
+        });
+
+        return SEASON_DURATION_SEC; // reset về 54.000s
       });
+
     }, 1000);
     return () => clearInterval(tick);
   }, []);
@@ -1338,6 +1473,13 @@ const startLearningForTree = (tree) => {
       notify(`❌ ${selectedCrop.emoji} ${selectedCrop.name} không trồng được vào mùa ${SEASONS[season].name}!`, "#ef4444");
       return;
     }
+    // Kiểm tra giới hạn số mầm theo loại cây
+    const currentSeedCount = plots.filter(p => p.stage >= 1 && p.crop === selectedCrop.id).length;
+    const maxAllowed = selectedCrop.maxSeeds || 4;
+    if (currentSeedCount >= maxAllowed) {
+      notify(`🚫 ${selectedCrop.emoji} ${selectedCrop.name} chỉ được trồng tối đa ${maxAllowed} mầm cùng lúc!`, "#ef4444");
+      return;
+    }
     // Gieo mầm lấy từ Ô VÀNG (savedWords - chưa thuộc)
     if (availableWords.length === 0) {
       notify("📖 Không có từ trong Ô vàng! Hãy học và lưu từ mới nhé!", "#ef4444");
@@ -1358,7 +1500,7 @@ const startLearningForTree = (tree) => {
       )
     );
     setSeeds((s) => s - 1);
-    notify(`🌱 Đã gieo "${randomWord.word}" (ô vàng) vào ruộng!`, "#22c55e");
+    notify(`🌱 Đã gieo "${randomWord.word}" (ô vàng) vào ruộng! [${currentSeedCount+1}/${maxAllowed} ${crop.emoji}]`, "#22c55e");
   };
 
   const harvestPlot = (plotId) => {
@@ -1417,6 +1559,17 @@ const startLearningForTree = (tree) => {
     setScore((sc) => sc + 1);
     setWordsMastered(prev => prev + 1);
     
+    // NHẬN NÔNG SẢN VÀO KHO
+    if (crop && crop.produce) {
+      const { id: produceId, name: produceName, emoji: produceEmoji, qty } = crop.produce;
+      const weatherQtyBonus = wMult >= 1.3 ? 1 : 0; // mưa bonus thêm 1 nông sản
+      const totalQty = qty + weatherQtyBonus;
+      setProduceInventory(prev => ({ ...prev, [produceId]: (prev[produceId] || 0) + totalQty }));
+      notify(`🎉 Thu hoạch! +${total}🪙 +${expReward}EXP +${totalQty}${produceEmoji} ${produceName}${weatherQtyBonus ? " (🌧️ bonus!)" : ""}`, "#f59e0b");
+    } else {
+      notify(`🎉 Thu hoạch thành công! +${total}🪙 +${expReward} EXP. Từ "${wordData.word}" đã chuyển vào Ô xanh!`, "#f59e0b");
+    }
+    
     // NHẬN EXP
     addExp(expReward);
     
@@ -1438,7 +1591,6 @@ const startLearningForTree = (tree) => {
     
     setShowHarvest({ plotId, reward: total, bonus, exp: expReward });
     setTimeout(() => setShowHarvest(null), 1800);
-    notify(`🎉 Thu hoạch thành công! +${total}🪙 +${expReward} EXP. Từ "${wordData.word}" đã chuyển vào Ô xanh!`, "#f59e0b");
     checkAchievements({ score: score + 1, wordsMastered: wordsMastered + 1, coins: coins + total });
   };
 
@@ -1719,6 +1871,10 @@ const killPest = (plotId) => {
     setSeasonTimer(SEASON_DURATION_SEC);
     setWeatherTimer(60);
     setInventory({});
+    setProduceInventory({});
+    // Reset lịch nông trại
+    setFarmDay(1); setFarmMonth(1); setFarmYear(1);
+    setDailyGemCrop(getDailyGemCropId(1, 1, 0));
     setPestKilled(0);
     setWordsMastered(0);
     setAchievements([]);
@@ -2451,7 +2607,20 @@ const killPest = (plotId) => {
             borderRadius:"50%",animation:"sunGlow 3s ease-in-out infinite",pointerEvents:"none",zIndex:0}}/>
         )}
         {/* Season badge */}
-        <span style={{display:"flex",alignItems:"center",gap:"8px",position:"relative",zIndex:1}}>
+        <span style={{display:"flex",alignItems:"center",gap:"8px",position:"relative",zIndex:1,flexWrap:"wrap"}}>
+          {/* Lịch nông trại */}
+          <span style={{
+            background:"rgba(255,255,255,0.7)",
+            border:"1px solid rgba(0,0,0,0.1)",
+            borderRadius:"20px",padding:"3px 10px",
+            fontWeight:"800",fontSize:"11px",color:"#374151",
+            display:"flex",alignItems:"center",gap:"4px",
+          }}>
+            📅 N{farmDay} T{farmMonth} Năm {farmYear}
+            <span style={{fontSize:"9px",color:"#9ca3af",marginLeft:"2px"}}>
+              ({Math.floor(weatherTimer/60)}p{weatherTimer%60}s)
+            </span>
+          </span>
           {/* Season indicator */}
           <span style={{
             background:`linear-gradient(135deg,${s.color}33,${s.color}22)`,
@@ -2462,9 +2631,24 @@ const killPest = (plotId) => {
           }}>
             {s.icon} Mùa {s.name}
             <span style={{fontSize:"9px",opacity:0.7,marginLeft:"2px"}}>
-              {Math.floor(seasonTimer/60)}p{seasonTimer%60}s
+              {Math.floor(seasonTimer/3600)}g{Math.floor((seasonTimer%3600)/60)}p
             </span>
           </span>
+          {/* Cây gem hôm nay */}
+          {dailyGemCrop && (() => {
+            const gc = CROP_TYPES.find(c => c.id === dailyGemCrop);
+            return gc ? (
+              <span style={{
+                background:"linear-gradient(135deg,#fef3c7,#fde68a)",
+                border:"1px solid #f59e0b",
+                borderRadius:"20px",padding:"3px 10px",
+                fontWeight:"800",fontSize:"11px",color:"#92400e",
+                display:"flex",alignItems:"center",gap:"4px",
+              }}>
+                {gc.emoji} 💎 hôm nay
+              </span>
+            ) : null;
+          })()}
           {/* Weather indicator */}
           <span style={{
             background:"rgba(255,255,255,0.6)",
@@ -2552,6 +2736,9 @@ const killPest = (plotId) => {
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 {CROP_TYPES.map((crop) => {
                   const canPlant = !crop.seasons || crop.seasons.includes(season);
+                  const currentCount = plots.filter(p => p.stage >= 1 && p.crop === crop.id).length;
+                  const maxSeeds = crop.maxSeeds || 4;
+                  const isFull = currentCount >= maxSeeds;
                   return (
                     <button key={crop.id}
                       style={{
@@ -2564,6 +2751,15 @@ const killPest = (plotId) => {
                     >
                       {crop.emoji} {crop.name}
                       <span style={S.cropBadge}>(🪙{crop.reward} | +{crop.expReward}EXP | ⏱{crop.growTime}s)</span>
+                      {/* Giới hạn mầm */}
+                      <span style={{
+                        display:"block", fontSize:"9px", fontWeight:"800", marginTop:"2px",
+                        color: isFull ? "#ef4444" : canPlant ? "#16a34a" : "#9ca3af",
+                      }}>
+                        🌱 {currentCount}/{maxSeeds} mầm {isFull ? "🔒" : ""}
+                      </span>
+                      {/* Nông sản thu được */}
+                      {crop.produce && <span style={{display:"block", fontSize:"9px", color:"#f97316", fontWeight:"700"}}>→ {crop.produce.qty}{crop.produce.emoji}</span>}
                       {!canPlant && <span style={{position:"absolute",top:2,right:4,fontSize:"10px"}}>🚫</span>}
                     </button>
                   );
@@ -3100,6 +3296,156 @@ const killPest = (plotId) => {
               <div style={{ fontSize: "12px", color: "#6b7280" }}>Trả lời đúng để nhận thêm hạt!</div>
               <button style={{ marginTop: "10px", background: "linear-gradient(135deg,#16a34a,#22c55e)", color: "white", border: "none", borderRadius: "12px", padding: "10px 24px", fontWeight: "800", cursor: "pointer", fontSize: "13px" }} onClick={() => startQuiz(null)}>📝 Học từ nhận hạt</button>
             </div>
+
+            {/* ===== CHỢ NÔNG SẢN ===== */}
+            <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "18px", padding: "18px", marginBottom: "14px" }}>
+              <div style={{ fontSize: "20px", textAlign: "center", marginBottom: "6px" }}>🏪 Chợ Nông Sản</div>
+
+              {/* Banner cây gem hôm nay */}
+              {dailyGemCrop && (() => {
+                const gc = CROP_TYPES.find(c => c.id === dailyGemCrop);
+                if (!gc) return null;
+                return (
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: "10px",
+                    background: "linear-gradient(135deg,#fef3c7,#fde68a)",
+                    border: "1.5px solid #f59e0b", borderRadius: "12px",
+                    padding: "8px 14px", marginBottom: "12px",
+                  }}>
+                    <span style={{ fontSize: "24px" }}>{gc.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: "800", fontSize: "12px", color: "#92400e" }}>
+                        ⭐ Cây đặc biệt — Ngày {farmDay}/90 Tháng {farmMonth} Năm {farmYear}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#b45309", fontWeight: "700" }}>
+                        {gc.name} → nông sản bán được 💎 thay vì 🪙 hôm nay!
+                      </div>
+                    </div>
+                    <span style={{ fontSize: "22px" }}>💎</span>
+                  </div>
+                );
+              })()}
+
+              <div style={{ fontSize: "10px", color: "#9ca3af", textAlign: "center", marginBottom: "12px" }}>
+                Cây gem đổi mỗi ngày (10 phút) • Giữ nông sản để bán đúng ngày cây đặc biệt!
+              </div>
+
+              {(() => {
+                const produceItems = CROP_TYPES.map(c => c.produce).filter(Boolean);
+                const hasAny = produceItems.some(p => (produceInventory[p.id] || 0) > 0);
+                if (!hasAny) {
+                  return <p style={{ textAlign: "center", color: "#aaa", fontSize: "12px" }}>🌾 Kho nông sản trống. Hãy thu hoạch cây để có hàng bán!</p>;
+                }
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {produceItems.map(p => {
+                      const qty = produceInventory[p.id] || 0;
+                      if (qty === 0) return null;
+                      const price = getProduceSellPrice(p.id, dailyGemCrop);
+                      const isGemDay = price.gems > 0;
+                      return (
+                        <div key={p.id} style={{
+                          display: "flex", alignItems: "center", gap: "12px",
+                          background: isGemDay
+                            ? "linear-gradient(135deg,#fefce8,#fef9c3)"
+                            : "linear-gradient(135deg,#f0fdf4,#dcfce7)",
+                          borderRadius: "14px", padding: "10px 14px",
+                          border: isGemDay ? "1.5px solid #eab308" : "1px solid #bbf7d0",
+                          boxShadow: isGemDay ? "0 0 10px rgba(234,179,8,0.25)" : "none",
+                        }}>
+                          <div style={{ fontSize: "26px", position: "relative" }}>
+                            {p.emoji}
+                            {isGemDay && (
+                              <span style={{ position: "absolute", top: -6, right: -8, fontSize: "13px" }}>💎</span>
+                            )}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: "800", fontSize: "13px", display: "flex", alignItems: "center", gap: "5px" }}>
+                              {p.name}
+                              {isGemDay && (
+                                <span style={{ fontSize: "9px", background: "#fef08a", color: "#92400e", borderRadius: "20px", padding: "1px 7px", fontWeight: "800" }}>
+                                  💎 HÔM NAY
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: "11px", color: isGemDay ? "#b45309" : "#16a34a", fontWeight: "700" }}>
+                              Kho: {qty} cái
+                            </div>
+                            <div style={{ fontSize: "10px", color: "#6b7280" }}>
+                              Giá: {isGemDay ? `${price.gems}💎` : `${price.coins}🪙`} / cái
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "5px", alignItems: "flex-end" }}>
+                            <button
+                              onClick={() => {
+                                if ((produceInventory[p.id] || 0) <= 0) return;
+                                setProduceInventory(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) - 1 }));
+                                if (isGemDay) {
+                                  setGems(prev => prev + price.gems);
+                                  notify(`💎 Bán 1 ${p.emoji} ${p.name}: +${price.gems}💎`, "#eab308");
+                                } else {
+                                  setCoins(prev => prev + price.coins);
+                                  notify(`🪙 Bán 1 ${p.emoji} ${p.name}: +${price.coins}🪙`, "#22c55e");
+                                }
+                              }}
+                              style={{
+                                background: isGemDay
+                                  ? "linear-gradient(135deg,#eab308,#ca8a04)"
+                                  : "linear-gradient(135deg,#16a34a,#22c55e)",
+                                color: "white", border: "none", borderRadius: "10px",
+                                padding: "5px 12px", fontWeight: "800", cursor: "pointer", fontSize: "11px",
+                              }}
+                            >Bán 1</button>
+                            <button
+                              onClick={() => {
+                                const sellQty = produceInventory[p.id] || 0;
+                                if (sellQty <= 0) return;
+                                setProduceInventory(prev => ({ ...prev, [p.id]: 0 }));
+                                if (isGemDay) {
+                                  setGems(prev => prev + price.gems * sellQty);
+                                  notify(`💎 Bán hết ${sellQty} ${p.emoji}: +${price.gems * sellQty}💎`, "#eab308");
+                                } else {
+                                  setCoins(prev => prev + price.coins * sellQty);
+                                  notify(`🪙 Bán hết ${sellQty} ${p.emoji}: +${price.coins * sellQty}🪙`, "#f59e0b");
+                                }
+                              }}
+                              style={{
+                                background: isGemDay
+                                  ? "linear-gradient(135deg,#f59e0b,#d97706)"
+                                  : "linear-gradient(135deg,#f59e0b,#d97706)",
+                                color: "white", border: "none", borderRadius: "10px",
+                                padding: "5px 12px", fontWeight: "800", cursor: "pointer", fontSize: "11px",
+                              }}
+                            >Bán hết</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* ===== KHO NÔNG SẢN mini (tóm tắt) ===== */}
+            {(() => {
+              const produceItems = CROP_TYPES.map(c => c.produce).filter(Boolean);
+              const hasAny = produceItems.some(p => (produceInventory[p.id] || 0) > 0);
+              if (!hasAny) return null;
+              return (
+                <div style={{ background: "rgba(255,255,255,0.75)", borderRadius: "14px", padding: "10px 14px", marginBottom: "10px", display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+                  <span style={{ fontSize: "12px", fontWeight: "800", color: "#374151" }}>📦 Kho nông sản:</span>
+                  {produceItems.map(p => {
+                    const qty = produceInventory[p.id] || 0;
+                    if (qty === 0) return null;
+                    return (
+                      <span key={p.id} style={{ fontSize: "12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "20px", padding: "2px 8px", fontWeight: "700", color: "#166534" }}>
+                        {p.emoji} ×{qty}
+                      </span>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
