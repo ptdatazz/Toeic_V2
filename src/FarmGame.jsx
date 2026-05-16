@@ -130,6 +130,77 @@ const getProduceSellPrice = (produceId, dailyGemCropId) => {
   return { coins: baseCoins, gems: 0 };
 };
 
+// ===== HỆ THỐNG VẬT NUÔI =====
+// Thức ăn: các nông sản thu được từ nông trại
+// Mỗi con vật có từ riêng (từ Ô vàng), khi "trưởng thành" → thu hoạch quiz giống cây
+const LIVESTOCK_TYPES = [
+  {
+    id: "chicken", name: "Gà", emoji: "🐔", adultEmoji: "🐓",
+    food: ["wheat_bundle", "corn_item"],  // thức ăn hợp lệ
+    foodName: "Bó lúa / Bắp ngô",
+    foodEmoji: "🌾🌽",
+    growTime: 120,       // giây để lớn
+    feedsNeeded: 3,      // số lần cho ăn để lớn
+    reward: 20,
+    expReward: 10,
+    color: "#f59e0b",
+    maxCount: 3,
+    desc: "Cho ăn lúa mì hoặc ngô để lớn",
+  },
+  {
+    id: "rabbit", name: "Thỏ", emoji: "🐰", adultEmoji: "🐇",
+    food: ["carrot_item"],
+    foodName: "Củ cà rốt",
+    foodEmoji: "🥕",
+    growTime: 180,
+    feedsNeeded: 4,
+    reward: 30,
+    expReward: 15,
+    color: "#f9a8d4",
+    maxCount: 2,
+    desc: "Cho ăn cà rốt để lớn",
+  },
+  {
+    id: "pig", name: "Heo", emoji: "🐷", adultEmoji: "🐖",
+    food: ["corn_item", "pumpkin_item"],
+    foodName: "Bắp ngô / Quả bí",
+    foodEmoji: "🌽🎃",
+    growTime: 240,
+    feedsNeeded: 5,
+    reward: 45,
+    expReward: 20,
+    color: "#f97316",
+    maxCount: 2,
+    desc: "Cho ăn ngô hoặc bí ngô để lớn",
+  },
+  {
+    id: "cow", name: "Bò", emoji: "🐮", adultEmoji: "🐄",
+    food: ["wheat_bundle", "mushroom_item"],
+    foodName: "Bó lúa / Nấm tươi",
+    foodEmoji: "🌾🍄",
+    growTime: 360,
+    feedsNeeded: 6,
+    reward: 70,
+    expReward: 30,
+    color: "#78716c",
+    maxCount: 1,
+    desc: "Cho ăn lúa mì hoặc nấm để lớn",
+  },
+  {
+    id: "fox", name: "Cáo", emoji: "🦊", adultEmoji: "🦊",
+    food: ["strawberry_item", "cherry_item"],
+    foodName: "Quả dâu / Quả anh đào",
+    foodEmoji: "🍓🍒",
+    growTime: 300,
+    feedsNeeded: 5,
+    reward: 55,
+    expReward: 25,
+    color: "#ea580c",
+    maxCount: 1,
+    desc: "Cho ăn dâu tây hoặc anh đào để lớn",
+  },
+];
+
 const SHOP_ITEMS = [
   { id: "fertilizer_single", name: "Phân bón (1 ô)", emoji: "💊", price: 20, priceGem: 0, desc: "Cây mọc tức thì trên 1 ô", type: "single" },
   { id: "fertilizer_all",    name: "Phân bón (all)", emoji: "💊✨", price: 80, priceGem: 2, desc: "Cây mọc tức thì toàn bộ", type: "all" },
@@ -275,6 +346,13 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [harvestQuizState, setHarvestQuizState] = useState(null); // { treeId, fruitId, correctCount, totalNeeded, questions, currentIndex }
 
   const [treeLearningState, setTreeLearningState] = useState(null);
+
+  // ===== VẬT NUÔI STATE =====
+  // livestock: [{ id, type, word, wordData, feedCount, isAdult, linkedAt, quizTarget }]
+  const [livestock, setLivestock] = useState([]);
+  const [livestockQuizState, setLivestockQuizState] = useState(null); // { animalId, word, wordData, question }
+  const [showLivestockFeedMenu, setShowLivestockFeedMenu] = useState(false);
+  const [feedTargetAnimalId, setFeedTargetAnimalId] = useState(null);
 
   // ===== HÀM CẬP NHẬP CẤP ĐỘ =====
   const updateLevel = (newExp, currentPlots, currentPlotCount) => {
@@ -501,6 +579,7 @@ const expandWithGems = () => {
             setLevel(farmState.level ?? 1);
             setExp(farmState.exp ?? 0);
             setAncientTrees(farmState.ancientTrees || []);
+            setLivestock(farmState.livestock || []);
 
           } else {
             const newPlots = Array.from({ length: DEFAULT_PLOT_COUNT }, (_, i) => ({
@@ -520,25 +599,41 @@ const expandWithGems = () => {
         const savedWords = userData?.vocab?.savedWords || [];
         // Ô xanh: masteredWords (từ đã thuộc)
         const masteredWordsRaw = userData?.vocab?.masteredWords || [];
-        // addedWordsObj chứa metadata đầy đủ cho từ ô vàng
+        // addedWordsObj chứa metadata đầy đủ cho tất cả từ
         const addedWordsObj = userData?.vocab?.addedWordsObj || [];
-        
-        // Build ô vàng: ưu tiên metadata từ addedWordsObj, fallback là savedWords
+
+        // Build tập từ đã mastered để loại trừ khỏi ô vàng
+        const masteredSet = new Set(
+          masteredWordsRaw.map(w => (typeof w === 'string' ? w : w?.word || '')).filter(Boolean).map(s => s.toLowerCase())
+        );
+
+        // Build tập từ đang ở ô vàng (savedWords) để chỉ lấy đúng những từ đó
+        const savedWordSet = new Set(
+          savedWords.map(w => (typeof w === 'string' ? w : w?.word || '')).filter(Boolean).map(s => s.toLowerCase())
+        );
+
+        // Build ô vàng: CHỈ lấy từ có trong savedWords VÀ chưa ở masteredWords
+        // Ưu tiên metadata đầy đủ từ addedWordsObj, fallback sang savedWords
         const yellowList = [];
         const seenYellow = new Set();
-        addedWordsObj.forEach(item => {
-          if (item.word && !seenYellow.has(item.word.toLowerCase())) {
-            seenYellow.add(item.word.toLowerCase());
-            yellowList.push(item);
-          }
-        });
+
+        // Duyệt savedWords làm nguồn chính (đây là danh sách ô vàng thực sự)
         savedWords.forEach(word => {
-          const wordStr = typeof word === 'string' ? word : word.word;
-          if (wordStr && !seenYellow.has(wordStr.toLowerCase())) {
-            seenYellow.add(wordStr.toLowerCase());
+          const wordStr = typeof word === 'string' ? word : word?.word;
+          if (!wordStr) return;
+          const key = wordStr.toLowerCase();
+          if (seenYellow.has(key)) return; // bỏ lặp
+          if (masteredSet.has(key)) return; // đã mastered, không cho vào ô vàng
+          seenYellow.add(key);
+          // Tìm metadata đầy đủ từ addedWordsObj
+          const meta = addedWordsObj.find(w => w?.word?.toLowerCase() === key);
+          if (meta) {
+            yellowList.push(meta);
+          } else {
             yellowList.push(typeof word === 'object' ? word : { word: wordStr, meaning: "???" });
           }
         });
+
         setAvailableWords(yellowList);
 
         // Build ô xanh: masteredWords
@@ -574,7 +669,7 @@ const expandWithGems = () => {
           plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
           farmDay, farmMonth, farmYear,
           inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements,
-          level, exp, ancientTrees,
+          level, exp, ancientTrees, livestock,
           lastSaved: Date.now()
         };
         const userDocRef = doc(db, "users", currentUser.uid);
@@ -587,7 +682,7 @@ const expandWithGems = () => {
     return () => clearTimeout(saveTimeout);
   }, [plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
       farmDay, farmMonth, farmYear,
-      inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements, level, exp, ancientTrees, currentUser, isLoading]);
+      inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements, level, exp, ancientTrees, livestock, currentUser, isLoading]);
 
   // ===== THEO DÕI STREAK =====
   useEffect(() => {
@@ -1141,7 +1236,7 @@ const completeHarvestFruit = () => {
   
   notify(`🍎 Hái quả "${harvestQuizState.targetWord}" thành công! +15🪙 +10EXP`, "#f59e0b");
   playSound("finish");
-  confetti({ particleCount: 100, spread: 70, origin: { y: 0.5 }, zIndex: 9999 });
+  try { confetti({ particleCount: 100, spread: 70, origin: { y: 0.5 }, zIndex: 9999 }); } catch(e) {}
   
   // Không tự thoát — để người dùng bấm nút "Tiếp tục" (handled in UI)
 };
@@ -1246,7 +1341,7 @@ const handleAncientSaplingHarvest = (plotId, wordData, isCorrect) => {
   
   notify(`🎉✨ THU HOẠCH THÀNH CÔNG! Cây cổ thụ "${wordData.word}" đã lên cấp 1 và ra ${config.maxFruits} quả! +50🪙 +20EXP`, "#8b5cf6");
   playSound("combo_max");
-  confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, zIndex: 9999 });
+  try { confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, zIndex: 9999 }); } catch(e) {}
   
   setQuizMode(null);
   setAnswered(false);
@@ -1360,7 +1455,7 @@ const completeTreeLevelUp = () => {
   
   notify(`🎉✨ CHÚC MỪNG! Bạn đã học thuộc từ "${treeLearningState.word}"! Cây cổ thụ đã lên cấp 1 và ra ${config.maxFruits} quả! +50🪙 +20EXP`, "#8b5cf6");
   playSound("combo_max");
-  confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, zIndex: 9999 });
+  try { confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, zIndex: 9999 }); } catch(e) {}
   
   // Reset state
   setTreeLearningState(null);
@@ -1392,7 +1487,7 @@ const onWordMastered = (word) => {
     
     notify(`🌿✨ Từ "${word}" đã thuộc! Cây cổ thụ của bạn đã lên cấp 1 và ra ${config.maxFruits} quả!`, "#22c55e");
     playSound("combo_3");
-    confetti({ particleCount: 100, spread: 70, origin: { y: 0.5 }, zIndex: 9999 });
+    try { confetti({ particleCount: 100, spread: 70, origin: { y: 0.5 }, zIndex: 9999 }); } catch(e) {}
   }
 };
 
@@ -1466,6 +1561,167 @@ const startLearningForTree = (tree) => {
 };
 
 
+  // ===== HÀM VẬT NUÔI =====
+  const addLivestock = (livestockTypeId) => {
+    const ltype = LIVESTOCK_TYPES.find(l => l.id === livestockTypeId);
+    if (!ltype) return;
+    const currentCount = livestock.filter(a => a.type === livestockTypeId).length;
+    if (currentCount >= ltype.maxCount) {
+      notify(`🚫 ${ltype.emoji} Chỉ được nuôi tối đa ${ltype.maxCount} con ${ltype.name}!`, "#ef4444");
+      return;
+    }
+    // Gán từ: ưu tiên Ô vàng, fallback sang Ô xanh
+    const usedWords = new Set(livestock.map(a => a.word?.toLowerCase()).filter(Boolean));
+    let wordObj = null;
+    let wordSource = "yellow";
+
+    if (availableWords.length > 0) {
+      const pool = availableWords.filter(w => w && w.word && !usedWords.has(w.word.toLowerCase()));
+      wordObj = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : availableWords[Math.floor(Math.random() * availableWords.length)];
+      wordSource = "yellow";
+    } else if (masteredWords.length > 0) {
+      const pool = masteredWords.filter(w => w && w.word && !usedWords.has(w.word.toLowerCase()));
+      wordObj = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : masteredWords[Math.floor(Math.random() * masteredWords.length)];
+      wordSource = "green";
+    } else {
+      notify("📖 Không có từ nào để gán cho vật nuôi! Hãy thêm từ vào Sổ tay nhé.", "#ef4444");
+      return;
+    }
+
+    const newAnimal = {
+      id: `animal_${Date.now()}_${Math.random()}`,
+      type: livestockTypeId,
+      word: wordObj.word,
+      wordData: wordObj,
+      feedCount: 0,
+      isAdult: false,
+      addedAt: Date.now(),
+      wordSource: wordSource,
+    };
+    setLivestock(prev => [...prev, newAnimal]);
+    const srcLabel = wordSource === "yellow" ? "ô vàng" : "ô xanh (ôn lại)";
+    notify(`🐣 Đã thêm ${ltype.emoji} ${ltype.name} và gán từ "${wordObj.word}" (${srcLabel})! Cho ăn ${ltype.feedsNeeded} lần để lớn.`, "#22c55e");
+  };
+
+  const feedAnimalAuto = (animalId) => {
+    const animal = livestock.find(a => a.id === animalId);
+    if (!animal) return;
+    const ltype = LIVESTOCK_TYPES.find(l => l.id === animal.type);
+    if (!ltype) return;
+    if (animal.isAdult) {
+      notify(`🐄 ${ltype.name} đã trưởng thành rồi! Hãy thu hoạch.`, "#f59e0b");
+      return;
+    }
+    // Tự động chọn thức ăn đầu tiên còn trong kho
+    const availFood = ltype.food.find(fid => (produceInventory[fid] || 0) > 0);
+    if (!availFood) {
+      const needed = ltype.food.map(fid => {
+        const crop = CROP_TYPES.find(c => c.produce?.id === fid);
+        return `${crop?.produce?.emoji || ""} ${crop?.produce?.name || fid}`;
+      }).join(" hoặc ");
+      notify(`📦 Hết thức ăn! ${ltype.emoji} ${ltype.name} cần: ${needed}`, "#ef4444");
+      return;
+    }
+    feedAnimal(animalId, availFood);
+  };
+
+  const openFeedMenu = (animalId) => {
+    setFeedTargetAnimalId(animalId);
+    setShowLivestockFeedMenu(true);
+  };
+
+  const feedAnimal = (animalId, produceId) => {
+    const animal = livestock.find(a => a.id === animalId);
+    if (!animal) return;
+    const ltype = LIVESTOCK_TYPES.find(l => l.id === animal.type);
+    if (!ltype) return;
+    if (!ltype.food.includes(produceId)) {
+      const needed = ltype.food.map(fid => {
+        const crop = CROP_TYPES.find(c => c.produce?.id === fid);
+        return crop?.produce?.name || fid;
+      }).join(", ");
+      notify(`❌ ${ltype.emoji} ${ltype.name} không ăn loại này! Cần: ${needed}`, "#ef4444");
+      return;
+    }
+    if ((produceInventory[produceId] || 0) <= 0) {
+      const crop = CROP_TYPES.find(c => c.produce?.id === produceId);
+      notify(`📦 Hết ${crop?.produce?.emoji || ""} ${crop?.produce?.name || "nông sản"} trong kho!`, "#ef4444");
+      return;
+    }
+    if (animal.isAdult) {
+      notify(`🐄 ${ltype.name} đã trưởng thành rồi! Hãy thu hoạch để mang lại phần thưởng.`, "#f59e0b");
+      return;
+    }
+    // Trừ nông sản, tăng feedCount
+    setProduceInventory(prev => ({ ...prev, [produceId]: Math.max(0, (prev[produceId] || 0) - 1) }));
+    const newFeedCount = animal.feedCount + 1;
+    const isNowAdult = newFeedCount >= ltype.feedsNeeded;
+    setLivestock(prev => prev.map(a =>
+      a.id === animalId ? { ...a, feedCount: newFeedCount, isAdult: isNowAdult } : a
+    ));
+    const crop = CROP_TYPES.find(c => c.produce?.id === produceId);
+    if (isNowAdult) {
+      notify(`🎉 ${ltype.emoji} ${ltype.name} đã TRƯỞNG THÀNH! Thu hoạch để nhận thưởng!`, "#f59e0b");
+    } else {
+      notify(`🍽️ Đã cho ${ltype.emoji} ăn ${crop?.produce?.emoji || ""} (${newFeedCount}/${ltype.feedsNeeded})`, "#22c55e");
+    }
+    setShowLivestockFeedMenu(false);
+    setFeedTargetAnimalId(null);
+  };
+
+  const harvestAnimal = (animalId) => {
+    const animal = livestock.find(a => a.id === animalId);
+    if (!animal || !animal.isAdult) return;
+    if (!animal.wordData) { notify("❌ Không có dữ liệu từ cho vật nuôi này!", "#ef4444"); return; }
+    // Tạo quiz giống thu hoạch cây
+    const q = genQuestionForWord(animal.wordData);
+    if (!q) { notify("❌ Không thể tạo câu hỏi!", "#ef4444"); return; }
+    setLivestockQuizState({ animalId, word: animal.word, wordData: animal.wordData, question: q });
+    setQuizMode("livestock_harvest");
+    setActivePanel("quiz");
+    setTimeLeft(15);
+    setAnswered(false);
+    setChosenOpt(null);
+  };
+
+  const completeLivestockHarvest = (animalSnapshot, isCorrect) => {
+    // Nhận trực tiếp snapshot của animal để tránh stale closure
+    if (!animalSnapshot) return;
+    const ltype = LIVESTOCK_TYPES.find(l => l.id === animalSnapshot.type);
+    if (!ltype) return;
+    if (isCorrect) {
+      setCoins(prev => prev + ltype.reward);
+      addExp(ltype.expReward);
+      setScore(sc => sc + 1);
+      setWordsMastered(wm => wm + 1);
+      // Chỉ chuyển sang Ô xanh nếu từ từ Ô vàng
+      const isFromGreen = animalSnapshot.wordSource === "green";
+      if (!isFromGreen && onMoveWord && animalSnapshot.wordData) {
+        onMoveWord("vocab", "savedWords", "masteredWords", animalSnapshot.wordData);
+        setAvailableWords(prev => prev.filter(w => w.word !== animalSnapshot.word));
+        setMasteredWords(prev => prev.some(w => w.word === animalSnapshot.word) ? prev : [...prev, animalSnapshot.wordData]);
+      }
+      // === RỚT SẢN PHẨM VÀO KHO (nếu có) ===
+      if (ltype.produce) {
+        const { id: pid, qty } = ltype.produce;
+        setProduceInventory(prev => ({ ...prev, [pid]: (prev[pid] || 0) + qty }));
+      }
+      // Xóa vật nuôi khỏi danh sách
+      setLivestock(prev => prev.filter(a => a.id !== animalSnapshot.id));
+      const produceNote = ltype.produce ? ` +${ltype.produce.qty}${ltype.produce.emoji}` : "";
+      const moveNote = isFromGreen ? "(ôn lại từ ô xanh)" : `Từ "${animalSnapshot.word}" → Ô xanh!`;
+      notify(`🎉 Thu hoạch ${ltype.emoji} thành công! ${moveNote}${produceNote} +${ltype.reward}🪙 +${ltype.expReward}EXP`, "#f59e0b");
+      try { confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 }, zIndex: 9999 }); } catch(e) {}
+      playSound("finish");
+    } else {
+      // Sai thì vật nuôi biến mất, không nhận thưởng
+      setLivestock(prev => prev.filter(a => a.id !== animalSnapshot.id));
+      notify(`❌ Sai rồi! ${ltype.emoji} ${ltype.name} "${animalSnapshot.word}" đã bỏ trốn. Không có phần thưởng!`, "#ef4444");
+      playSound("wrong");
+    }
+    // Không reset UI/tab ở đây — để nút "Tiếp tục" trong quiz UI xử lý
+  };
+
   const plantOnPlot = (plotId) => {
     if (seeds <= 0) { notify("Hết hạt giống! Trả lời đúng để nhận thêm 🌱", "#ef4444"); return; }
     // Kiểm tra cây có trồng được trong mùa này không
@@ -1480,27 +1736,39 @@ const startLearningForTree = (tree) => {
       notify(`🚫 ${selectedCrop.emoji} ${selectedCrop.name} chỉ được trồng tối đa ${maxAllowed} mầm cùng lúc!`, "#ef4444");
       return;
     }
-    // Gieo mầm lấy từ Ô VÀNG (savedWords - chưa thuộc)
-    if (availableWords.length === 0) {
-      notify("📖 Không có từ trong Ô vàng! Hãy học và lưu từ mới nhé!", "#ef4444");
+    // Gieo mầm: ưu tiên Ô VÀNG, nếu hết thì lấy Ô XANH (chỉ ôn lại, không move sang xanh khi thu hoạch)
+    const usedWords = new Set(plots.filter(p => p.stage > 0 && p.linkedWord).map(p => p.linkedWord.toLowerCase()));
+    let randomWord = null;
+    let wordSource = "yellow";
+
+    if (availableWords.length > 0) {
+      const unusedYellow = availableWords.filter(w => w && w.word && !usedWords.has(w.word.toLowerCase()));
+      const yellowPool = unusedYellow.length > 0 ? unusedYellow : availableWords;
+      randomWord = yellowPool[Math.floor(Math.random() * yellowPool.length)];
+      wordSource = "yellow";
+    } else if (masteredWords.length > 0) {
+      const unusedGreen = masteredWords.filter(w => w && w.word && !usedWords.has(w.word.toLowerCase()));
+      const greenPool = unusedGreen.length > 0 ? unusedGreen : masteredWords;
+      randomWord = greenPool[Math.floor(Math.random() * greenPool.length)];
+      wordSource = "green";
+    } else {
+      notify("📖 Không có từ nào để trồng! Hãy thêm từ vào Sổ tay nhé!", "#ef4444");
       return;
     }
-    // Ưu tiên chọn từ chưa được gán cho ô nào khác đang trồng
-    const usedWords = new Set(plots.filter(p => p.stage > 0 && p.linkedWord).map(p => p.linkedWord.toLowerCase()));
-    const unusedWords = availableWords.filter(w => w && w.word && !usedWords.has(w.word.toLowerCase()));
-    const pool = unusedWords.length > 0 ? unusedWords : availableWords;
-    const randomWord = pool[Math.floor(Math.random() * pool.length)];
+
     const crop = selectedCrop;
     setPlots((prev) =>
       prev.map((p) =>
         p.id === plotId ? { 
           ...p, crop: crop.id, stage: 1, hasPest: false, 
-          linkedWord: randomWord.word, wordData: randomWord, timeLeft: crop.growTime
+          linkedWord: randomWord.word, wordData: randomWord, timeLeft: crop.growTime,
+          wordSource: wordSource,
         } : p
       )
     );
     setSeeds((s) => s - 1);
-    notify(`🌱 Đã gieo "${randomWord.word}" (ô vàng) vào ruộng! [${currentSeedCount+1}/${maxAllowed} ${crop.emoji}]`, "#22c55e");
+    const sourceLabel = wordSource === "yellow" ? "ô vàng" : "ô xanh (ôn lại)";
+    notify(`🌱 Đã gieo "${randomWord.word}" (${sourceLabel}) vào ruộng! [${currentSeedCount+1}/${maxAllowed} ${crop.emoji}]`, "#22c55e");
   };
 
   const harvestPlot = (plotId) => {
@@ -1559,6 +1827,8 @@ const startLearningForTree = (tree) => {
     setScore((sc) => sc + 1);
     setWordsMastered(prev => prev + 1);
     
+    const isFromGreen = plot.wordSource === "green"; // từ ô xanh thì không move
+
     // NHẬN NÔNG SẢN VÀO KHO
     if (crop && crop.produce) {
       const { id: produceId, name: produceName, emoji: produceEmoji, qty } = crop.produce;
@@ -1567,7 +1837,8 @@ const startLearningForTree = (tree) => {
       setProduceInventory(prev => ({ ...prev, [produceId]: (prev[produceId] || 0) + totalQty }));
       notify(`🎉 Thu hoạch! +${total}🪙 +${expReward}EXP +${totalQty}${produceEmoji} ${produceName}${weatherQtyBonus ? " (🌧️ bonus!)" : ""}`, "#f59e0b");
     } else {
-      notify(`🎉 Thu hoạch thành công! +${total}🪙 +${expReward} EXP. Từ "${wordData.word}" đã chuyển vào Ô xanh!`, "#f59e0b");
+      const moveNote = isFromGreen ? "(ôn lại từ ô xanh)" : `Từ "${wordData.word}" đã chuyển vào Ô xanh!`;
+      notify(`🎉 Thu hoạch thành công! +${total}🪙 +${expReward} EXP. ${moveNote}`, "#f59e0b");
     }
     
     // NHẬN EXP
@@ -1575,11 +1846,11 @@ const startLearningForTree = (tree) => {
     
     setPlots((prev) =>
       prev.map((p) =>
-        p.id === plotId ? { ...p, crop: null, stage: 0, hasPest: false, linkedWord: null, wordData: null, timeLeft: 0 } : p
+        p.id === plotId ? { ...p, crop: null, stage: 0, hasPest: false, linkedWord: null, wordData: null, timeLeft: 0, wordSource: null } : p
       )
     );
     
-    if (onMoveWord && wordData) {
+    if (!isFromGreen && onMoveWord && wordData) {
       onMoveWord("vocab", "savedWords", "masteredWords", wordData);
       setAvailableWords(prev => prev.filter(w => w.word !== wordData.word));
       // Thêm vào ô xanh trong state local
@@ -1653,7 +1924,19 @@ const startLearningForTree = (tree) => {
     return;
   }
 
-      // ===== THÊM ĐIỀU KIỆN NÀY VÀO ĐẦU HÀM =====
+      if (quizMode === "livestock_harvest") {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      const isCorrect = opt === livestockQuizState?.question?.answer;
+      const animalSnapshot = livestock.find(a => a.id === livestockQuizState?.animalId) || null;
+      setAnswered(true);
+      setChosenOpt(opt);
+      // Chạy logic harvest ngay (coins, produce, move word...) nhưng KHÔNG reset UI/tab
+      // Việc chuyển tab để nút "Tiếp tục" xử lý để người chơi kịp đọc kết quả
+      completeLivestockHarvest(animalSnapshot, isCorrect);
+      return;
+    }
+
+    // ===== THÊM ĐIỀU KIỆN NÀY VÀO ĐẦU HÀM =====
     if (quizMode === "ancient_harvest") {
       handleAncientQuizAnswer(opt);
       return;
@@ -2685,6 +2968,7 @@ const killPest = (plotId) => {
           { id: "quiz", label: "📝 Học từ",    color: "#1d4ed8" },
           { id: "shop", label: "🏪 Cửa hàng",  color: "#7c3aed" },
           { id: "ancient", label: "🌳 Cây cổ thụ", color: "#8b5cf6" },
+          { id: "livestock", label: "🐄 Vật nuôi", color: "#f97316" },
           { id: "quests", label: "🏆 Nhiệm vụ", color: "#f59e0b" },
         ].map((tab) => (
           <button key={tab.id} className="tab-btn" style={S.tab(activePanel === tab.id, tab.color)} onClick={() => { if (tab.id === "quiz") startQuiz(null); else setActivePanel(tab.id); }}>{tab.label}</button>
@@ -3022,6 +3306,81 @@ const killPest = (plotId) => {
                       fontSize:"12px", cursor:"pointer", fontFamily:"inherit",
                     }}
                   >✕ Huỷ</button>
+                </div>
+              );
+            })()}
+
+            {/* ===== QUIZ THU HOẠCH VẬT NUÔI ===== */}
+            {quizMode === "livestock_harvest" && livestockQuizState && (() => {
+              const ltype = LIVESTOCK_TYPES.find(l => l.id === livestock.find(a => a.id === livestockQuizState.animalId)?.type);
+              return (
+                <div className="quiz-ancient-overlay">
+                  <div style={{ width:"100%", maxWidth:"460px", marginBottom:"18px", display:"flex", flexDirection:"column", alignItems:"center", gap:"10px" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:"10px", padding:"8px 20px", borderRadius:"20px", background:"rgba(249,115,22,0.12)", border:"1px solid rgba(249,115,22,0.4)" }}>
+                      <span style={{fontSize:"24px"}}>{ltype?.adultEmoji || "🐄"}</span>
+                      <span style={{fontWeight:"900", color:"#fb923c", fontSize:"15px"}}>
+                        Thu hoạch — <span style={{color:"#ffd700"}}>{livestockQuizState.word}</span>
+                      </span>
+                    </div>
+                    <div style={{position:"relative", width:"72px", height:"72px"}}>
+                      <svg width="72" height="72" style={{transform:"rotate(-90deg)"}}>
+                        <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="5"/>
+                        <circle className="timer-ring" cx="36" cy="36" r="30" fill="none" stroke={timeLeft<=5?"#ef4444":"#fb923c"} strokeWidth="5" strokeLinecap="round" strokeDasharray={`${2*Math.PI*30}`} strokeDashoffset={`${2*Math.PI*30*(1-timeLeft/15)}`}/>
+                      </svg>
+                      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"20px",fontWeight:"900",color:timeLeft<=5?"#ef4444":"#fb923c"}}>{timeLeft}</div>
+                    </div>
+                  </div>
+                  <div className="quiz-word-card" style={{width:"100%",maxWidth:"460px"}}>
+                    <div style={{fontSize:"11px",color:"rgba(249,115,22,0.6)",textTransform:"uppercase",letterSpacing:"2px",marginBottom:"8px"}}>Nghĩa của từ này là gì?</div>
+                    <div style={{fontSize:"34px",fontWeight:"900",color:"#fff",letterSpacing:"-1px",textShadow:"0 0 30px rgba(249,115,22,0.3)"}}>{livestockQuizState.question.word}</div>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:"10px",width:"100%",maxWidth:"460px"}}>
+                    {livestockQuizState.question.options.map((opt,i) => {
+                      const isSelected = chosenOpt===opt, isCorrect = opt===livestockQuizState.question.answer;
+                      const cls = answered?(isCorrect?"correct":isSelected?"wrong":""):"";
+                      const labels=["A","B","C","D"];
+                      return (
+                        <button key={i} disabled={answered} onClick={()=>handleAnswer(opt)} className={`quiz-option-ancient ${cls}`} style={{borderColor:cls?undefined:"rgba(249,115,22,0.2)"}}>
+                          <div style={{width:"28px",height:"28px",borderRadius:"8px",flexShrink:0,background:cls==="correct"?"rgba(255,255,255,0.2)":cls==="wrong"?"rgba(255,255,255,0.2)":"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"13px",fontWeight:"900",color:"#fb923c"}}>{labels[i]}</div>
+                          <span>{opt}</span>
+                          {answered&&isCorrect&&<span style={{marginLeft:"auto"}}>✅</span>}
+                          {answered&&isSelected&&!isCorrect&&<span style={{marginLeft:"auto"}}>❌</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {answered && (() => {
+                    const isRight = chosenOpt === livestockQuizState.question.answer;
+                    return (
+                      <div style={{marginTop:"14px",width:"100%",maxWidth:"460px",display:"flex",flexDirection:"column",gap:"10px"}}>
+                        <div style={{padding:"12px 18px",borderRadius:"16px",background:isRight?"rgba(34,197,94,0.12)":"rgba(239,68,68,0.12)",border:`1px solid ${isRight?"rgba(34,197,94,0.3)":"rgba(239,68,68,0.3)"}`}}>
+                          {isRight
+                            ? <div style={{color:"#4ade80",fontWeight:"900"}}>✅ Đúng! {ltype?.adultEmoji} {ltype?.name} sẽ được thu hoạch!</div>
+                            : <div><div style={{color:"#f87171",fontWeight:"900"}}>❌ Sai! {ltype?.name} đã bỏ trốn...</div><div style={{color:"rgba(255,255,255,0.5)",fontSize:"11px",marginTop:"2px"}}>Đáp án: <strong style={{color:"#ffd700"}}>{livestockQuizState.question.answer}</strong></div></div>
+                          }
+                        </div>
+                        <button
+                          onClick={() => {
+                            // completeLivestockHarvest đã được gọi qua setTimeout trong handleAnswer
+                            // Nút này chỉ cần reset UI và chuyển tab
+                            setLivestockQuizState(null);
+                            setQuizMode(null);
+                            setAnswered(false);
+                            setChosenOpt(null);
+                            setActivePanel("livestock");
+                          }}
+                          style={{
+                            padding:"13px",borderRadius:"14px",border:"none",
+                            background:isRight?"linear-gradient(135deg,#22c55e,#16a34a)":"rgba(255,255,255,0.1)",
+                            color:"white",fontWeight:"900",fontSize:"15px",cursor:"pointer",fontFamily:"inherit",
+                            boxShadow:isRight?"0 4px 16px rgba(34,197,94,0.4)":"none",
+                          }}
+                        >
+                          {isRight ? "🐾 Tiếp tục →" : "↩ Quay lại"}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -3812,6 +4171,386 @@ const killPest = (plotId) => {
           </div>
         )}
 
+        {/* ===== TAB VẬT NUÔI ===== */}
+        {activePanel === "livestock" && (() => {
+          // Phân khu: mỗi loại vật nuôi = 1 khu riêng
+          const ZONE_CONFIG = {
+            chicken: { zoneName:"🐔 Khu Gia Cầm", bg:"linear-gradient(160deg,#fef9c3 0%,#fef3c7 60%,#fde68a 100%)", border:"#f59e0b", floor:"#d97706" },
+            rabbit:  { zoneName:"🐰 Khu Thỏ",     bg:"linear-gradient(160deg,#fce7f3 0%,#fdf2f8 60%,#f9a8d4 100%)", border:"#ec4899", floor:"#db2777" },
+            pig:     { zoneName:"🐷 Khu Heo",      bg:"linear-gradient(160deg,#fff7ed 0%,#ffedd5 60%,#fed7aa 100%)", border:"#f97316", floor:"#ea580c" },
+            cow:     { zoneName:"🐄 Khu Bò",       bg:"linear-gradient(160deg,#f0fdf4 0%,#dcfce7 60%,#bbf7d0 100%)", border:"#22c55e", floor:"#16a34a" },
+            fox:     { zoneName:"🦊 Khu Cáo",      bg:"linear-gradient(160deg,#fff7ed 0%,#fef3c7 60%,#fed7aa 100%)", border:"#ea580c", floor:"#c2410c" },
+          };
+
+          // Hàm vẽ con vật 3D bằng SVG CSS
+          const AnimalArt3D = ({ type, isAdult, size = 100 }) => {
+            const s = size;
+            // Mỗi loài có dáng hình riêng được dựng bằng SVG shapes
+            const arts = {
+              chicken: (
+                <svg width={s} height={s} viewBox="0 0 100 100" style={{filter:"drop-shadow(0 8px 12px rgba(0,0,0,0.25))"}}>
+                  {/* Shadow */}
+                  <ellipse cx="50" cy="92" rx="28" ry="6" fill="rgba(0,0,0,0.18)"/>
+                  {/* Body */}
+                  <ellipse cx="50" cy="65" rx="26" ry="22" fill={isAdult?"#f59e0b":"#fbbf24"}/>
+                  <ellipse cx="50" cy="65" rx="20" ry="17" fill={isAdult?"#d97706":"#f59e0b"} opacity="0.5"/>
+                  {/* Wing */}
+                  <ellipse cx="34" cy="67" rx="10" ry="14" fill={isAdult?"#92400e":"#f59e0b"} transform="rotate(-15 34 67)"/>
+                  <ellipse cx="66" cy="67" rx="10" ry="14" fill={isAdult?"#92400e":"#f59e0b"} transform="rotate(15 66 67)"/>
+                  {/* Neck */}
+                  <ellipse cx="50" cy="46" rx="10" ry="12" fill={isAdult?"#f59e0b":"#fbbf24"}/>
+                  {/* Head */}
+                  <circle cx="50" cy="34" r="14" fill={isAdult?"#f59e0b":"#fbbf24"}/>
+                  <circle cx="50" cy="34" r="10" fill={isAdult?"#d97706":"#f59e0b"} opacity="0.3"/>
+                  {/* Comb */}
+                  <path d="M46 22 Q48 14 50 20 Q52 12 54 20 Q56 15 57 22" fill="#ef4444" stroke="#dc2626" strokeWidth="0.5"/>
+                  {/* Beak */}
+                  <path d="M55 34 L62 37 L55 40 Z" fill="#f97316"/>
+                  {/* Eye */}
+                  <circle cx="46" cy="31" r="3" fill="white"/>
+                  <circle cx="47" cy="31" r="1.5" fill="#1c1917"/>
+                  <circle cx="47.5" cy="30.5" r="0.5" fill="white"/>
+                  {/* Wattle */}
+                  <ellipse cx="56" cy="40" rx="3" ry="5" fill="#ef4444"/>
+                  {/* Legs */}
+                  <line x1="44" y1="85" x2="38" y2="95" stroke="#d97706" strokeWidth="3" strokeLinecap="round"/>
+                  <line x1="56" y1="85" x2="62" y2="95" stroke="#d97706" strokeWidth="3" strokeLinecap="round"/>
+                  <line x1="38" y1="95" x2="30" y2="96" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round"/>
+                  <line x1="62" y1="95" x2="70" y2="96" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round"/>
+                  {isAdult && <text x="50" y="9" textAnchor="middle" fontSize="9" fill="#f59e0b" fontWeight="900">★ TRƯỞNG THÀNH</text>}
+                </svg>
+              ),
+              rabbit: (
+                <svg width={s} height={s} viewBox="0 0 100 100" style={{filter:"drop-shadow(0 8px 12px rgba(0,0,0,0.22))"}}>
+                  <ellipse cx="50" cy="92" rx="26" ry="5" fill="rgba(0,0,0,0.15)"/>
+                  {/* Ears */}
+                  <ellipse cx="38" cy="22" rx="7" ry="20" fill={isAdult?"#f9a8d4":"#fce7f3"} transform="rotate(-10 38 22)"/>
+                  <ellipse cx="62" cy="22" rx="7" ry="20" fill={isAdult?"#f9a8d4":"#fce7f3"} transform="rotate(10 62 22)"/>
+                  <ellipse cx="38" cy="22" rx="3.5" ry="15" fill="#fda4af" transform="rotate(-10 38 22)"/>
+                  <ellipse cx="62" cy="22" rx="3.5" ry="15" fill="#fda4af" transform="rotate(10 62 22)"/>
+                  {/* Body */}
+                  <ellipse cx="50" cy="68" rx="24" ry="22" fill={isAdult?"#f9a8d4":"#fce7f3"}/>
+                  <ellipse cx="50" cy="68" rx="16" ry="14" fill={isAdult?"#fbcfe8":"white"} opacity="0.6"/>
+                  {/* Head */}
+                  <circle cx="50" cy="44" r="16" fill={isAdult?"#f9a8d4":"#fce7f3"}/>
+                  <ellipse cx="50" cy="52" rx="7" ry="5" fill={isAdult?"#fbcfe8":"white"}/>
+                  {/* Nose */}
+                  <ellipse cx="50" cy="50" rx="2.5" ry="2" fill="#f43f5e"/>
+                  {/* Eyes */}
+                  <circle cx="43" cy="42" r="3.5" fill={isAdult?"#ec4899":"#be185d"}/>
+                  <circle cx="57" cy="42" r="3.5" fill={isAdult?"#ec4899":"#be185d"}/>
+                  <circle cx="44" cy="41" r="1" fill="white"/>
+                  <circle cx="58" cy="41" r="1" fill="white"/>
+                  {/* Whiskers */}
+                  <line x1="52" y1="50" x2="66" y2="47" stroke="rgba(0,0,0,0.2)" strokeWidth="0.8"/>
+                  <line x1="52" y1="51" x2="66" y2="52" stroke="rgba(0,0,0,0.2)" strokeWidth="0.8"/>
+                  <line x1="48" y1="50" x2="34" y2="47" stroke="rgba(0,0,0,0.2)" strokeWidth="0.8"/>
+                  <line x1="48" y1="51" x2="34" y2="52" stroke="rgba(0,0,0,0.2)" strokeWidth="0.8"/>
+                  {/* Tail */}
+                  <circle cx="72" cy="72" r="7" fill="white"/>
+                  {/* Feet */}
+                  <ellipse cx="39" cy="89" rx="12" ry="6" fill={isAdult?"#f9a8d4":"#fce7f3"} transform="rotate(-10 39 89)"/>
+                  <ellipse cx="61" cy="89" rx="12" ry="6" fill={isAdult?"#f9a8d4":"#fce7f3"} transform="rotate(10 61 89)"/>
+                  {isAdult && <text x="50" y="9" textAnchor="middle" fontSize="9" fill="#ec4899" fontWeight="900">★ TRƯỞNG THÀNH</text>}
+                </svg>
+              ),
+              pig: (
+                <svg width={s} height={s} viewBox="0 0 100 100" style={{filter:"drop-shadow(0 8px 14px rgba(0,0,0,0.25))"}}>
+                  <ellipse cx="50" cy="93" rx="30" ry="6" fill="rgba(0,0,0,0.18)"/>
+                  {/* Body */}
+                  <ellipse cx="50" cy="67" rx="30" ry="24" fill={isAdult?"#f97316":"#fdba74"}/>
+                  <ellipse cx="50" cy="64" rx="22" ry="16" fill={isAdult?"#ea580c":"#fb923c"} opacity="0.35"/>
+                  {/* Ears */}
+                  <ellipse cx="34" cy="34" rx="10" ry="8" fill={isAdult?"#f97316":"#fdba74"} transform="rotate(-25 34 34)"/>
+                  <ellipse cx="66" cy="34" rx="10" ry="8" fill={isAdult?"#f97316":"#fdba74"} transform="rotate(25 66 34)"/>
+                  <ellipse cx="34" cy="34" rx="5" ry="4" fill="#fda4af" transform="rotate(-25 34 34)"/>
+                  <ellipse cx="66" cy="34" rx="5" ry="4" fill="#fda4af" transform="rotate(25 66 34)"/>
+                  {/* Head */}
+                  <circle cx="50" cy="42" r="20" fill={isAdult?"#f97316":"#fdba74"}/>
+                  {/* Snout */}
+                  <ellipse cx="50" cy="52" rx="11" ry="8" fill={isAdult?"#ea580c":"#fb923c"}/>
+                  <circle cx="47" cy="52" r="2.5" fill="#7c2d12" opacity="0.6"/>
+                  <circle cx="53" cy="52" r="2.5" fill="#7c2d12" opacity="0.6"/>
+                  {/* Eyes */}
+                  <circle cx="41" cy="38" r="4" fill="white"/>
+                  <circle cx="59" cy="38" r="4" fill="white"/>
+                  <circle cx="42" cy="38" r="2" fill="#1c1917"/>
+                  <circle cx="60" cy="38" r="2" fill="#1c1917"/>
+                  <circle cx="42.7" cy="37.3" r="0.8" fill="white"/>
+                  <circle cx="60.7" cy="37.3" r="0.8" fill="white"/>
+                  {/* Curl tail */}
+                  <path d="M78 67 Q90 58 85 68 Q80 78 86 72" fill="none" stroke={isAdult?"#f97316":"#fdba74"} strokeWidth="4" strokeLinecap="round"/>
+                  {/* Legs */}
+                  <rect x="32" y="85" width="10" height="12" rx="5" fill={isAdult?"#f97316":"#fdba74"}/>
+                  <rect x="46" y="87" width="10" height="11" rx="5" fill={isAdult?"#f97316":"#fdba74"}/>
+                  <rect x="58" y="85" width="10" height="12" rx="5" fill={isAdult?"#f97316":"#fdba74"}/>
+                  {isAdult && <text x="50" y="9" textAnchor="middle" fontSize="9" fill="#ea580c" fontWeight="900">★ TRƯỞNG THÀNH</text>}
+                </svg>
+              ),
+              cow: (
+                <svg width={s} height={s} viewBox="0 0 100 100" style={{filter:"drop-shadow(0 10px 16px rgba(0,0,0,0.28))"}}>
+                  <ellipse cx="50" cy="94" rx="34" ry="5" fill="rgba(0,0,0,0.18)"/>
+                  {/* Horns */}
+                  <path d="M35 28 Q28 18 26 24 Q30 28 36 32" fill={isAdult?"#d97706":"#f59e0b"}/>
+                  <path d="M65 28 Q72 18 74 24 Q70 28 64 32" fill={isAdult?"#d97706":"#f59e0b"}/>
+                  {/* Body - spotted */}
+                  <ellipse cx="50" cy="67" rx="32" ry="26" fill="white"/>
+                  <ellipse cx="38" cy="58" rx="10" ry="8" fill={isAdult?"#78716c":"#a8a29e"} transform="rotate(-20 38 58)"/>
+                  <ellipse cx="62" cy="72" rx="8" ry="11" fill={isAdult?"#78716c":"#a8a29e"}/>
+                  <ellipse cx="44" cy="78" rx="7" ry="6" fill={isAdult?"#78716c":"#a8a29e"} transform="rotate(15 44 78)"/>
+                  {/* Head */}
+                  <ellipse cx="50" cy="38" rx="18" ry="16" fill="white"/>
+                  <ellipse cx="38" cy="37" rx="6" ry="7" fill={isAdult?"#78716c":"#a8a29e"}/>
+                  {/* Snout */}
+                  <ellipse cx="50" cy="48" rx="12" ry="8" fill="#fda4af"/>
+                  <circle cx="46" cy="48" r="2.5" fill="#be185d" opacity="0.5"/>
+                  <circle cx="54" cy="48" r="2.5" fill="#be185d" opacity="0.5"/>
+                  {/* Ears */}
+                  <ellipse cx="31" cy="32" rx="7" ry="5" fill="white" transform="rotate(-40 31 32)"/>
+                  <ellipse cx="69" cy="32" rx="7" ry="5" fill="white" transform="rotate(40 69 32)"/>
+                  <ellipse cx="31" cy="32" rx="4" ry="3" fill="#fda4af" transform="rotate(-40 31 32)"/>
+                  <ellipse cx="69" cy="32" rx="4" ry="3" fill="#fda4af" transform="rotate(40 69 32)"/>
+                  {/* Eyes */}
+                  <circle cx="42" cy="34" r="4" fill="#1c1917"/>
+                  <circle cx="58" cy="34" r="4" fill="#1c1917"/>
+                  <circle cx="43" cy="33" r="1.5" fill="white"/>
+                  <circle cx="59" cy="33" r="1.5" fill="white"/>
+                  {/* Udder */}
+                  <ellipse cx="50" cy="91" rx="14" ry="8" fill="#fda4af"/>
+                  {/* Legs */}
+                  <rect x="28" y="85" width="9" height="13" rx="4" fill={isAdult?"#78716c":"#a8a29e"}/>
+                  <rect x="40" y="87" width="9" height="12" rx="4" fill="white" stroke={isAdult?"#78716c":"#d1d5db"} strokeWidth="1"/>
+                  <rect x="51" y="87" width="9" height="12" rx="4" fill="white" stroke={isAdult?"#78716c":"#d1d5db"} strokeWidth="1"/>
+                  <rect x="63" y="85" width="9" height="13" rx="4" fill={isAdult?"#78716c":"#a8a29e"}/>
+                  {isAdult && <text x="50" y="9" textAnchor="middle" fontSize="9" fill="#16a34a" fontWeight="900">★ TRƯỞNG THÀNH</text>}
+                </svg>
+              ),
+              fox: (
+                <svg width={s} height={s} viewBox="0 0 100 100" style={{filter:"drop-shadow(0 8px 14px rgba(0,0,0,0.28))"}}>
+                  <ellipse cx="50" cy="93" rx="26" ry="5" fill="rgba(0,0,0,0.18)"/>
+                  {/* Tail */}
+                  <path d="M72 75 Q95 65 90 80 Q85 95 70 85 Q78 80 72 75" fill={isAdult?"#ea580c":"#f97316"}/>
+                  <ellipse cx="85" cy="82" rx="8" ry="6" fill="white" transform="rotate(-20 85 82)"/>
+                  {/* Body */}
+                  <ellipse cx="48" cy="68" rx="26" ry="21" fill={isAdult?"#ea580c":"#f97316"}/>
+                  <ellipse cx="48" cy="72" rx="14" ry="12" fill="white" opacity="0.7"/>
+                  {/* Ears pointed */}
+                  <path d="M33 32 L27 14 L42 28 Z" fill={isAdult?"#ea580c":"#f97316"}/>
+                  <path d="M67 32 L73 14 L58 28 Z" fill={isAdult?"#ea580c":"#f97316"}/>
+                  <path d="M34 32 L29 18 L41 29 Z" fill="#fda4af"/>
+                  <path d="M66 32 L71 18 L59 29 Z" fill="#fda4af"/>
+                  {/* Head */}
+                  <circle cx="50" cy="40" r="18" fill={isAdult?"#ea580c":"#f97316"}/>
+                  {/* Face white */}
+                  <ellipse cx="50" cy="44" rx="11" ry="9" fill="white"/>
+                  <ellipse cx="38" cy="42" rx="7" ry="8" fill="white" opacity="0.8"/>
+                  <ellipse cx="62" cy="42" rx="7" ry="8" fill="white" opacity="0.8"/>
+                  {/* Nose */}
+                  <ellipse cx="50" cy="48" rx="4" ry="2.5" fill="#1c1917"/>
+                  {/* Eyes - slit pupils */}
+                  <circle cx="42" cy="37" r="4.5" fill="#d97706"/>
+                  <circle cx="58" cy="37" r="4.5" fill="#d97706"/>
+                  <ellipse cx="42" cy="37" rx="1.5" ry="3" fill="#1c1917"/>
+                  <ellipse cx="58" cy="37" rx="1.5" ry="3" fill="#1c1917"/>
+                  <circle cx="43" cy="36" r="0.7" fill="white"/>
+                  <circle cx="59" cy="36" r="0.7" fill="white"/>
+                  {/* Whiskers */}
+                  <line x1="54" y1="48" x2="70" y2="44" stroke="white" strokeWidth="1" opacity="0.8"/>
+                  <line x1="54" y1="50" x2="70" y2="52" stroke="white" strokeWidth="1" opacity="0.8"/>
+                  <line x1="46" y1="48" x2="30" y2="44" stroke="white" strokeWidth="1" opacity="0.8"/>
+                  <line x1="46" y1="50" x2="30" y2="52" stroke="white" strokeWidth="1" opacity="0.8"/>
+                  {/* Legs */}
+                  <rect x="32" y="84" width="9" height="12" rx="4" fill={isAdult?"#ea580c":"#f97316"}/>
+                  <rect x="44" y="86" width="9" height="11" rx="4" fill={isAdult?"#ea580c":"#f97316"}/>
+                  <rect x="56" y="86" width="9" height="11" rx="4" fill={isAdult?"#ea580c":"#f97316"}/>
+                  {isAdult && <text x="50" y="9" textAnchor="middle" fontSize="9" fill="#ea580c" fontWeight="900">★ TRƯỞNG THÀNH</text>}
+                </svg>
+              ),
+            };
+            return arts[type] || <span style={{fontSize:"60px"}}>{isAdult?"🐄":"🐮"}</span>;
+          };
+
+          const zones = LIVESTOCK_TYPES.map(ltype => {
+            const animalsInZone = livestock.filter(a => a.type === ltype.id);
+            const zc = ZONE_CONFIG[ltype.id];
+            return { ltype, animalsInZone, zc };
+          });
+
+          return (
+            <div style={{padding:"10px 8px", minHeight:"100%"}}>
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px",flexWrap:"wrap",gap:"8px"}}>
+                <div style={{fontSize:"18px",fontWeight:"900",color:"#ea580c",display:"flex",alignItems:"center",gap:"6px"}}>🐾 Trang Trại Vật Nuôi</div>
+                {/* Kho nông sản nhỏ gọn */}
+                <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+                  {CROP_TYPES.filter(c=>c.produce).map(c => {
+                    const qty = produceInventory[c.produce.id]||0;
+                    return qty > 0 ? (
+                      <div key={c.produce.id} style={{background:"#dcfce7",borderRadius:"20px",padding:"3px 10px",fontSize:"11px",fontWeight:"700",color:"#166534",border:"1px solid #86efac"}}>
+                        {c.produce.emoji}{qty}
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+
+              {/* Lưu ý */}
+              <div style={{fontSize:"11px",color:"#78716c",marginBottom:"12px",background:"rgba(249,115,22,0.07)",borderRadius:"10px",padding:"7px 12px",border:"1px solid rgba(249,115,22,0.2)"}}>
+                🌾 Thu hoạch nông sản → cho vật nuôi ăn → lớn thành → làm quiz để nhận thưởng & từ vào Ô xanh!
+              </div>
+
+              {/* CÁC KHU PHÂN VÙNG */}
+              <div style={{display:"flex",flexDirection:"column",gap:"14px"}}>
+                {zones.map(({ltype, animalsInZone, zc}) => {
+                  const isFull = animalsInZone.length >= ltype.maxCount;
+                  const hasFood = ltype.food.some(fid=>(produceInventory[fid]||0)>0);
+                  return (
+                    <div key={ltype.id} style={{
+                      background: zc.bg,
+                      border: `2px solid ${zc.border}`,
+                      borderRadius:"20px",
+                      overflow:"hidden",
+                      boxShadow:`0 4px 18px ${zc.border}28`,
+                    }}>
+                      {/* Zone header */}
+                      <div style={{
+                        background:`${zc.border}22`,
+                        borderBottom:`1.5px solid ${zc.border}50`,
+                        padding:"8px 14px",
+                        display:"flex",alignItems:"center",justifyContent:"space-between",
+                      }}>
+                        <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                          <span style={{fontSize:"16px",fontWeight:"900",color:zc.floor}}>{zc.zoneName}</span>
+                          <span style={{fontSize:"10px",background:zc.border,color:"white",borderRadius:"20px",padding:"2px 8px",fontWeight:"700"}}>
+                            {animalsInZone.length}/{ltype.maxCount} con
+                          </span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                          <span style={{fontSize:"10px",color:zc.floor,fontWeight:"600"}}>{ltype.foodEmoji} {ltype.foodName}</span>
+                          {!isFull && availableWords.length > 0 && (
+                            <button onClick={()=>addLivestock(ltype.id)} style={{
+                              background:zc.border,color:"white",border:"none",borderRadius:"12px",
+                              padding:"5px 12px",fontSize:"11px",fontWeight:"800",cursor:"pointer",fontFamily:"inherit",
+                            }}>+ Thêm</button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Zone floor / animals */}
+                      <div style={{padding:"12px 14px",minHeight:"90px",position:"relative"}}>
+                        {/* Decorative floor lines */}
+                        <div style={{position:"absolute",bottom:0,left:0,right:0,height:"18px",background:`${zc.floor}18`,borderTop:`1.5px dashed ${zc.border}40`}}/>
+
+                        {animalsInZone.length === 0 ? (
+                          <div style={{textAlign:"center",padding:"16px 0",color:zc.floor,opacity:0.55}}>
+                            <div style={{fontSize:"28px",marginBottom:"4px"}}>🌿</div>
+                            <div style={{fontSize:"11px",fontWeight:"700"}}>Chuồng trống — bấm "+ Thêm" để nuôi!</div>
+                          </div>
+                        ) : (
+                          <div style={{display:"flex",gap:"12px",flexWrap:"wrap",alignItems:"flex-end",paddingBottom:"12px"}}>
+                            {animalsInZone.map(animal => {
+                              const progress = Math.min(100, (animal.feedCount/ltype.feedsNeeded)*100);
+                              const availFood = ltype.food.filter(fid=>(produceInventory[fid]||0)>0);
+                              return (
+                                <div key={animal.id} style={{
+                                  display:"flex",flexDirection:"column",alignItems:"center",
+                                  background:"rgba(255,255,255,0.72)",
+                                  borderRadius:"18px",padding:"10px 14px",
+                                  border:`2px solid ${animal.isAdult?zc.border:"transparent"}`,
+                                  boxShadow: animal.isAdult?`0 0 16px ${zc.border}55`:"0 2px 8px rgba(0,0,0,0.08)",
+                                  position:"relative",minWidth:"130px",
+                                  animation: animal.isAdult ? "bounce 1.8s ease-in-out infinite" : "none",
+                                }}>
+                                  {/* Từ ô vàng tag */}
+                                  <div style={{
+                                    position:"absolute",top:"-10px",left:"50%",transform:"translateX(-50%)",
+                                    background:"#fef3c7",border:"1.5px solid #f59e0b",borderRadius:"20px",
+                                    padding:"2px 10px",fontSize:"9px",fontWeight:"900",color:"#78350f",
+                                    whiteSpace:"nowrap",boxShadow:"0 2px 6px rgba(245,158,11,0.3)",
+                                  }}>📖 {animal.word}</div>
+
+                                  {/* 3D Animal Art */}
+                                  <div style={{marginTop:"6px"}}>
+                                    <AnimalArt3D type={ltype.id} isAdult={animal.isAdult} size={88}/>
+                                  </div>
+
+                                  {/* Progress or adult badge */}
+                                  {!animal.isAdult ? (
+                                    <div style={{width:"100%",marginTop:"6px"}}>
+                                      <div style={{fontSize:"9px",color:"#6b7280",textAlign:"center",marginBottom:"3px"}}>
+                                        🍽️ {animal.feedCount}/{ltype.feedsNeeded} lần
+                                      </div>
+                                      <div style={{height:"5px",background:"#e5e7eb",borderRadius:"5px",overflow:"hidden"}}>
+                                        <div style={{width:`${progress}%`,height:"100%",background:`linear-gradient(90deg,${zc.border},${zc.floor})`,borderRadius:"5px",transition:"width 0.4s"}}/>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div style={{fontSize:"9px",color:zc.floor,fontWeight:"900",marginTop:"4px",textAlign:"center"}}>✨ Sẵn sàng thu!</div>
+                                  )}
+
+                                  {/* Action buttons */}
+                                  <div style={{display:"flex",gap:"6px",marginTop:"8px"}}>
+                                    {animal.isAdult ? (
+                                      <button onClick={()=>harvestAnimal(animal.id)} style={{
+                                        background:`linear-gradient(135deg,${zc.border},${zc.floor})`,
+                                        color:"white",border:"none",borderRadius:"10px",
+                                        padding:"6px 12px",fontWeight:"900",fontSize:"11px",
+                                        cursor:"pointer",fontFamily:"inherit",
+                                        boxShadow:`0 3px 10px ${zc.border}55`,
+                                      }}>🎯 Thu hoạch</button>
+                                    ) : (
+                                      <button onClick={()=>feedAnimalAuto(animal.id)}
+                                        disabled={availFood.length===0}
+                                        style={{
+                                          background:availFood.length>0?`linear-gradient(135deg,#22c55e,#16a34a)`:"#e5e7eb",
+                                          color:availFood.length>0?"white":"#9ca3af",
+                                          border:"none",borderRadius:"10px",
+                                          padding:"6px 12px",fontWeight:"800",fontSize:"11px",
+                                          cursor:availFood.length>0?"pointer":"not-allowed",fontFamily:"inherit",
+                                        }}>🍽️ Cho ăn</button>
+                                    )}
+                                    <button onClick={()=>{
+                                      if(window.confirm(`Thả ${ltype.emoji} "${animal.word}"?`))
+                                        setLivestock(prev=>prev.filter(a=>a.id!==animal.id));
+                                    }} style={{background:"transparent",border:"1px solid #fca5a5",borderRadius:"10px",padding:"6px 8px",fontSize:"10px",color:"#ef4444",cursor:"pointer",fontFamily:"inherit"}}>🚪</button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {/* Ô trống thêm trong zone */}
+                            {!isFull && Array.from({length: ltype.maxCount - animalsInZone.length}).map((_,i)=>(
+                              <div key={`empty_${i}`} onClick={()=>addLivestock(ltype.id)} style={{
+                                width:"130px",minHeight:"160px",
+                                border:`2px dashed ${zc.border}60`,borderRadius:"18px",
+                                display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                                gap:"8px",cursor:"pointer",opacity:0.55,
+                                transition:"opacity 0.2s",
+                              }}
+                              onMouseEnter={e=>e.currentTarget.style.opacity="0.85"}
+                              onMouseLeave={e=>e.currentTarget.style.opacity="0.55"}
+                              >
+                                <div style={{fontSize:"32px",color:zc.border}}>+</div>
+                                <div style={{fontSize:"10px",color:zc.floor,fontWeight:"700",textAlign:"center",padding:"0 8px"}}>Thêm {ltype.name}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {availableWords.length === 0 && (
+                <div style={{marginTop:"12px",padding:"10px 14px",background:"#fef2f2",borderRadius:"12px",border:"1px solid #fecaca",fontSize:"12px",color:"#dc2626",fontWeight:"700",textAlign:"center"}}>
+                  ⚠️ Cần có từ trong Ô vàng để thêm vật nuôi!
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* ===== TAB NHIỆM VỤ ===== */}
         {activePanel === "quests" && (() => {
           // ===== HỆ THỐNG NHIỆM VỤ VÔ HẠN =====
@@ -4352,6 +5091,46 @@ const killPest = (plotId) => {
           </div>
         </div>
       )}
+
+      {/* Modal cho ăn vật nuôi */}
+      {showLivestockFeedMenu && feedTargetAnimalId && (() => {
+        const animal = livestock.find(a => a.id === feedTargetAnimalId);
+        if (!animal) return null;
+        const ltype = LIVESTOCK_TYPES.find(l => l.id === animal.type);
+        return (
+          <div onClick={() => { setShowLivestockFeedMenu(false); setFeedTargetAnimalId(null); }} style={S.itemMenuOverlay}>
+            <div onClick={e=>e.stopPropagation()} style={S.itemMenuBox}>
+              <div style={{fontSize:"36px",marginBottom:"6px"}}>{ltype.emoji}</div>
+              <h3 style={{margin:"0 0 4px 0"}}>Cho {ltype.name} ăn</h3>
+              <div style={{fontSize:"12px",color:"#78716c",marginBottom:"12px"}}>Thức ăn hợp lệ: {ltype.foodEmoji} {ltype.foodName}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:"8px",marginBottom:"16px"}}>
+                {ltype.food.map(fid => {
+                  const crop = CROP_TYPES.find(c => c.produce?.id === fid);
+                  const qty = produceInventory[fid] || 0;
+                  return (
+                    <button key={fid} onClick={() => feedAnimal(feedTargetAnimalId, fid)} disabled={qty<=0} style={{
+                      display:"flex",alignItems:"center",gap:"12px",
+                      padding:"10px 14px",borderRadius:"12px",
+                      background:qty>0?"linear-gradient(135deg,#dcfce7,#d1fae5)":"#f3f4f6",
+                      border:`2px solid ${qty>0?"#34d399":"#e5e7eb"}`,
+                      cursor:qty>0?"pointer":"not-allowed",fontFamily:"inherit",
+                      opacity:qty>0?1:0.5,
+                    }}>
+                      <span style={{fontSize:"24px"}}>{crop?.produce?.emoji}</span>
+                      <div style={{textAlign:"left"}}>
+                        <div style={{fontWeight:"800",fontSize:"13px",color:qty>0?"#065f46":"#9ca3af"}}>{crop?.produce?.name}</div>
+                        <div style={{fontSize:"11px",color:qty>0?"#16a34a":"#d1d5db"}}>Kho: <b>{qty}</b> cái</div>
+                      </div>
+                      {qty>0 && <span style={{marginLeft:"auto",fontSize:"18px"}}>✅</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <button onClick={() => { setShowLivestockFeedMenu(false); setFeedTargetAnimalId(null); }} style={{width:"100%",padding:"10px",background:"#e5e7eb",border:"none",borderRadius:"10px",cursor:"pointer",fontWeight:"600",fontSize:"14px"}}>Hủy</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal chọn ô để dùng vật phẩm */}
       {showItemMenu && selectedItemId && (
