@@ -6362,7 +6362,7 @@ const handleSaveToFile = async () => {
             <span style={{ marginLeft:"auto", background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.wrongWords||[]).length}</span>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
-            {renderTags(stats.masteredWords, "#4CAF50", "#e8f5e9", "masteredWords", null, true)}
+            {renderTags(stats.wrongWords, "#F44336", "#ffebee", "wrongWords", null, true)}
           </div>
         </div>
 
@@ -6374,7 +6374,7 @@ const handleSaveToFile = async () => {
             <span style={{ marginLeft:"auto", background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.masteredWords||[]).length}</span>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
-            {renderTags(stats.wrongWords, "#F44336", "#ffebee", "wrongWords", null, true)}
+            {renderTags(stats.masteredWords, "#4CAF50", "#e8f5e9", "masteredWords", null, true)}
           </div>
         </div>
       </div>
