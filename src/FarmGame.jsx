@@ -50,15 +50,15 @@ const SEASONS = {
 const SEASON_ORDER = ["spring", "summer", "autumn", "winter"];
 
 // ===== LỊCH NÔNG TRẠI =====
-// 1 ngày  = 10 phút thực      = 600 giây
-// 1 tháng = 30 ngày            = 300 phút = 18.000 giây (~5 tiếng thực)
-// 1 mùa   = 3 tháng            = 90 ngày  = 54.000 giây (~15 tiếng thực)
+// 1 ngày  = 5 phút thực       = 300 giây
+// 1 tháng = 30 ngày            = 150 phút = 9.000 giây (~2.5 tiếng thực)
+// 1 mùa   = 3 tháng            = 90 ngày  = 27.000 giây (~7.5 tiếng thực)
 // 1 năm   = 4 mùa              = 12 tháng = 360 ngày
-const FARM_DAY_SEC          = 600;                                  // 10 phút / ngày
+const FARM_DAY_SEC          = 300;                                  // 5 phút / ngày
 const FARM_DAYS_PER_MONTH   = 30;                                   // 30 ngày / tháng
 const FARM_MONTHS_PER_SEASON = 3;                                   // 3 tháng / mùa
 const FARM_DAYS_PER_SEASON  = FARM_DAYS_PER_MONTH * FARM_MONTHS_PER_SEASON; // 90 ngày / mùa
-const SEASON_DURATION_SEC   = FARM_DAY_SEC * FARM_DAYS_PER_SEASON; // 54.000 giây / mùa
+const SEASON_DURATION_SEC   = FARM_DAY_SEC * FARM_DAYS_PER_SEASON; // 27.000 giây / mùa
 // Thời tiết đổi mỗi ngày (600s), để nhất quán với 1 ngày = 1 thời tiết
 const WEATHER_DURATION_SEC  = FARM_DAY_SEC;
 
@@ -292,6 +292,9 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [farmDay, setFarmDay]     = useState(1);   // ngày trong mùa: 1–90
   const [farmMonth, setFarmMonth] = useState(1);   // tháng trong mùa: 1–3
   const [farmYear, setFarmYear]   = useState(1);   // năm nông trại
+  // Giờ trong ngày: 0–23 (tua nhanh, 1 ngày thực = 24 giờ nông trại → cứ 300/24 ≈ 12.5s thực = +1 giờ)
+  const [farmHour, setFarmHour] = useState(6);  // bắt đầu từ 6 giờ sáng
+  const [farmMinute, setFarmMinute] = useState(0);
   const [dailyGemCrop, setDailyGemCrop] = useState(() =>
     getDailyGemCropId(1, 1, 0) // khởi tạo ban đầu: năm 1, ngày 1, xuân
   );
@@ -353,6 +356,8 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [livestockQuizState, setLivestockQuizState] = useState(null); // { animalId, word, wordData, question }
   const [showLivestockFeedMenu, setShowLivestockFeedMenu] = useState(false);
   const [feedTargetAnimalId, setFeedTargetAnimalId] = useState(null);
+  const [showSeedTradeModal, setShowSeedTradeModal] = useState(false);
+  const [seasonTransition, setSeasonTransition] = useState(null); // { name, emoji, color }
 
   // ===== HÀM CẬP NHẬP CẤP ĐỘ =====
   const updateLevel = (newExp, currentPlots, currentPlotCount) => {
@@ -533,6 +538,25 @@ const expandWithGems = () => {
   setShowExpandModal(false);
 };
 
+// ===== ĐỔI HẠT GIỐNG LẤY XU =====
+const SEED_TRADE_OPTIONS = [
+  { seeds: 1, coins: 5,  label: "1 hạt → 5🪙",   desc: "Tỉ lệ thấp nhất" },
+  { seeds: 3, coins: 18, label: "3 hạt → 18🪙",  desc: "Tiết kiệm hơn" },
+  { seeds: 5, coins: 35, label: "5 hạt → 35🪙",  desc: "Phổ biến nhất" },
+  { seeds: 10, coins: 80, label: "10 hạt → 80🪙", desc: "Giá tốt nhất" },
+];
+
+const tradeSeedsForCoins = (option) => {
+  if (seeds < option.seeds) {
+    notify(`🌱 Không đủ hạt! Cần ${option.seeds} hạt (bạn có ${seeds})`, "#ef4444");
+    return;
+  }
+  setSeeds(prev => prev - option.seeds);
+  setCoins(prev => prev + option.coins);
+  notify(`🌱→🪙 Đã đổi ${option.seeds} hạt lấy ${option.coins} xu!`, "#f59e0b");
+  checkAchievements({ coins: coins + option.coins });
+};
+
   // ===== LOAD DỮ LIỆU =====
   useEffect(() => {
     const loadFarmData = async () => {
@@ -568,6 +592,8 @@ const expandWithGems = () => {
             setFarmDay(loadedDay);
             setFarmMonth(loadedMonth);
             setFarmYear(loadedYear);
+            setFarmHour(farmState.farmHour ?? 6);
+            setFarmMinute(farmState.farmMinute ?? 0);
             setDailyGemCrop(getDailyGemCropId(loadedYear, loadedDay, loadedSeasonIdx));
             setInventory(farmState.inventory ?? {});
             setProduceInventory(farmState.produceInventory ?? {});
@@ -667,7 +693,7 @@ const expandWithGems = () => {
       try {
         const farmState = {
           plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
-          farmDay, farmMonth, farmYear,
+          farmDay, farmMonth, farmYear, farmHour, farmMinute,
           inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements,
           level, exp, ancientTrees, livestock,
           lastSaved: Date.now()
@@ -681,7 +707,7 @@ const expandWithGems = () => {
     
     return () => clearTimeout(saveTimeout);
   }, [plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
-      farmDay, farmMonth, farmYear,
+      farmDay, farmMonth, farmYear, farmHour, farmMinute,
       inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements, level, exp, ancientTrees, livestock, currentUser, isLoading]);
 
   // ===== THEO DÕI STREAK =====
@@ -739,10 +765,31 @@ const expandWithGems = () => {
   }, []);
 
   // ===== LỊCH NÔNG TRẠI & THỜI TIẾT =====
-  // weatherTimer đếm ngược 1 ngày (600s) → sang ngày mới, đổi thời tiết, tính cây gem
-  // seasonTimer  đếm ngược 1 mùa (54.000s = 90 ngày × 600s) → đổi mùa
+  // weatherTimer đếm ngược 1 ngày (300s) → sang ngày mới, đổi thời tiết, tính cây gem
+  // seasonTimer  đếm ngược 1 mùa (27.000s = 90 ngày × 300s) → đổi mùa
+  // farmHour/farmMinute: đồng hồ 24h tua nhanh — 300 giây thực = 24 giờ nông trại
+  //   → mỗi giây thực = 24/300 * 60 phút = 4.8 phút nông trại
+  //   → mỗi giây thực = 4 phút + 48 giây nông trại ≈ tăng +4 phút 48s mỗi tick
+  const FARM_MINS_PER_REAL_SEC = (24 * 60) / FARM_DAY_SEC; // 4.8 phút nông trại / giây thực
   useEffect(() => {
+    let farmClockAccum = 0; // tích lũy phút lẻ
     const tick = setInterval(() => {
+
+      // ── Cập nhật đồng hồ 24h nông trại ──
+      farmClockAccum += FARM_MINS_PER_REAL_SEC;
+      const addMins = Math.floor(farmClockAccum);
+      farmClockAccum -= addMins;
+      if (addMins > 0) {
+        setFarmMinute(prevMin => {
+          const totalMins = prevMin + addMins;
+          const newMin = totalMins % 60;
+          const addHrs = Math.floor(totalMins / 60);
+          if (addHrs > 0) {
+            setFarmHour(prevHr => (prevHr + addHrs) % 24);
+          }
+          return newMin;
+        });
+      }
 
       // ── Mỗi giây: đếm ngày (weatherTimer) ──
       setWeatherTimer(prev => {
@@ -768,6 +815,10 @@ const expandWithGems = () => {
                 // Thay đổi thời tiết ngẫu nhiên theo mùa
                 const pool = SEASON_WEATHER[currentSeason];
                 setWeather(pool[Math.floor(Math.random() * pool.length)]);
+
+                // Reset đồng hồ về 00:00 mỗi ngày mới
+                setFarmHour(0);
+                setFarmMinute(0);
 
                 const gemCropName = CROP_TYPES.find(c => c.id === newGemCropId)?.name || "";
                 const gemCropEmoji = CROP_TYPES.find(c => c.id === newGemCropId)?.emoji || "🌾";
@@ -807,6 +858,12 @@ const expandWithGems = () => {
             // Reset ngày/tháng về đầu mùa
             setFarmDay(1);
             setFarmMonth(1);
+            setFarmHour(6);
+            setFarmMinute(0);
+
+            // Hiệu ứng chuyển mùa
+            setSeasonTransition({ name: SEASONS[nextSeason].name, emoji: SEASONS[nextSeason].emoji, color: SEASONS[nextSeason].color });
+            setTimeout(() => setSeasonTransition(null), 4000);
 
             // Tính cây gem cho ngày đầu mùa mới
             const newGemCropId = getDailyGemCropId(nextYear, 1, nextSeasonIdx);
@@ -2276,7 +2333,7 @@ const killPest = (plotId) => {
     wrap: {
       height: "calc(100vh / 0.75)", width: "calc(100vw / 0.75)", display: "flex", flexDirection: "column",
       fontFamily: "'Nunito', 'Segoe UI', system-ui, sans-serif",
-      background: s.bg, transition: "background 1.5s", boxSizing: "border-box",
+      background: s.bg, transition: "background 2s ease", boxSizing: "border-box",
       overflow: "hidden", position: "fixed", top: 0, left: 0,
       zoom: "0.75",
     },
@@ -2386,6 +2443,132 @@ const killPest = (plotId) => {
 
   return (
     <div style={S.wrap}>
+      {/* ===== NGÀY / ĐÊM OVERLAY ===== */}
+      {(() => {
+        // Tính độ tối/sáng theo giờ
+        // 0-4: đêm sâu, 5-6: bình minh, 7-17: ngày, 18-19: hoàng hôn, 20-23: đêm
+        let nightOpacity = 0;
+        let nightColor = "rgba(10,15,40,";
+        let sunsetColor = null;
+        if (farmHour >= 0 && farmHour < 4) {
+          nightOpacity = 0.55; // đêm sâu
+        } else if (farmHour === 4) {
+          nightOpacity = 0.45 + (1 - farmMinute/60) * 0.10;
+        } else if (farmHour === 5) {
+          // bình minh — chuyển từ tối sang hồng
+          nightOpacity = 0.20;
+          sunsetColor = `rgba(255,120,60,${0.18 - (farmMinute/60)*0.18})`;
+        } else if (farmHour === 6) {
+          nightOpacity = 0.05;
+        } else if (farmHour >= 7 && farmHour < 17) {
+          nightOpacity = 0; // ban ngày hoàn toàn
+        } else if (farmHour === 17) {
+          sunsetColor = `rgba(255,100,30,${(farmMinute/60)*0.25})`;
+          nightOpacity = 0;
+        } else if (farmHour === 18) {
+          sunsetColor = `rgba(255,80,20,${0.25 + (farmMinute/60)*0.10})`;
+          nightOpacity = (farmMinute/60)*0.10;
+        } else if (farmHour === 19) {
+          sunsetColor = `rgba(180,60,20,${0.18})`;
+          nightOpacity = 0.10 + (farmMinute/60)*0.20;
+        } else if (farmHour === 20) {
+          nightOpacity = 0.30 + (farmMinute/60)*0.15;
+        } else if (farmHour >= 21) {
+          nightOpacity = 0.45 + Math.min(0.10, (farmHour-21)*0.05);
+        }
+        return (
+          <>
+            {nightOpacity > 0 && (
+              <div style={{
+                position:"fixed",inset:0,pointerEvents:"none",zIndex:48,
+                background:`radial-gradient(ellipse at 50% 0%, rgba(30,40,80,0) 30%, ${nightColor}${nightOpacity}) 100%)`,
+                transition:"background 2s ease",
+              }}/>
+            )}
+            {sunsetColor && (
+              <div style={{
+                position:"fixed",inset:0,pointerEvents:"none",zIndex:47,
+                background:`radial-gradient(ellipse at 70% 10%, ${sunsetColor}, transparent 55%)`,
+                transition:"background 2s ease",
+              }}/>
+            )}
+            {/* Sao ban đêm */}
+            {nightOpacity > 0.3 && (
+              <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:49,overflow:"hidden"}}>
+                {[
+                  {x:"15%",y:"8%",s:2},{x:"35%",y:"5%",s:1.5},{x:"55%",y:"10%",s:2.5},
+                  {x:"72%",y:"4%",s:1.5},{x:"85%",y:"12%",s:2},{x:"25%",y:"15%",s:1},
+                  {x:"65%",y:"18%",s:1.5},{x:"90%",y:"8%",s:2},{x:"8%",y:"20%",s:1.5},
+                  {x:"45%",y:"3%",s:1},{x:"78%",y:"22%",s:2.5},{x:"12%",y:"30%",s:1},
+                ].map((star,i) => (
+                  <div key={i} style={{
+                    position:"absolute",left:star.x,top:star.y,
+                    width:`${star.s}px`,height:`${star.s}px`,
+                    background:"white",borderRadius:"50%",
+                    opacity: Math.min(1, (nightOpacity-0.3)*2.5),
+                    animation:`bgStars ${2.5+i*0.3}s ease-in-out ${i*0.4}s infinite`,
+                  }}/>
+                ))}
+                {/* Mặt trăng */}
+                <div style={{
+                  position:"absolute",top:"5%",right:"10%",
+                  width:"28px",height:"28px",
+                  background:"radial-gradient(circle at 35% 35%, #fff8e7, #e8d5a3)",
+                  borderRadius:"50%",
+                  boxShadow:"0 0 20px rgba(255,240,180,0.6)",
+                  opacity: Math.min(1, (nightOpacity-0.3)*3),
+                  transition:"opacity 2s",
+                }}/>
+              </div>
+            )}
+            {/* Mặt trời ban ngày */}
+            {farmHour >= 6 && farmHour < 18 && nightOpacity < 0.1 && (
+              <div style={{
+                position:"fixed",
+                top: farmHour < 12 ? `${5 + (12-farmHour)*2}%` : `${5 + (farmHour-12)*2}%`,
+                right: farmHour < 12 ? `${10+(12-farmHour)*3}%` : `${10+(farmHour-12)*4}%`,
+                width:"36px",height:"36px",
+                background:"radial-gradient(circle at 40% 40%, #fff176, #fdd835)",
+                borderRadius:"50%",
+                boxShadow:"0 0 30px rgba(255,220,0,0.5), 0 0 60px rgba(255,200,0,0.25)",
+                pointerEvents:"none",zIndex:46,
+                animation:"sunGlow 4s ease-in-out infinite",
+                transition:"top 8s linear, right 8s linear, box-shadow 2s",
+              }}/>
+            )}
+          </>
+        );
+      })()}
+
+      {/* ===== CHUYỂN MÙA ANIMATION ===== */}
+      {seasonTransition && (
+        <div style={{
+          position:"fixed",inset:0,pointerEvents:"none",zIndex:2000,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          animation:"seasonFlashIn 4s ease-out forwards",
+        }}>
+          <div style={{
+            background:`radial-gradient(ellipse at center, ${seasonTransition.color}88 0%, ${seasonTransition.color}44 50%, transparent 75%)`,
+            position:"absolute",inset:0,
+          }}/>
+          <div style={{
+            textAlign:"center",zIndex:1,
+            animation:"seasonTextPop 4s ease-out forwards",
+          }}>
+            <div style={{fontSize:"80px",filter:`drop-shadow(0 0 40px ${seasonTransition.color})`}}>
+              {seasonTransition.emoji}
+            </div>
+            <div style={{
+              fontSize:"28px",fontWeight:"900",color:"white",
+              textShadow:`0 0 30px ${seasonTransition.color}, 0 2px 8px rgba(0,0,0,0.5)`,
+              marginTop:"12px",letterSpacing:"2px",
+            }}>
+              MÙA {seasonTransition.name.toUpperCase()} ĐÃ ĐẾN!
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===== WEATHER OVERLAY ===== */}
 
       {/* SUNNY — màn hình sáng, tia nắng */}
@@ -2571,6 +2754,28 @@ const killPest = (plotId) => {
         html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; }
         * { box-sizing: border-box; }
         @keyframes popIn { from{opacity:0;transform:scale(0.8)} to{opacity:1;transform:scale(1)} }
+        @keyframes seasonFlashIn {
+          0%   { opacity: 0; }
+          15%  { opacity: 1; }
+          70%  { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        @keyframes seasonTextPop {
+          0%   { opacity: 0; transform: scale(0.5) translateY(30px); }
+          20%  { opacity: 1; transform: scale(1.1) translateY(0px); }
+          35%  { transform: scale(1) translateY(0px); }
+          80%  { opacity: 1; transform: scale(1) translateY(0px); }
+          100% { opacity: 0; transform: scale(0.8) translateY(-20px); }
+        }
+        @keyframes dayNightFade {
+          0%, 100% { opacity: 0.7; }
+          50% { opacity: 1; }
+        }
+        @keyframes clockTick {
+          0%   { transform: scale(1); }
+          50%  { transform: scale(1.03); }
+          100% { transform: scale(1); }
+        }
         @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
         @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} }
         @keyframes harvestPop { 0%{opacity:0;transform:translateY(0) scale(0.5)} 50%{opacity:1;transform:translateY(-28px) scale(1.2)} 100%{opacity:0;transform:translateY(-58px) scale(0.8)} }
@@ -2900,8 +3105,21 @@ const killPest = (plotId) => {
             display:"flex",alignItems:"center",gap:"4px",
           }}>
             📅 N{farmDay} T{farmMonth} Năm {farmYear}
-            <span style={{fontSize:"9px",color:"#9ca3af",marginLeft:"2px"}}>
-              ({Math.floor(weatherTimer/60)}p{weatherTimer%60}s)
+            <span style={{
+              fontSize:"11px",fontWeight:"900",
+              color: farmHour >= 5 && farmHour < 12 ? "#f97316"
+                   : farmHour >= 12 && farmHour < 17 ? "#eab308"
+                   : farmHour >= 17 && farmHour < 20 ? "#f97316"
+                   : "#6366f1",
+              marginLeft:"4px",
+              background: farmHour >= 5 && farmHour < 12 ? "rgba(249,115,22,0.1)"
+                        : farmHour >= 12 && farmHour < 17 ? "rgba(234,179,8,0.1)"
+                        : farmHour >= 17 && farmHour < 20 ? "rgba(249,115,22,0.08)"
+                        : "rgba(99,102,241,0.12)",
+              borderRadius:"12px", padding:"1px 7px",
+            }}>
+              {farmHour >= 5 && farmHour < 12 ? "🌅" : farmHour >= 12 && farmHour < 17 ? "☀️" : farmHour >= 17 && farmHour < 20 ? "🌇" : "🌙"}
+              {" "}{String(farmHour).padStart(2,"0")}:{String(farmMinute).padStart(2,"0")}
             </span>
           </span>
           {/* Season indicator */}
@@ -2914,7 +3132,7 @@ const killPest = (plotId) => {
           }}>
             {s.icon} Mùa {s.name}
             <span style={{fontSize:"9px",opacity:0.7,marginLeft:"2px"}}>
-              {Math.floor(seasonTimer/3600)}g{Math.floor((seasonTimer%3600)/60)}p
+              còn {Math.ceil(seasonTimer/FARM_DAY_SEC)} ngày
             </span>
           </span>
           {/* Cây gem hôm nay */}
@@ -3650,10 +3868,14 @@ const killPest = (plotId) => {
               )}
             </div>
 
-            <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "16px", padding: "16px", textAlign: "center" }}>
-              <div style={{ fontSize: "14px", fontWeight: "800" }}>🌱 Hạt giống: {seeds}</div>
-              <div style={{ fontSize: "12px", color: "#6b7280" }}>Trả lời đúng để nhận thêm hạt!</div>
-              <button style={{ marginTop: "10px", background: "linear-gradient(135deg,#16a34a,#22c55e)", color: "white", border: "none", borderRadius: "12px", padding: "10px 24px", fontWeight: "800", cursor: "pointer", fontSize: "13px" }} onClick={() => startQuiz(null)}>📝 Học từ nhận hạt</button>
+            <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "16px", padding: "16px", textAlign: "center", marginBottom: "14px" }}>
+              <div style={{ fontSize: "20px", marginBottom: "6px" }}>🌱 Hạt Giống</div>
+              <div style={{ fontSize: "14px", fontWeight: "800", marginBottom: "4px" }}>Bạn có: <span style={{ color: "#16a34a" }}>{seeds} hạt</span></div>
+              <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "12px" }}>Trả lời đúng để nhận thêm hạt — hoặc đổi hạt lấy xu!</div>
+              <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
+                <button style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)", color: "white", border: "none", borderRadius: "12px", padding: "10px 20px", fontWeight: "800", cursor: "pointer", fontSize: "13px" }} onClick={() => startQuiz(null)}>📝 Học từ nhận hạt</button>
+                <button style={{ background: "linear-gradient(135deg,#f59e0b,#fbbf24)", color: "white", border: "none", borderRadius: "12px", padding: "10px 20px", fontWeight: "800", cursor: "pointer", fontSize: "13px" }} onClick={() => setShowSeedTradeModal(true)}>🌱→🪙 Đổi hạt lấy xu</button>
+              </div>
             </div>
 
             {/* ===== CHỢ NÔNG SẢN ===== */}
@@ -3686,7 +3908,7 @@ const killPest = (plotId) => {
               })()}
 
               <div style={{ fontSize: "10px", color: "#9ca3af", textAlign: "center", marginBottom: "12px" }}>
-                Cây gem đổi mỗi ngày (10 phút) • Giữ nông sản để bán đúng ngày cây đặc biệt!
+                Cây gem đổi mỗi ngày (5 phút thực) • Giữ nông sản để bán đúng ngày cây đặc biệt!
               </div>
 
               {(() => {
@@ -5132,7 +5354,74 @@ const killPest = (plotId) => {
         );
       })()}
 
-      {/* Modal chọn ô để dùng vật phẩm */}
+      {/* ===== MODAL ĐỔI HẠT GIỐNG LẤY XU ===== */}
+      {showSeedTradeModal && (
+        <div onClick={() => setShowSeedTradeModal(false)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1100,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:"16px",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:"linear-gradient(160deg,#fffbeb,#fef3c7,#fff7ed)",
+            borderRadius:"24px",padding:"24px",maxWidth:"360px",width:"100%",
+            border:"2px solid #fbbf24",boxShadow:"0 8px 32px rgba(251,191,36,0.25)",
+            animation:"popIn 0.3s ease-out",
+          }}>
+            <div style={{textAlign:"center",marginBottom:"16px"}}>
+              <div style={{fontSize:"48px"}}>🌱→🪙</div>
+              <h3 style={{margin:"6px 0 4px",fontSize:"18px",fontWeight:"900",color:"#78350f"}}>Đổi Hạt Giống Lấy Xu</h3>
+              <div style={{fontSize:"13px",color:"#92400e"}}>
+                Bạn có: <strong style={{color:"#16a34a"}}>{seeds} hạt</strong>
+              </div>
+            </div>
+
+            <div style={{display:"flex",flexDirection:"column",gap:"10px",marginBottom:"16px"}}>
+              {SEED_TRADE_OPTIONS.map(opt => (
+                <button key={opt.seeds} onClick={() => tradeSeedsForCoins(opt)}
+                  disabled={seeds < opt.seeds}
+                  style={{
+                    display:"flex",alignItems:"center",justifyContent:"space-between",
+                    padding:"12px 16px",borderRadius:"14px",
+                    background: seeds >= opt.seeds
+                      ? "linear-gradient(135deg,#fff7ed,#fef3c7)"
+                      : "#f3f4f6",
+                    border: seeds >= opt.seeds ? "1.5px solid #f59e0b" : "1.5px solid #e5e7eb",
+                    cursor: seeds >= opt.seeds ? "pointer" : "not-allowed",
+                    opacity: seeds >= opt.seeds ? 1 : 0.5,
+                    fontFamily:"inherit",
+                    boxShadow: seeds >= opt.seeds ? "0 2px 8px rgba(245,158,11,0.15)" : "none",
+                  }}>
+                  <div style={{textAlign:"left"}}>
+                    <div style={{fontSize:"15px",fontWeight:"900",color: seeds >= opt.seeds ? "#92400e" : "#6b7280"}}>
+                      {opt.label}
+                    </div>
+                    <div style={{fontSize:"11px",color:"#9ca3af"}}>{opt.desc}</div>
+                  </div>
+                  <div style={{
+                    background: seeds >= opt.seeds ? "linear-gradient(135deg,#f59e0b,#fbbf24)" : "#d1d5db",
+                    color:"white",borderRadius:"10px",padding:"6px 14px",
+                    fontWeight:"800",fontSize:"13px",
+                  }}>
+                    {seeds >= opt.seeds ? "Đổi ngay" : `Thiếu ${opt.seeds - seeds} hạt`}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div style={{
+              background:"rgba(245,158,11,0.1)",borderRadius:"12px",padding:"10px 14px",
+              fontSize:"11px",color:"#92400e",textAlign:"center",marginBottom:"14px",
+            }}>
+              💡 Mẹo: Học từ để nhận hạt miễn phí. Tỉ lệ đổi tốt hơn khi đổi nhiều hạt một lúc!
+            </div>
+
+            <button onClick={() => setShowSeedTradeModal(false)} style={{
+              width:"100%",padding:"12px",background:"linear-gradient(135deg,#374151,#4b5563)",
+              color:"white",border:"none",borderRadius:"14px",
+              fontWeight:"800",fontSize:"14px",cursor:"pointer",fontFamily:"inherit",
+            }}>✕ Đóng</button>
+          </div>
+        </div>
+      )}
       {showItemMenu && selectedItemId && (
         <div onClick={() => { setShowItemMenu(false); setSelectedItemId(null); }} style={S.itemMenuOverlay}>
           <div onClick={e => e.stopPropagation()} style={S.itemMenuBox}>
