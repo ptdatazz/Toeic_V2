@@ -274,6 +274,107 @@ const genQuestionForWord = (wordObj) => {
   };
 };
 
+// ===== BÙ THỜI GIAN OFFLINE =====
+// Tính tiến toàn bộ trạng thái nông trại theo số giây đã trôi qua khi offline
+function applyOfflineTime(farmState, offlineSecs) {
+  if (!farmState || offlineSecs <= 0) return farmState;
+  // Giới hạn tối đa 7 ngày thực để tránh bù quá nhiều
+  const secs = Math.min(offlineSecs, 604800);
+
+  // --- Bù cây trồng (plots) ---
+  const CROP_GROW_TIMES = {
+    wheat: 30, carrot: 45, strawberry: 60, corn: 75,
+    watermelon: 120, mushroom: 90, pumpkin: 100, cherry: 80,
+  };
+  const updatedPlots = (farmState.plots || []).map(plot => {
+    // Bỏ qua ô trống, đã trưởng thành, hoặc đang bị sâu
+    if (plot.stage === 0 || plot.stage === 3 || plot.hasPest) return plot;
+    const growTime = CROP_GROW_TIMES[plot.crop] || 30;
+    let remaining = plot.timeLeft || 0;
+    let stage = plot.stage;
+    let elapsed = secs;
+    while (elapsed > 0 && stage < 3) {
+      if (elapsed >= remaining) {
+        elapsed -= remaining;
+        stage++;
+        remaining = stage < 3 ? growTime : 0;
+      } else {
+        remaining -= elapsed;
+        elapsed = 0;
+      }
+    }
+    return { ...plot, stage, timeLeft: stage < 3 ? remaining : 0 };
+  });
+
+  // --- Bù lịch nông trại (mùa, ngày, tháng, năm) ---
+  const _SEASON_ORDER = ["spring", "summer", "autumn", "winter"];
+  const _FARM_DAY_SEC = 300;
+  const _FARM_DAYS_PER_MONTH = 30;
+  const _FARM_MONTHS_PER_SEASON = 3;
+  const _SEASON_DURATION_SEC = 27000;
+
+  let seasonTimer = farmState.seasonTimer ?? _SEASON_DURATION_SEC;
+  let weatherTimer = farmState.weatherTimer ?? _FARM_DAY_SEC;
+  let season = farmState.season ?? "spring";
+  let farmDay = farmState.farmDay ?? 1;
+  let farmMonth = farmState.farmMonth ?? 1;
+  let farmYear = farmState.farmYear ?? 1;
+
+  // Bù từng "ngày nông trại" (300s) một để chính xác
+  let remainSecs = secs;
+  while (remainSecs > 0) {
+    const tickDay = Math.min(remainSecs, weatherTimer);
+    weatherTimer -= tickDay;
+    seasonTimer -= tickDay;
+    remainSecs -= tickDay;
+
+    if (weatherTimer <= 0) {
+      weatherTimer = _FARM_DAY_SEC;
+      farmDay++;
+      if (farmDay > _FARM_DAYS_PER_MONTH) {
+        farmDay = 1;
+        farmMonth++;
+        if (farmMonth > _FARM_MONTHS_PER_SEASON) {
+          farmMonth = 1;
+        }
+      }
+    }
+
+    if (seasonTimer <= 0) {
+      seasonTimer = _SEASON_DURATION_SEC;
+      const idx = _SEASON_ORDER.indexOf(season);
+      const nextIdx = (idx + 1) % 4;
+      season = _SEASON_ORDER[nextIdx];
+      farmDay = 1;
+      farmMonth = 1;
+      if (nextIdx === 0) farmYear++;
+    }
+  }
+
+  // Đổi thời tiết ngẫu nhiên theo mùa mới (nếu mùa thay đổi)
+  const SEASON_WEATHER_OFFLINE = {
+    spring: ["sunny", "rainy", "cloudy"],
+    summer: ["sunny", "sunny", "cloudy", "stormy"],
+    autumn: ["sunny", "rainy", "cloudy"],
+    winter: ["cloudy", "rainy", "stormy"],
+  };
+  const newWeather = season !== farmState.season
+    ? (() => { const pool = SEASON_WEATHER_OFFLINE[season]; return pool[Math.floor(Math.random() * pool.length)]; })()
+    : (farmState.weather ?? "sunny");
+
+  return {
+    ...farmState,
+    plots: updatedPlots,
+    seasonTimer,
+    weatherTimer,
+    season,
+    farmDay,
+    farmMonth,
+    farmYear,
+    weather: newWeather,
+  };
+}
+
 export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveWord, onMoveWord, stats, currentUser, playSound }) {
   // ===== STATE CƠ BẢN =====
   const [plots, setPlots] = useState([]);
@@ -572,40 +673,50 @@ const tradeSeedsForCoins = (option) => {
         if (docSnap.exists()) {
           const farmState = docSnap.data()?.farmState;
           if (farmState && farmState.plots) {
-            setPlots(farmState.plots);
-            setPlotCount(farmState.plotCount ?? DEFAULT_PLOT_COUNT);
-            setCoins(farmState.coins ?? 50);
-            setGems(farmState.gems ?? 0);
-            setSeeds(farmState.seeds ?? 3);
-            setScore(farmState.score ?? 0);
-            setStreak(farmState.streak ?? 0);
-            setWeather(farmState.weather ?? "sunny");
-            setSeason(farmState.season ?? "spring");
-            setSeasonTimer(farmState.seasonTimer ?? SEASON_DURATION_SEC);
-            setWeatherTimer(farmState.weatherTimer ?? WEATHER_DURATION_SEC);
+            // ===== BÙ THỜI GIAN OFFLINE =====
+            const lastSaved = farmState.lastSaved || Date.now();
+            const offlineSecs = Math.floor((Date.now() - lastSaved) / 1000);
+            // Chỉ bù nếu offline hơn 5 giây
+            const fs = offlineSecs > 5 ? applyOfflineTime(farmState, offlineSecs) : farmState;
+            if (offlineSecs > 60) {
+              const mins = Math.floor(offlineSecs / 60);
+              console.log(`[🌾 Farm] Offline ${mins} phút → đã bù thời gian cho cây & lịch`);
+            }
+            // ====================================
+            setPlots(fs.plots);
+            setPlotCount(fs.plotCount ?? DEFAULT_PLOT_COUNT);
+            setCoins(fs.coins ?? 50);
+            setGems(fs.gems ?? 0);
+            setSeeds(fs.seeds ?? 3);
+            setScore(fs.score ?? 0);
+            setStreak(fs.streak ?? 0);
+            setWeather(fs.weather ?? "sunny");
+            setSeason(fs.season ?? "spring");
+            setSeasonTimer(Math.min(fs.seasonTimer ?? SEASON_DURATION_SEC, SEASON_DURATION_SEC));
+            setWeatherTimer(fs.weatherTimer ?? WEATHER_DURATION_SEC);
             // Lịch nông trại
-            const loadedDay   = farmState.farmDay   ?? 1;
-            const loadedMonth = farmState.farmMonth ?? 1;
-            const loadedYear  = farmState.farmYear  ?? 1;
-            const loadedSeason = farmState.season ?? "spring";
+            const loadedDay   = fs.farmDay   ?? 1;
+            const loadedMonth = fs.farmMonth ?? 1;
+            const loadedYear  = fs.farmYear  ?? 1;
+            const loadedSeason = fs.season ?? "spring";
             const loadedSeasonIdx = Math.max(0, SEASON_ORDER.indexOf(loadedSeason));
             setFarmDay(loadedDay);
             setFarmMonth(loadedMonth);
             setFarmYear(loadedYear);
-            setFarmHour(farmState.farmHour ?? 6);
-            setFarmMinute(farmState.farmMinute ?? 0);
+            setFarmHour(fs.farmHour ?? 6);
+            setFarmMinute(fs.farmMinute ?? 0);
             setDailyGemCrop(getDailyGemCropId(loadedYear, loadedDay, loadedSeasonIdx));
-            setInventory(farmState.inventory ?? {});
-            setProduceInventory(farmState.produceInventory ?? {});
-            setRemainingKills(farmState.remainingKills ?? 0);
-            setLastStreakValue(farmState.streak ?? 0);
-            setPestKilled(farmState.pestKilled ?? 0);
-            setWordsMastered(farmState.wordsMastered ?? 0);
-            setAchievements(farmState.achievements ?? []);
-            setLevel(farmState.level ?? 1);
-            setExp(farmState.exp ?? 0);
-            setAncientTrees(farmState.ancientTrees || []);
-            setLivestock(farmState.livestock || []);
+            setInventory(fs.inventory ?? {});
+            setProduceInventory(fs.produceInventory ?? {});
+            setRemainingKills(fs.remainingKills ?? 0);
+            setLastStreakValue(fs.streak ?? 0);
+            setPestKilled(fs.pestKilled ?? 0);
+            setWordsMastered(fs.wordsMastered ?? 0);
+            setAchievements(fs.achievements ?? []);
+            setLevel(fs.level ?? 1);
+            setExp(fs.exp ?? 0);
+            setAncientTrees(fs.ancientTrees || []);
+            setLivestock(fs.livestock || []);
 
           } else {
             const newPlots = Array.from({ length: DEFAULT_PLOT_COUNT }, (_, i) => ({
