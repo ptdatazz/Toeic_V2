@@ -65,7 +65,7 @@ const WEATHER_DURATION_SEC  = FARM_DAY_SEC;
 // ===== THỜI TIẾT =====
 const WEATHER_TYPES = {
   sunny:   { emoji: "☀️",  label: "Nắng",    tip: "Cây mọc bình thường",     growMult: 1.0,  rewardMult: 1.0,  pestChance: 0.10 },
-  cloudy:  { emoji: "⛅",  label: "Sáng tối", tip: "Cây mọc chậm hơn 20%",   growMult: 0.8,  rewardMult: 1.0,  pestChance: 0.12 },
+  cloudy:  { emoji: "⛅",  label: "Âm u", tip: "Cây mọc chậm hơn 20%",   growMult: 0.8,  rewardMult: 1.0,  pestChance: 0.12 },
   rainy:   { emoji: "🌧️", label: "Mưa",     tip: "Cây mọc nhanh 30%, +50% xu!", growMult: 1.3, rewardMult: 1.5, pestChance: 0.08 },
   stormy:  { emoji: "⛈️",  label: "Bão",     tip: "Cây dễ bị sâu, hái +20% xu!", growMult: 0.6, rewardMult: 1.2, pestChance: 0.35 },
 };
@@ -2492,23 +2492,53 @@ const killPest = (plotId) => {
       background: "linear-gradient(90deg,#8b5cf6,#c084fc)", height: "100%",
       borderRadius: "10px", transition: "width 0.3s",
     },
-    tabBar: {
-      display: "flex", gap: "8px", padding: "7px 20px",
-      background: "rgba(255,255,255,0.45)", flexShrink: 0, alignItems: "center", flexWrap: "wrap",
+    tabBar: { display: "none" },
+    tab: () => ({}),
+    floatingNav: {
+      position: "fixed",
+      right: "14px",
+      top: "50%",
+      transform: "translateY(-50%)",
+      display: "flex",
+      flexDirection: "column",
+      gap: "10px",
+      zIndex: 200,
     },
-    tab: (active, color) => ({
-      background: active ? color : "rgba(255,255,255,0.85)",
-      color: active ? "white" : "#374151",
-      border: "none", borderRadius: "12px", padding: "8px 16px",
-      fontWeight: "800", fontSize: "13px", cursor: "pointer", fontFamily: "inherit",
-      boxShadow: active ? `0 4px 12px ${color}40` : "0 1px 4px rgba(0,0,0,0.08)",
-      transition: "all 0.15s",
+    floatingBtn: (active, color) => ({
+      width: "52px",
+      height: "52px",
+      borderRadius: "50%",
+      border: "none",
+      cursor: "pointer",
+      fontFamily: "inherit",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: "20px",
+      background: active
+        ? `linear-gradient(135deg, ${color}, ${color}cc)`
+        : "rgba(255,255,255,0.92)",
+      boxShadow: active
+        ? `0 4px 16px ${color}55, 0 0 0 3px ${color}33`
+        : "0 2px 10px rgba(0,0,0,0.15)",
+      transform: active ? "scale(1.12)" : "scale(1)",
+      transition: "all 0.2s cubic-bezier(0.34,1.56,0.64,1)",
+      backdropFilter: "blur(8px)",
+    }),
+    floatingBtnLabel: (active) => ({
+      fontSize: "8px",
+      fontWeight: "800",
+      color: active ? "rgba(255,255,255,0.9)" : "#6b7280",
+      marginTop: "1px",
+      lineHeight: 1,
+      letterSpacing: "0.3px",
     }),
     alertChip: (bg, color) => ({
       background: bg, color, padding: "4px 11px", borderRadius: "10px",
       fontWeight: "800", fontSize: "12px", marginLeft: "4px",
     }),
-    main: { flex: 1, overflowY: "auto", padding: "12px 20px", display: "flex", flexDirection: "column" },
+    main: { flex: 1, overflowY: "auto", padding: "12px 80px 12px 20px", display: "flex", flexDirection: "column" },
     sectionLabel: { fontSize: "13px", fontWeight: "800", color: "#374151", marginBottom: "10px", display: "flex", alignItems: "center", gap: "5px" },
     cropBtn: (active, crop) => ({
       background: active ? crop.color : "rgba(255,255,255,0.85)",
@@ -2554,98 +2584,202 @@ const killPest = (plotId) => {
 
   return (
     <div style={S.wrap}>
-      {/* ===== NGÀY / ĐÊM OVERLAY ===== */}
+      {/* ===== NGÀY / ĐÊM OVERLAY — hệ thống arc mặt trời/trăng ===== */}
       {(() => {
-        // Tính độ tối/sáng theo giờ
-        // 0-4: đêm sâu, 5-6: bình minh, 7-17: ngày, 18-19: hoàng hôn, 20-23: đêm
+        // ── Thời gian dạng số thực (giờ + phút/60) ──
+        const timeH = farmHour + farmMinute / 60;
+
+        // ── Pha mặt trăng theo ngày trong mùa (farmDay 1–90) ──
+        // Chu kỳ trăng: 29.5 ngày. Dùng farmDay để tính pha.
+        // Ngày 0 = trăng mới (không có trăng), ngày 7 = bán nguyệt, ngày 15 = trăng tròn
+        const lunarCycle = 29.5;
+        const dayInCycle = ((farmDay - 1) % lunarCycle);
+        const moonPhase = dayInCycle / lunarCycle; // 0..1
+        // Ngày trăng mới (0–1.5 ngày) → không hiện trăng
+        const noMoon = dayInCycle < 1.5 || dayInCycle > 28;
+
+        // ── Tính % chiếu sáng mặt trăng (0 = trăng mới, 1 = trăng tròn) ──
+        // Sử dụng sin để tạo cong tự nhiên
+        const moonIllum = Math.abs(Math.sin(moonPhase * Math.PI)); // 0→1→0
+
+        // ── Vị trí arc mặt trời: 5h30 → 17h30 ──
+        // t = 0 tại 5h30, t = 1 tại 17h30 (12 giờ)
+        const sunRise = 5.5, sunSet = 17.5;
+        const sunDuration = sunSet - sunRise; // 12h
+        const sunT = Math.max(0, Math.min(1, (timeH - sunRise) / sunDuration));
+        // Arc hình cung sin: x từ 3%→97%, y = đỉnh 4% ở 12h, thấp 85% ở 2 đầu
+        const sunX = sunT * 94 + 3; // % từ trái sang phải
+        const sunY = 85 - Math.sin(sunT * Math.PI) * 78; // % top (thấp = xa trên)
+        const sunVisible = timeH >= sunRise && timeH <= sunSet;
+
+        // Màu mặt trời theo giờ: bình minh/hoàng hôn đỏ cam, ban ngày vàng trắng
+        const sunColorT = Math.sin(sunT * Math.PI); // 0→1→0 (đỉnh = giữa trưa)
+        const sunR = Math.round(255);
+        const sunG = Math.round(180 + sunColorT * 70); // 180→250→180
+        const sunB = Math.round(50 + sunColorT * 100);  // 50→150→50
+        const sunGlow = `rgba(${sunR},${sunG},${sunB},`;
+
+        // ── Vị trí arc mặt trăng: 17h30 → 5h30 hôm sau (12 giờ đêm) ──
+        const moonRise = 17.5;
+        // Giờ ban đêm: đổi về 0–12 để tính t
+        let moonTimeH = timeH;
+        if (timeH < moonRise) moonTimeH = timeH + 24; // wrap qua nửa đêm
+        const moonDuration = 12;
+        const moonT = Math.max(0, Math.min(1, (moonTimeH - moonRise) / moonDuration));
+        const moonX = moonT * 94 + 3;
+        const moonY = 85 - Math.sin(moonT * Math.PI) * 72;
+        const moonVisible = !noMoon && (timeH >= moonRise || timeH <= sunRise);
+
+        // ── Ánh sáng ambient theo giờ ──
+        // 0=đêm sâu → 0.55 tối, 5.5–17.5=ngày → 0, chuyển mượt
         let nightOpacity = 0;
-        let nightColor = "rgba(10,15,40,";
-        let sunsetColor = null;
-        if (farmHour >= 0 && farmHour < 4) {
-          nightOpacity = 0.55; // đêm sâu
-        } else if (farmHour === 4) {
-          nightOpacity = 0.45 + (1 - farmMinute/60) * 0.10;
-        } else if (farmHour === 5) {
-          // bình minh — chuyển từ tối sang hồng
-          nightOpacity = 0.20;
-          sunsetColor = `rgba(255,120,60,${0.18 - (farmMinute/60)*0.18})`;
-        } else if (farmHour === 6) {
-          nightOpacity = 0.05;
-        } else if (farmHour >= 7 && farmHour < 17) {
-          nightOpacity = 0; // ban ngày hoàn toàn
-        } else if (farmHour === 17) {
-          sunsetColor = `rgba(255,100,30,${(farmMinute/60)*0.25})`;
-          nightOpacity = 0;
-        } else if (farmHour === 18) {
-          sunsetColor = `rgba(255,80,20,${0.25 + (farmMinute/60)*0.10})`;
-          nightOpacity = (farmMinute/60)*0.10;
-        } else if (farmHour === 19) {
-          sunsetColor = `rgba(180,60,20,${0.18})`;
-          nightOpacity = 0.10 + (farmMinute/60)*0.20;
-        } else if (farmHour === 20) {
-          nightOpacity = 0.30 + (farmMinute/60)*0.15;
-        } else if (farmHour >= 21) {
-          nightOpacity = 0.45 + Math.min(0.10, (farmHour-21)*0.05);
+        if (timeH >= 0 && timeH < sunRise) {
+          // Đêm → bình minh: tối dần từ 0.55 → 0
+          const t = timeH / sunRise;
+          nightOpacity = 0.55 * (1 - Math.pow(t, 1.5));
+        } else if (timeH >= sunRise && timeH < 7) {
+          // Bình minh: 0 → trong sáng
+          nightOpacity = 0.05 * (1 - (timeH - sunRise) / 1.5);
+        } else if (timeH >= 7 && timeH < sunSet - 1) {
+          nightOpacity = 0; // ban ngày
+        } else if (timeH >= sunSet - 1 && timeH <= sunSet + 1) {
+          // Hoàng hôn 16h30–18h30
+          const t = (timeH - (sunSet - 1)) / 2;
+          nightOpacity = t * 0.15;
+        } else if (timeH > sunSet + 1) {
+          // Tối dần sau hoàng hôn
+          const t = Math.min(1, (timeH - sunSet - 1) / 4);
+          nightOpacity = 0.15 + t * 0.40;
         }
+
+        // Màu hoàng hôn/bình minh
+        let sunsetAlpha = 0;
+        let sunsetX = "50%", sunsetY = "10%";
+        if (timeH >= sunRise && timeH < sunRise + 1.5) {
+          sunsetAlpha = 0.30 * (1 - (timeH - sunRise) / 1.5);
+          sunsetX = `${sunX}%`; sunsetY = `${sunY}%`;
+        } else if (timeH >= sunSet - 1 && timeH <= sunSet + 1) {
+          sunsetAlpha = 0.35 * Math.sin(((timeH - (sunSet-1)) / 2) * Math.PI);
+          sunsetX = `${sunX}%`; sunsetY = `${sunY}%`;
+        }
+
+        // ── SVG mặt trăng với pha ──
+        // Dùng SVG clip path để vẽ lưỡi liềm / bán nguyệt / tròn
+        const moonSize = 26;
+        const moonSVG = (() => {
+          if (noMoon) return null;
+          const r = moonSize / 2;
+          const illum = moonIllum; // 0..1
+          // illum < 0.5: trăng khuyết (lưỡi liềm), > 0.5: trăng lớn
+          // Vẽ trăng dùng 2 đường tròn overlap
+          const cx = r, cy = r;
+          // Bán kính hình tròn che: khi illum=0 → che hoàn toàn, illum=1 → không che
+          const shadowR = r;
+          // Offset tâm hình che: dịch từ phải sang trái khi trăng lớn dần
+          const shadowOffsetX = r - illum * r * 2; // -r→+r
+          const moonFill = "#fffde7";
+          const shadowFill = "#0a0f28";
+          return (
+            <svg width={moonSize} height={moonSize} style={{overflow:"visible",display:"block"}}>
+              <defs>
+                <clipPath id="moonClip">
+                  <circle cx={cx} cy={cy} r={r} />
+                </clipPath>
+              </defs>
+              {/* Nền trăng sáng */}
+              <circle cx={cx} cy={cy} r={r} fill={moonFill} />
+              {/* Bóng che tạo pha */}
+              {illum < 0.98 && (
+                <circle
+                  cx={cx + shadowOffsetX}
+                  cy={cy}
+                  r={shadowR}
+                  fill={shadowFill}
+                  clipPath="url(#moonClip)"
+                  opacity={0.88}
+                />
+              )}
+              {/* Texture mặt trăng */}
+              <circle cx={cx-4} cy={cy-3} r={2.5} fill="rgba(0,0,0,0.07)" clipPath="url(#moonClip)" />
+              <circle cx={cx+3} cy={cy+4} r={1.8} fill="rgba(0,0,0,0.06)" clipPath="url(#moonClip)" />
+              <circle cx={cx+5} cy={cy-5} r={1.2} fill="rgba(0,0,0,0.05)" clipPath="url(#moonClip)" />
+            </svg>
+          );
+        })();
+
         return (
           <>
+            {/* Overlay tối ban đêm */}
             {nightOpacity > 0 && (
               <div style={{
                 position:"fixed",inset:0,pointerEvents:"none",zIndex:48,
-                background:`radial-gradient(ellipse at 50% 0%, rgba(30,40,80,0) 30%, ${nightColor}${nightOpacity}) 100%)`,
-                transition:"background 2s ease",
+                background:`linear-gradient(180deg, rgba(10,15,50,${nightOpacity}) 0%, rgba(5,10,35,${nightOpacity*0.7}) 100%)`,
+                transition:"background 3s ease",
               }}/>
             )}
-            {sunsetColor && (
+
+            {/* Overlay hoàng hôn / bình minh */}
+            {sunsetAlpha > 0 && (
               <div style={{
                 position:"fixed",inset:0,pointerEvents:"none",zIndex:47,
-                background:`radial-gradient(ellipse at 70% 10%, ${sunsetColor}, transparent 55%)`,
-                transition:"background 2s ease",
+                background:`radial-gradient(ellipse at ${sunsetX} ${sunsetY}, rgba(255,110,40,${sunsetAlpha}) 0%, rgba(255,60,0,${sunsetAlpha*0.5}) 35%, transparent 70%)`,
+                transition:"background 3s ease",
               }}/>
             )}
-            {/* Sao ban đêm */}
-            {nightOpacity > 0.3 && (
-              <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:49,overflow:"hidden"}}>
-                {[
-                  {x:"15%",y:"8%",s:2},{x:"35%",y:"5%",s:1.5},{x:"55%",y:"10%",s:2.5},
-                  {x:"72%",y:"4%",s:1.5},{x:"85%",y:"12%",s:2},{x:"25%",y:"15%",s:1},
-                  {x:"65%",y:"18%",s:1.5},{x:"90%",y:"8%",s:2},{x:"8%",y:"20%",s:1.5},
-                  {x:"45%",y:"3%",s:1},{x:"78%",y:"22%",s:2.5},{x:"12%",y:"30%",s:1},
-                ].map((star,i) => (
-                  <div key={i} style={{
-                    position:"absolute",left:star.x,top:star.y,
-                    width:`${star.s}px`,height:`${star.s}px`,
-                    background:"white",borderRadius:"50%",
-                    opacity: Math.min(1, (nightOpacity-0.3)*2.5),
-                    animation:`bgStars ${2.5+i*0.3}s ease-in-out ${i*0.4}s infinite`,
-                  }}/>
-                ))}
-                {/* Mặt trăng */}
-                <div style={{
-                  position:"absolute",top:"5%",right:"10%",
-                  width:"28px",height:"28px",
-                  background:"radial-gradient(circle at 35% 35%, #fff8e7, #e8d5a3)",
-                  borderRadius:"50%",
-                  boxShadow:"0 0 20px rgba(255,240,180,0.6)",
-                  opacity: Math.min(1, (nightOpacity-0.3)*3),
-                  transition:"opacity 2s",
-                }}/>
-              </div>
-            )}
-            {/* Mặt trời ban ngày */}
-            {farmHour >= 6 && farmHour < 18 && nightOpacity < 0.1 && (
+
+            {/* Mặt trời — arc từ trái sang phải */}
+            {sunVisible && (
               <div style={{
                 position:"fixed",
-                top: farmHour < 12 ? `${5 + (12-farmHour)*2}%` : `${5 + (farmHour-12)*2}%`,
-                right: farmHour < 12 ? `${10+(12-farmHour)*3}%` : `${10+(farmHour-12)*4}%`,
+                left:`calc(${sunX}% - 18px)`,
+                top:`calc(${sunY}% - 18px)`,
                 width:"36px",height:"36px",
-                background:"radial-gradient(circle at 40% 40%, #fff176, #fdd835)",
+                background:`radial-gradient(circle at 40% 38%, #fff9c4, ${sunGlow}1) 55%, rgba(255,160,0,0.8))`,
                 borderRadius:"50%",
-                boxShadow:"0 0 30px rgba(255,220,0,0.5), 0 0 60px rgba(255,200,0,0.25)",
+                boxShadow:`0 0 ${16+sunColorT*20}px ${sunGlow}0.7), 0 0 ${40+sunColorT*40}px ${sunGlow}0.3)`,
                 pointerEvents:"none",zIndex:46,
                 animation:"sunGlow 4s ease-in-out infinite",
-                transition:"top 8s linear, right 8s linear, box-shadow 2s",
+                transition:"left 6s linear, top 6s linear",
               }}/>
+            )}
+
+            {/* Sao và mặt trăng ban đêm */}
+            {nightOpacity > 0.08 && (
+              <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:49,overflow:"hidden"}}>
+                {/* Sao */}
+                {[
+                  {x:12,y:6,s:1.8},{x:28,y:4,s:1.2},{x:45,y:8,s:2.2},{x:62,y:3,s:1.5},
+                  {x:75,y:9,s:2},{x:88,y:5,s:1.2},{x:20,y:14,s:1},{x:52,y:16,s:1.5},
+                  {x:70,y:12,s:1},{x:38,y:19,s:1.8},{x:83,y:18,s:1.3},{x:6,y:22,s:1},
+                  {x:33,y:25,s:0.9},{x:58,y:22,s:1.4},{x:92,y:15,s:1.8},{x:48,y:11,s:0.8},
+                ].map((star,i) => (
+                  <div key={i} style={{
+                    position:"absolute",
+                    left:`${star.x}%`,top:`${star.y}%`,
+                    width:`${star.s}px`,height:`${star.s}px`,
+                    background:"white",borderRadius:"50%",
+                    opacity: Math.min(1, (nightOpacity - 0.08) * 3) * (0.6 + Math.sin(i)*0.4),
+                    animation:`bgStars ${2.2+i*0.25}s ease-in-out ${i*0.35}s infinite`,
+                  }}/>
+                ))}
+
+                {/* Mặt trăng — arc từ trái sang phải ban đêm */}
+                {moonVisible && moonSVG && (
+                  <div style={{
+                    position:"fixed",
+                    left:`calc(${moonX}% - 13px)`,
+                    top:`calc(${moonY}% - 13px)`,
+                    width:`${moonSize}px`,height:`${moonSize}px`,
+                    filter:`drop-shadow(0 0 ${6+moonIllum*12}px rgba(255,240,180,${0.4+moonIllum*0.5}))`,
+                    opacity: Math.min(1, (nightOpacity - 0.05) * 4),
+                    transition:"left 6s linear, top 6s linear, opacity 3s",
+                    pointerEvents:"none",
+                    zIndex:50,
+                  }}>
+                    {moonSVG}
+                  </div>
+                )}
+              </div>
             )}
           </>
         );
@@ -3291,21 +3425,49 @@ const killPest = (plotId) => {
         </div>
       </div>
 
-      <div style={S.tabBar}>
+      {/* Floating Navigation Icons */}
+      <div style={S.floatingNav}>
         {[
-          { id: "farm", label: "🌾 Nông trại", color: "#16a34a" },
-          { id: "quiz", label: "📝 Học từ",    color: "#1d4ed8" },
-          { id: "shop", label: "🏪 Cửa hàng",  color: "#7c3aed" },
-          { id: "ancient", label: "🌳 Cây cổ thụ", color: "#8b5cf6" },
-          { id: "livestock", label: "🐄 Vật nuôi", color: "#f97316" },
-          { id: "quests", label: "🏆 Nhiệm vụ", color: "#f59e0b" },
-        ].map((tab) => (
-          <button key={tab.id} className="tab-btn" style={S.tab(activePanel === tab.id, tab.color)} onClick={() => { if (tab.id === "quiz") startQuiz(null); else setActivePanel(tab.id); }}>{tab.label}</button>
-        ))}
-        <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center" }}>
-          {readyToHarvest > 0 && <span style={{ ...S.alertChip("#dcfce7", "#16a34a"), animation: "bounce 1s infinite" }}>🎉 {readyToHarvest} ô sẵn thu!</span>}
-          {pestCount > 0 && <span style={{ ...S.alertChip("#fee2e2", "#dc2626"), animation: "shake 0.6s infinite" }}>🐛 {pestCount} ô có sâu!</span>}
-        </div>
+          { id: "farm",      emoji: "🌾", label: "Nông trại", color: "#16a34a" },
+          { id: "quiz",      emoji: "📝", label: "Học từ",    color: "#1d4ed8" },
+          { id: "shop",      emoji: "🏪", label: "Cửa hàng",  color: "#7c3aed" },
+          { id: "ancient",   emoji: "🌳", label: "Cổ thụ",    color: "#8b5cf6" },
+          { id: "livestock", emoji: "🐄", label: "Vật nuôi",  color: "#f97316" },
+          { id: "quests",    emoji: "🏆", label: "Nhiệm vụ",  color: "#f59e0b" },
+        ].map((tab) => {
+          const isActive = activePanel === tab.id;
+          const badge = tab.id === "farm" && readyToHarvest > 0
+            ? readyToHarvest
+            : tab.id === "farm" && pestCount > 0
+            ? "!"
+            : null;
+          return (
+            <div key={tab.id} style={{ position: "relative" }}>
+              <button
+                style={S.floatingBtn(isActive, tab.color)}
+                onClick={() => { if (tab.id === "quiz") startQuiz(null); else setActivePanel(tab.id); }}
+                title={tab.label}
+              >
+                <span style={{ lineHeight: 1 }}>{tab.emoji}</span>
+                <span style={S.floatingBtnLabel(isActive)}>{tab.label}</span>
+              </button>
+              {badge && (
+                <div style={{
+                  position: "absolute", top: "-4px", right: "-4px",
+                  background: tab.id === "farm" && pestCount > 0 ? "#ef4444" : "#16a34a",
+                  color: "white", borderRadius: "50%",
+                  width: "18px", height: "18px",
+                  fontSize: "9px", fontWeight: "800",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+                  animation: "bounce 1s infinite",
+                }}>
+                  {typeof badge === "number" ? badge : "!"}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div style={S.main}>
