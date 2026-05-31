@@ -5675,7 +5675,7 @@ LƯU Ý: Phần "formulas", "usages", "examples", "toeic_tips" là các mảng, 
   );
 }
 
-function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveWord, onMoveManyWords, onRemoveManyWords, onUploadGrammarFile, customGrammarNotes = [], defaultTab = "vocab", currentUser, onRefreshNotes }) {  const [activeTab, setActiveTab] = useState(defaultTab);
+function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveWord, onMoveManyWords, onRemoveManyWords, onUploadGrammarFile, customGrammarNotes = [], defaultTab = "vocab", currentUser, onRefreshNotes, onUpdateWordObjs }) {  const [activeTab, setActiveTab] = useState(defaultTab);
   const [newWord, setNewWord] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [selectedToDelete, setSelectedToDelete] = useState(new Set());
@@ -6276,19 +6276,73 @@ const handleSaveToFile = async () => {
         <button
           disabled={isReloading || isAdding}
           onClick={async () => {
-            const dict = globalStats[activeTab]?.addedWordsObj || [];
-            if (dict.length === 0) return alert("Chưa có từ nào trong sổ tay!");
-            if (!window.confirm(`Reload nghĩa cho ${dict.length} từ? Có thể mất vài phút.`)) return;
-            setIsReloading(true); setReloadProgress({ done: 0, total: dict.length });
-            let updatedList = [];
-            for (let i = 0; i < dict.length; i++) {
-              const item = dict[i]; const wordStr = typeof item === "string" ? item : item.word;
-              try { const r = await fetchAI(wordStr, activeTab); r.word = wordStr; updatedList.push(r); } catch(e) { updatedList.push(item); }
-              setReloadProgress({ done: i + 1, total: dict.length });
+            const stats = globalStats[activeTab] || {};
+            const dict = stats.addedWordsObj || [];
+
+            // Hàm kiểm tra từ có thiếu nghĩa không
+            const hasMeaning = (item) => {
+              if (!item || typeof item !== "object") return false;
+              return !!(item.meaning?.trim() || item.noun_meaning?.trim() || item.verb_meaning?.trim() || item.adj_meaning?.trim());
+            };
+
+            // Tìm tất cả từ đang nằm trong các ô (savedWords, masteredWords, wrongWords)
+            const allWords = [
+              ...(stats.savedWords || []),
+              ...(stats.masteredWords || []),
+              ...(stats.wrongWords || []),
+            ];
+            const normalizeW = (w) => (typeof w === "string" ? w : (w?.word || "")).toLowerCase().replace(/\s*\(.*?\)\s*/g, "").trim();
+
+            // Tìm từ thiếu nghĩa: có trong các ô nhưng không có object đầy đủ trong addedWordsObj
+            const wordsMissingMeaning = [];
+            const seen = new Set();
+            for (const w of allWords) {
+              const wStr = normalizeW(w);
+              if (!wStr || seen.has(wStr)) continue;
+              seen.add(wStr);
+              const existing = dict.find(obj => normalizeW(obj) === wStr);
+              if (!hasMeaning(existing)) {
+                wordsMissingMeaning.push(typeof w === "string" ? w : (w?.word || wStr));
+              }
+            }
+
+            if (wordsMissingMeaning.length === 0) return alert("✅ Tất cả từ đã có nghĩa đầy đủ rồi!");
+            if (!window.confirm(`Tìm thấy ${wordsMissingMeaning.length} từ bị thiếu nghĩa.\nTự động reload chỉ các từ này thôi?`)) return;
+
+            setIsReloading(true);
+            setReloadProgress({ done: 0, total: wordsMissingMeaning.length });
+
+            // Tạo bản sao addedWordsObj để cập nhật vào đúng chỗ
+            let updatedObjs = [...dict];
+
+            for (let i = 0; i < wordsMissingMeaning.length; i++) {
+              const wordStr = wordsMissingMeaning[i];
+              const normStr = normalizeW(wordStr);
+              try {
+                const r = await fetchAI(wordStr, activeTab);
+                r.word = wordStr;
+                // Tìm và thay thế nếu đã có, hoặc thêm mới vào addedWordsObj
+                const idx = updatedObjs.findIndex(obj => normalizeW(obj) === normStr);
+                if (idx !== -1) {
+                  updatedObjs[idx] = r;
+                } else {
+                  updatedObjs.push(r);
+                }
+              } catch(e) {
+                console.warn("Lỗi reload từ:", wordStr, e);
+              }
+              setReloadProgress({ done: i + 1, total: wordsMissingMeaning.length });
               await new Promise(r => setTimeout(r, 300));
             }
-            await onSaveWord(activeTab, updatedList);
-            setIsReloading(false); alert("✅ Đã cập nhật xong toàn bộ nghĩa!");
+
+            // Chỉ cập nhật addedWordsObj, KHÔNG đụng đến savedWords/masteredWords/wrongWords
+            if (onUpdateWordObjs) {
+              await onUpdateWordObjs(activeTab, updatedObjs);
+            } else {
+              await onSaveWord(activeTab, updatedObjs);
+            }
+            setIsReloading(false);
+            alert(`✅ Đã reload xong ${wordsMissingMeaning.length} từ bị thiếu nghĩa!`);
           }}
           style={{ background:"rgba(255,255,255,0.18)", border:"none", color:"white", borderRadius:"10px", padding:"6px 14px", cursor: isReloading ? "not-allowed":"pointer", fontWeight:"bold", fontSize:"13px", fontFamily:"inherit", opacity: isReloading ? 0.6 : 1 }}>
           {isReloading ? `🔄 ${reloadProgress.done}/${reloadProgress.total}` : "🔄 Reload nghĩa"}
@@ -7751,6 +7805,21 @@ ${part === "part6" ? "Đoạn văn có 4 chỗ trống ___1___ ___2___ ___3___ _
   };
 
 
+
+  // === HÀM CHỈ CẬP NHẬT addedWordsObj (KHÔNG đụng đến savedWords/masteredWords/wrongWords) ===
+  const handleUpdateWordObjs = async (type, newObjsArray) => {
+    if (!currentUser) return;
+    try {
+      await updateDoc(doc(db, "users", currentUser.uid), {
+        [`${type}.addedWordsObj`]: newObjsArray
+      });
+      setGlobalStats(prev => ({
+        ...prev,
+        [type]: { ...prev[type], addedWordsObj: newObjsArray }
+      }));
+    } catch(e) { console.error("Lỗi cập nhật addedWordsObj:", e); }
+  };
+
   // === HÀM MỚI: UPLOAD FILE WORD NGỮ PHÁP + SO SÁNH NỘI DUNG MỚI ===
   const handleUploadGrammarFile = async (file) => {
     if (!currentUser) return;
@@ -8207,6 +8276,7 @@ const handleRemoveManyWords = async (type, listType, wordsArray) => {
     customGrammarNotes={customGrammarNotes} 
     defaultTab={notebookTab} 
     currentUser={currentUser}
+    onUpdateWordObjs={handleUpdateWordObjs}
     onRefreshNotes={async () => {
         if (currentUser) {
             const docRef = doc(db, "users", currentUser.uid);

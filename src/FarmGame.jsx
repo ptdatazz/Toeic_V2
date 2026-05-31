@@ -65,7 +65,7 @@ const WEATHER_DURATION_SEC  = FARM_DAY_SEC;
 // ===== THỜI TIẾT =====
 const WEATHER_TYPES = {
   sunny:   { emoji: "☀️",  label: "Nắng",    tip: "Cây mọc bình thường",     growMult: 1.0,  rewardMult: 1.0,  pestChance: 0.10 },
-  cloudy:  { emoji: "⛅",  label: "Âm u", tip: "Cây mọc chậm hơn 20%",   growMult: 0.8,  rewardMult: 1.0,  pestChance: 0.12 },
+  cloudy:  { emoji: "⛅",  label: "Sáng tối", tip: "Cây mọc chậm hơn 20%",   growMult: 0.8,  rewardMult: 1.0,  pestChance: 0.12 },
   rainy:   { emoji: "🌧️", label: "Mưa",     tip: "Cây mọc nhanh 30%, +50% xu!", growMult: 1.3, rewardMult: 1.5, pestChance: 0.08 },
   stormy:  { emoji: "⛈️",  label: "Bão",     tip: "Cây dễ bị sâu, hái +20% xu!", growMult: 0.6, rewardMult: 1.2, pestChance: 0.35 },
 };
@@ -409,6 +409,12 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [level, setLevel] = useState(1);
   const [exp, setExp] = useState(0);
   const [nextLevelExp, setNextLevelExp] = useState(LEVEL_CONFIG[1]?.expRequired || 9999);
+
+  // Refs để tránh stale closure trong updateLevel / addExp
+  const expRef = useRef(0);
+  const levelRef = useRef(1);
+  const plotsRef = useRef([]);
+  const plotCountRef = useRef(DEFAULT_PLOT_COUNT);
   
   // ===== THỐNG KÊ =====
   const [pestKilled, setPestKilled] = useState(0);
@@ -419,6 +425,8 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   // ===== STATE UI =====
   const [selectedCrop, setSelectedCrop] = useState(CROP_TYPES[0]);
   const [activePanel, setActivePanel] = useState("farm");
+  const [showCropPicker, setShowCropPicker] = useState(false);
+  const [pendingPlotId, setPendingPlotId] = useState(null);
   const [showHarvest, setShowHarvest] = useState(null);
   const [notification, setNotification] = useState(null);
   const [question, setQuestion] = useState(null);
@@ -461,8 +469,14 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [seasonTransition, setSeasonTransition] = useState(null); // { name, emoji, color }
 
   // ===== HÀM CẬP NHẬP CẤP ĐỘ =====
+  // Sync refs luôn mới nhất
+  expRef.current = exp;
+  levelRef.current = level;
+  plotsRef.current = plots;
+  plotCountRef.current = plotCount;
+
   const updateLevel = (newExp, currentPlots, currentPlotCount) => {
-    let curLevel = level;
+    let curLevel = levelRef.current;
     let curExp = newExp;
     let didLevelUp = false;
     let finalPlotCount = currentPlotCount;
@@ -500,8 +514,7 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
 
   // ===== HÀM NHẬN EXP =====
   const addExp = (amount) => {
-    // Truyền plots và plotCount tại thời điểm gọi để tránh stale closure
-    updateLevel(exp + amount, plots, plotCount);
+    updateLevel(expRef.current + amount, plotsRef.current, plotCountRef.current);
   };
 
   // ===== KIỂM TRA THÀNH TỰU (cũ + mới vô hạn) =====
@@ -1341,7 +1354,9 @@ const startHarvestFruit = (tree, fruitId) => {
   // Tạo 1 câu hỏi về chính từ của quả này
   const q = genQuestionForWord(fruit.wordData);
   if (!q) {
-    notify(`❌ Không thể tạo câu hỏi cho từ "${fruit.word}"!`, "#ef4444");
+    // Từ không có đủ dữ liệu quiz → hái luôn không cần trả lời
+    const overrideSt = { treeId: tree.id, fruitId: fruit.id, targetWord: fruit.word, question: null };
+    completeHarvestFruit(overrideSt);
     return;
   }
   
@@ -1359,20 +1374,20 @@ const startHarvestFruit = (tree, fruitId) => {
 };
 
 // Hoàn thành hái quả (1 quả)
-const completeHarvestFruit = () => {
-  if (!harvestQuizState) return;
+const completeHarvestFruit = (overrideState) => {
+  const quizSt = overrideState || harvestQuizState;
+  if (!quizSt) return;
   
-  const tree = ancientTrees.find(t => t.id === harvestQuizState.treeId);
+  const tree = ancientTrees.find(t => t.id === quizSt.treeId);
   if (!tree) return;
   
   const config = getTreeConfig(tree.level);
   
   setAncientTrees(prev => prev.map(t => {
-    if (t.id === harvestQuizState.treeId) {
+    if (t.id === quizSt.treeId) {
       const updatedFruits = t.fruits.map(fruit => {
-        if (fruit.id === harvestQuizState.fruitId) {
+        if (fruit.id === quizSt.fruitId) {
           const regenTimeMs = config.regenTimeMinutes * 60 * 1000;
-          // Chọn từ mới từ Ô XANH (masteredWords), khác với từ vừa hái
           let newWordData = null;
           if (masteredWords && masteredWords.length > 0) {
             const validWords = masteredWords.filter(w => w && w.word && w.word !== fruit.word);
@@ -1402,11 +1417,9 @@ const completeHarvestFruit = () => {
   setCoins(prev => prev + 15);
   addExp(10);
   
-  notify(`🍎 Hái quả "${harvestQuizState.targetWord}" thành công! +15🪙 +10EXP`, "#f59e0b");
+  notify(`🍎 Hái quả "${quizSt.targetWord}" thành công! +15🪙 +10EXP`, "#f59e0b");
   playSound("finish");
   try { confetti({ particleCount: 100, spread: 70, origin: { y: 0.5 }, zIndex: 9999 }); } catch(e) {}
-  
-  // Không tự thoát — để người dùng bấm nút "Tiếp tục" (handled in UI)
 };
 
 // Xử lý quiz hái quả (1 câu duy nhất)
@@ -1890,18 +1903,22 @@ const startLearningForTree = (tree) => {
     // Không reset UI/tab ở đây — để nút "Tiếp tục" trong quiz UI xử lý
   };
 
-  const plantOnPlot = (plotId) => {
+  const plantOnPlot = (plotId, cropOverride) => {
+    const crop = cropOverride || selectedCrop;
     if (seeds <= 0) { notify("Hết hạt giống! Trả lời đúng để nhận thêm 🌱", "#ef4444"); return; }
     // Kiểm tra cây có trồng được trong mùa này không
-    if (selectedCrop.seasons && !selectedCrop.seasons.includes(season)) {
-      notify(`❌ ${selectedCrop.emoji} ${selectedCrop.name} không trồng được vào mùa ${SEASONS[season].name}!`, "#ef4444");
+    if (crop.seasons && !crop.seasons.includes(season)) {
+      notify(`❌ ${crop.emoji} ${crop.name} không trồng được vào mùa ${SEASONS[season].name}!`, "#ef4444");
       return;
     }
-    // Kiểm tra giới hạn số mầm theo loại cây
-    const currentSeedCount = plots.filter(p => p.stage >= 1 && p.crop === selectedCrop.id).length;
-    const maxAllowed = selectedCrop.maxSeeds || 4;
-    if (currentSeedCount >= maxAllowed) {
-      notify(`🚫 ${selectedCrop.emoji} ${selectedCrop.name} chỉ được trồng tối đa ${maxAllowed} mầm cùng lúc!`, "#ef4444");
+    // maxSeeds động: tối thiểu là maxSeeds gốc, tối đa scale theo plotCount
+    const seasonCrops = CROP_TYPES.filter(c => !c.seasons || c.seasons.includes(season));
+    const baseTotal = seasonCrops.reduce((s, c) => s + (c.maxSeeds || 4), 0);
+    const scaleFactor = baseTotal > 0 ? plotCount / baseTotal : 1;
+    const dynamicMax = Math.max(crop.maxSeeds || 1, Math.ceil((crop.maxSeeds || 1) * scaleFactor));
+    const currentSeedCount = plots.filter(p => p.stage >= 1 && p.crop === crop.id).length;
+    if (currentSeedCount >= dynamicMax) {
+      notify(`🚫 ${crop.emoji} ${crop.name} đã đủ ${dynamicMax} mầm cho ${plotCount} ô đất!`, "#ef4444");
       return;
     }
     // Gieo mầm: ưu tiên Ô VÀNG, nếu hết thì lấy Ô XANH (chỉ ôn lại, không move sang xanh khi thu hoạch)
@@ -1924,19 +1941,19 @@ const startLearningForTree = (tree) => {
       return;
     }
 
-    const crop = selectedCrop;
+    const crop2 = crop;
     setPlots((prev) =>
       prev.map((p) =>
         p.id === plotId ? { 
-          ...p, crop: crop.id, stage: 1, hasPest: false, 
-          linkedWord: randomWord.word, wordData: randomWord, timeLeft: crop.growTime,
+          ...p, crop: crop2.id, stage: 1, hasPest: false, 
+          linkedWord: randomWord.word, wordData: randomWord, timeLeft: crop2.growTime,
           wordSource: wordSource,
         } : p
       )
     );
     setSeeds((s) => s - 1);
     const sourceLabel = wordSource === "yellow" ? "ô vàng" : "ô xanh (ôn lại)";
-    notify(`🌱 Đã gieo "${randomWord.word}" (${sourceLabel}) vào ruộng! [${currentSeedCount+1}/${maxAllowed} ${crop.emoji}]`, "#22c55e");
+    notify(`🌱 Đã gieo "${randomWord.word}" (${sourceLabel}) vào ruộng! [${currentSeedCount+1}/${dynamicMax} ${crop2.emoji}]`, "#22c55e");
   };
 
   const harvestPlot = (plotId) => {
@@ -2494,51 +2511,53 @@ const killPest = (plotId) => {
     },
     tabBar: { display: "none" },
     tab: () => ({}),
-    floatingNav: {
-      position: "fixed",
-      right: "14px",
-      top: "50%",
-      transform: "translateY(-50%)",
-      display: "flex",
-      flexDirection: "column",
-      gap: "10px",
-      zIndex: 200,
-    },
-    floatingBtn: (active, color) => ({
-      width: "52px",
-      height: "52px",
-      borderRadius: "50%",
-      border: "none",
-      cursor: "pointer",
-      fontFamily: "inherit",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      fontSize: "20px",
-      background: active
-        ? `linear-gradient(135deg, ${color}, ${color}cc)`
-        : "rgba(255,255,255,0.92)",
-      boxShadow: active
-        ? `0 4px 16px ${color}55, 0 0 0 3px ${color}33`
-        : "0 2px 10px rgba(0,0,0,0.15)",
-      transform: active ? "scale(1.12)" : "scale(1)",
-      transition: "all 0.2s cubic-bezier(0.34,1.56,0.64,1)",
-      backdropFilter: "blur(8px)",
-    }),
-    floatingBtnLabel: (active) => ({
-      fontSize: "8px",
-      fontWeight: "800",
-      color: active ? "rgba(255,255,255,0.9)" : "#6b7280",
-      marginTop: "1px",
-      lineHeight: 1,
-      letterSpacing: "0.3px",
-    }),
     alertChip: (bg, color) => ({
       background: bg, color, padding: "4px 11px", borderRadius: "10px",
       fontWeight: "800", fontSize: "12px", marginLeft: "4px",
     }),
-    main: { flex: 1, overflowY: "auto", padding: "12px 80px 12px 20px", display: "flex", flexDirection: "column" },
+    iconGrid: {
+      position: "fixed",
+      bottom: "32px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      zIndex: 200,
+      display: "flex",
+      flexDirection: "row",
+      gap: "14px",
+      alignItems: "flex-end",
+      padding: "14px 20px",
+      background: "rgba(255,255,255,0.25)",
+      backdropFilter: "blur(16px)",
+      borderRadius: "30px",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.15), 0 0 0 1px rgba(255,255,255,0.4)",
+    },
+    iconBtn: (bg, color) => ({
+      width: "68px", height: "68px",
+      borderRadius: "50%",
+      background: bg,
+      boxShadow: `0 6px 20px ${color}55`,
+      cursor: "pointer",
+      display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center",
+      gap: "2px",
+      transition: "transform 0.15s cubic-bezier(.34,1.56,.64,1), box-shadow 0.15s",
+      outline: "none",
+    }),
+    backToFarmBtn: {
+      display: "inline-flex", alignItems: "center", gap: "6px",
+      background: "rgba(255,255,255,0.88)",
+      backdropFilter: "blur(10px)",
+      border: "2px solid rgba(22,163,74,0.3)",
+      borderRadius: "20px",
+      padding: "8px 18px",
+      fontWeight: "800", fontSize: "14px",
+      color: "#16a34a",
+      cursor: "pointer", fontFamily: "inherit",
+      marginBottom: "14px",
+      boxShadow: "0 3px 12px rgba(0,0,0,0.1)",
+      transition: "all 0.15s",
+    },
+    main: { flex: 1, overflowY: "auto", padding: "12px 20px 120px 20px", display: "flex", flexDirection: "column" },
     sectionLabel: { fontSize: "13px", fontWeight: "800", color: "#374151", marginBottom: "10px", display: "flex", alignItems: "center", gap: "5px" },
     cropBtn: (active, crop) => ({
       background: active ? crop.color : "rgba(255,255,255,0.85)",
@@ -2609,7 +2628,7 @@ const killPest = (plotId) => {
         const sunT = Math.max(0, Math.min(1, (timeH - sunRise) / sunDuration));
         // Arc hình cung sin: x từ 3%→97%, y = đỉnh 4% ở 12h, thấp 85% ở 2 đầu
         const sunX = sunT * 94 + 3; // % từ trái sang phải
-        const sunY = 85 - Math.sin(sunT * Math.PI) * 78; // % top (thấp = xa trên)
+        const sunY = 28 - Math.sin(sunT * Math.PI) * 22; // % top: thấp nhất 28%, đỉnh 6%
         const sunVisible = timeH >= sunRise && timeH <= sunSet;
 
         // Màu mặt trời theo giờ: bình minh/hoàng hôn đỏ cam, ban ngày vàng trắng
@@ -2627,7 +2646,7 @@ const killPest = (plotId) => {
         const moonDuration = 12;
         const moonT = Math.max(0, Math.min(1, (moonTimeH - moonRise) / moonDuration));
         const moonX = moonT * 94 + 3;
-        const moonY = 85 - Math.sin(moonT * Math.PI) * 72;
+        const moonY = 28 - Math.sin(moonT * Math.PI) * 22;
         const moonVisible = !noMoon && (timeH >= moonRise || timeH <= sunRise);
 
         // ── Ánh sáng ambient theo giờ ──
@@ -2654,7 +2673,7 @@ const killPest = (plotId) => {
 
         // Màu hoàng hôn/bình minh
         let sunsetAlpha = 0;
-        let sunsetX = "50%", sunsetY = "10%";
+        let sunsetX = "50%", sunsetY = "5%";
         if (timeH >= sunRise && timeH < sunRise + 1.5) {
           sunsetAlpha = 0.30 * (1 - (timeH - sunRise) / 1.5);
           sunsetX = `${sunX}%`; sunsetY = `${sunY}%`;
@@ -2665,7 +2684,7 @@ const killPest = (plotId) => {
 
         // ── SVG mặt trăng với pha ──
         // Dùng SVG clip path để vẽ lưỡi liềm / bán nguyệt / tròn
-        const moonSize = 26;
+        const moonSize = 44;
         const moonSVG = (() => {
           if (noMoon) return null;
           const r = moonSize / 2;
@@ -2731,9 +2750,9 @@ const killPest = (plotId) => {
             {sunVisible && (
               <div style={{
                 position:"fixed",
-                left:`calc(${sunX}% - 18px)`,
-                top:`calc(${sunY}% - 18px)`,
-                width:"36px",height:"36px",
+                left:`calc(${sunX}% - 28px)`,
+                top:`calc(${sunY}% - 28px)`,
+                width:"56px",height:"56px",
                 background:`radial-gradient(circle at 40% 38%, #fff9c4, ${sunGlow}1) 55%, rgba(255,160,0,0.8))`,
                 borderRadius:"50%",
                 boxShadow:`0 0 ${16+sunColorT*20}px ${sunGlow}0.7), 0 0 ${40+sunColorT*40}px ${sunGlow}0.3)`,
@@ -2767,8 +2786,8 @@ const killPest = (plotId) => {
                 {moonVisible && moonSVG && (
                   <div style={{
                     position:"fixed",
-                    left:`calc(${moonX}% - 13px)`,
-                    top:`calc(${moonY}% - 13px)`,
+                    left:`calc(${moonX}% - 22px)`,
+                    top:`calc(${moonY}% - 22px)`,
                     width:`${moonSize}px`,height:`${moonSize}px`,
                     filter:`drop-shadow(0 0 ${6+moonIllum*12}px rgba(255,240,180,${0.4+moonIllum*0.5}))`,
                     opacity: Math.min(1, (nightOpacity - 0.05) * 4),
@@ -3425,52 +3444,39 @@ const killPest = (plotId) => {
         </div>
       </div>
 
-      {/* Floating Navigation Icons */}
-      <div style={S.floatingNav}>
-        {[
-          { id: "farm",      emoji: "🌾", label: "Nông trại", color: "#16a34a" },
-          { id: "quiz",      emoji: "📝", label: "Học từ",    color: "#1d4ed8" },
-          { id: "shop",      emoji: "🏪", label: "Cửa hàng",  color: "#7c3aed" },
-          { id: "ancient",   emoji: "🌳", label: "Cổ thụ",    color: "#8b5cf6" },
-          { id: "livestock", emoji: "🐄", label: "Vật nuôi",  color: "#f97316" },
-          { id: "quests",    emoji: "🏆", label: "Nhiệm vụ",  color: "#f59e0b" },
-        ].map((tab) => {
-          const isActive = activePanel === tab.id;
-          const badge = tab.id === "farm" && readyToHarvest > 0
-            ? readyToHarvest
-            : tab.id === "farm" && pestCount > 0
-            ? "!"
-            : null;
-          return (
-            <div key={tab.id} style={{ position: "relative" }}>
-              <button
-                style={S.floatingBtn(isActive, tab.color)}
-                onClick={() => { if (tab.id === "quiz") startQuiz(null); else setActivePanel(tab.id); }}
-                title={tab.label}
-              >
-                <span style={{ lineHeight: 1 }}>{tab.emoji}</span>
-                <span style={S.floatingBtnLabel(isActive)}>{tab.label}</span>
-              </button>
-              {badge && (
-                <div style={{
-                  position: "absolute", top: "-4px", right: "-4px",
-                  background: tab.id === "farm" && pestCount > 0 ? "#ef4444" : "#16a34a",
-                  color: "white", borderRadius: "50%",
-                  width: "18px", height: "18px",
-                  fontSize: "9px", fontWeight: "800",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
-                  animation: "bounce 1s infinite",
-                }}>
-                  {typeof badge === "number" ? badge : "!"}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {/* ===== 5 ICON TRÒN — chỉ hiện khi đang ở tab nông trại ===== */}
+      {activePanel === "farm" && (
+        <div style={S.iconGrid}>
+          {[
+            { id: "quiz",      emoji: "📝", label: "Học từ",   color: "#1d4ed8", bg: "linear-gradient(135deg,#3b82f6,#1d4ed8)" },
+            { id: "shop",      emoji: "🏪", label: "Cửa hàng", color: "#7c3aed", bg: "linear-gradient(135deg,#a78bfa,#7c3aed)" },
+            { id: "ancient",   emoji: "🌳", label: "Cổ thụ",   color: "#059669", bg: "linear-gradient(135deg,#34d399,#059669)" },
+            { id: "livestock", emoji: "🐄", label: "Vật nuôi", color: "#ea580c", bg: "linear-gradient(135deg,#fb923c,#ea580c)" },
+            { id: "quests",    emoji: "🏆", label: "Nhiệm vụ", color: "#d97706", bg: "linear-gradient(135deg,#fbbf24,#d97706)" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              style={{ ...S.iconBtn(tab.bg, tab.color), border: "none", fontFamily: "inherit" }}
+              onClick={() => { if (tab.id === "quiz") startQuiz(null); else setActivePanel(tab.id); }}
+            >
+              <span style={{ fontSize: "26px", lineHeight: 1 }}>{tab.emoji}</span>
+              <span style={{ fontSize: "10px", fontWeight: "800", color: "white", marginTop: "3px", textShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
 
       <div style={S.main}>
+        {/* Nút quay lại — chỉ hiện khi không ở tab nông trại */}
+        {activePanel !== "farm" && (
+          <button
+            style={S.backToFarmBtn}
+            onClick={() => setActivePanel("farm")}
+          >
+            ← Nông trại
+          </button>
+        )}
         {activePanel === "farm" && (
           <div>
             {/* Weather ambient overlay */}
@@ -3506,46 +3512,6 @@ const killPest = (plotId) => {
                 </div>
               )}
             </div>
-            <div>
-              <div style={S.sectionLabel}>🌱 Chọn giống cây trồng:</div>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                {CROP_TYPES.map((crop) => {
-                  const canPlant = !crop.seasons || crop.seasons.includes(season);
-                  const currentCount = plots.filter(p => p.stage >= 1 && p.crop === crop.id).length;
-                  const maxSeeds = crop.maxSeeds || 4;
-                  const isFull = currentCount >= maxSeeds;
-                  return (
-                    <button key={crop.id}
-                      style={{
-                        ...S.cropBtn(selectedCrop.id === crop.id && canPlant, crop),
-                        opacity: canPlant ? 1 : 0.45,
-                        cursor: canPlant ? "pointer" : "not-allowed",
-                        position:"relative",
-                      }}
-                      onClick={() => { if(canPlant) setSelectedCrop(crop); else notify(`❌ ${crop.emoji} Chỉ trồng được vào: mùa ${crop.seasons.map(ss=>SEASONS[ss].name).join(", ")}`, "#ef4444"); }}
-                    >
-                      {crop.emoji} {crop.name}
-                      <span style={S.cropBadge}>(🪙{crop.reward} | +{crop.expReward}EXP | ⏱{crop.growTime}s)</span>
-                      {/* Giới hạn mầm */}
-                      <span style={{
-                        display:"block", fontSize:"9px", fontWeight:"800", marginTop:"2px",
-                        color: isFull ? "#ef4444" : canPlant ? "#16a34a" : "#9ca3af",
-                      }}>
-                        🌱 {currentCount}/{maxSeeds} mầm {isFull ? "🔒" : ""}
-                      </span>
-                      {/* Nông sản thu được */}
-                      {crop.produce && <span style={{display:"block", fontSize:"9px", color:"#f97316", fontWeight:"700"}}>→ {crop.produce.qty}{crop.produce.emoji}</span>}
-                      {!canPlant && <span style={{position:"absolute",top:2,right:4,fontSize:"10px"}}>🚫</span>}
-                    </button>
-                  );
-                })}
-              </div>
-              {availableWords.length === 0 && (
-                <div style={{ marginTop: "10px", padding: "8px", background: "#fff3cd", borderRadius: "8px", color: "#856404", fontSize: "12px" }}>
-                  ⚠️ Không có từ nào trong Ô vàng! Hãy vào Sổ tay để thêm từ vựng nhé!
-                </div>
-              )}
-            </div>
 
             <div style={S.grid}>
             {/* Các ô đất hiện có */}
@@ -3561,7 +3527,7 @@ const killPest = (plotId) => {
                 <div key={plot.id} className={`plot-cell${isReady ? " plot-ready" : ""}${hasPest ? " plot-pest" : ""}`} style={S.plotCell(plot)} onClick={() => {
                   if (hasPest) { killPest(plot.id); return; }
                   if (isReady) { harvestPlot(plot.id); return; }
-                  if (isEmpty) { if (seeds > 0 && availableWords.length > 0) plantOnPlot(plot.id); else if (availableWords.length === 0) notify("📖 Không có từ trong Ô vàng!", "#ef4444"); else startQuiz(plot.id); return; }
+                  if (isEmpty) { if (availableWords.length === 0) { notify("📖 Không có từ trong Ô vàng!", "#ef4444"); return; } if (seeds <= 0) { startQuiz(plot.id); return; } setPendingPlotId(plot.id); setShowCropPicker(true); return; }
                   if (plot.stage > 0 && plot.stage < 3) startQuiz(plot.id);
                 }}>
                   {showHarvest?.plotId === plot.id && (
@@ -5695,6 +5661,76 @@ const killPest = (plotId) => {
           </div>
         </div>
       )}
+      {/* ===== CROP PICKER POPUP ===== */}
+      {showCropPicker && pendingPlotId !== null && (
+        <div onClick={() => setShowCropPicker(false)} style={S.itemMenuOverlay}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "white", borderRadius: "24px", padding: "20px 16px",
+            width: "92%", maxWidth: "360px",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+          }}>
+            <div style={{ textAlign: "center", marginBottom: "14px" }}>
+              <div style={{ fontSize: "28px" }}>🌱</div>
+              <div style={{ fontWeight: "900", fontSize: "15px", color: "#166534" }}>Chọn giống cây trồng</div>
+              <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "2px" }}>Có {seeds} 🌱 hạt giống</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {CROP_TYPES.map((crop) => {
+                const canPlant = !crop.seasons || crop.seasons.includes(season);
+                const currentCount = plots.filter(p => p.stage >= 1 && p.crop === crop.id).length;
+                const seasonCrops = CROP_TYPES.filter(c => !c.seasons || c.seasons.includes(season));
+                const baseTotal = seasonCrops.reduce((s, c) => s + (c.maxSeeds || 4), 0);
+                const scaleFactor = baseTotal > 0 ? plotCount / baseTotal : 1;
+                const dynamicMax = Math.max(crop.maxSeeds || 1, Math.ceil((crop.maxSeeds || 1) * scaleFactor));
+                const isFull = currentCount >= dynamicMax;
+                const disabled = !canPlant || isFull;
+                return (
+                  <button key={crop.id} onClick={() => {
+                    if (disabled) { notify(!canPlant ? `❌ ${crop.emoji} Không trồng được mùa này!` : `🚫 ${crop.emoji} Đã đủ ${dynamicMax} mầm!`, "#ef4444"); return; }
+                    setSelectedCrop(crop);
+                    setShowCropPicker(false);
+                    plantOnPlot(pendingPlotId, crop);
+                    setPendingPlotId(null);
+                  }} style={{
+                    display: "flex", alignItems: "center", gap: "10px",
+                    padding: "10px 14px", borderRadius: "14px",
+                    background: disabled ? "rgba(0,0,0,0.04)" : `linear-gradient(135deg, ${crop.color}18, ${crop.color}08)`,
+                    border: `1.5px solid ${disabled ? "transparent" : crop.color + "44"}`,
+                    cursor: disabled ? "not-allowed" : "pointer",
+                    opacity: disabled ? 0.5 : 1,
+                    fontFamily: "inherit", textAlign: "left",
+                    transition: "all 0.12s",
+                  }}>
+                    <span style={{ fontSize: "28px", lineHeight: 1 }}>{crop.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: "800", fontSize: "13px", color: disabled ? "#9ca3af" : "#1f2937" }}>
+                        {crop.name}
+                      </div>
+                      <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "1px" }}>
+                        🪙{crop.reward} · +{crop.expReward}EXP · ⏱{crop.growTime}s
+                        {crop.produce && ` · →${crop.produce.qty}${crop.produce.emoji}`}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", minWidth: "44px" }}>
+                      <div style={{ fontSize: "11px", fontWeight: "800", color: isFull ? "#ef4444" : canPlant ? "#16a34a" : "#9ca3af" }}>
+                        {currentCount}/{dynamicMax}
+                      </div>
+                      <div style={{ fontSize: "9px", color: "#9ca3af" }}>mầm</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={() => setShowCropPicker(false)} style={{
+              marginTop: "14px", width: "100%", padding: "10px",
+              borderRadius: "12px", border: "none", background: "#f3f4f6",
+              fontWeight: "700", fontSize: "13px", color: "#6b7280",
+              cursor: "pointer", fontFamily: "inherit",
+            }}>Huỷ</button>
+          </div>
+        </div>
+      )}
+
       {showItemMenu && selectedItemId && (
         <div onClick={() => { setShowItemMenu(false); setSelectedItemId(null); }} style={S.itemMenuOverlay}>
           <div onClick={e => e.stopPropagation()} style={S.itemMenuBox}>
