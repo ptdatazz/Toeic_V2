@@ -49,6 +49,43 @@ const SEASONS = {
 
 const SEASON_ORDER = ["spring", "summer", "autumn", "winter"];
 
+// ===== LỊCH MÙA THEO THÁNG THỰC TẾ =====
+// Mùa lệch ~6 tuần so với đầu tháng (giống thực tế):
+//   Xuân : ngày 50–139  (≈ 19/2 → 18/5)
+//   Hạ   : ngày 140–229 (≈ 19/5 → 17/8)
+//   Thu  : ngày 230–319 (≈ 18/8 → 15/11)
+//   Đông : ngày 320–360 và 1–49 (≈ 16/11 → 18/2)
+const SEASON_BOUNDARIES = [
+  { season: "spring", start: 50,  end: 139 },
+  { season: "summer", start: 140, end: 229 },
+  { season: "autumn", start: 230, end: 319 },
+  { season: "winter", start: 320, end: 409 }, // 320–360 + 1–49 năm sau (end > 360 = xử lý đặc biệt)
+];
+const DAYS_PER_YEAR = 360;
+
+// dayOfYear: 1–360. Trả về key mùa.
+const getSeasonFromDayOfYear = (dayOfYear) => {
+  const d = ((dayOfYear - 1 + DAYS_PER_YEAR) % DAYS_PER_YEAR) + 1; // chuẩn hoá về 1–360
+  if (d >= 50  && d <= 139) return "spring";
+  if (d >= 140 && d <= 229) return "summer";
+  if (d >= 230 && d <= 319) return "autumn";
+  return "winter"; // 320–360 và 1–49
+};
+
+// Chuyển (farmYear, farmMonth, farmDay) → dayOfYear (1–360)
+const toDayOfYear = (month, day) => (month - 1) * 30 + day;
+
+// Số ngày còn lại trong mùa hiện tại (tính từ dayOfYear)
+const daysLeftInSeason = (dayOfYear) => {
+  const d = ((dayOfYear - 1 + DAYS_PER_YEAR) % DAYS_PER_YEAR) + 1;
+  if (d >= 50  && d <= 139) return 139 - d + 1;
+  if (d >= 140 && d <= 229) return 229 - d + 1;
+  if (d >= 230 && d <= 319) return 319 - d + 1;
+  // Đông: d >= 320 → còn (360-d) + 49 ngày; d <= 49 → còn 49-d+1
+  if (d >= 320) return (DAYS_PER_YEAR - d) + 49;
+  return 49 - d + 1; // d <= 49
+};
+
 // ===== LỊCH NÔNG TRẠI =====
 // 1 ngày  = 5 phút thực       = 300 giây
 // 1 tháng = 30 ngày            = 150 phút = 9.000 giây (~2.5 tiếng thực)
@@ -109,11 +146,10 @@ const PRODUCE_SELL_PRICE = {
 // Mỗi ngày game (600s) sẽ có 1 loại cây bán được 💎 thay vì 🪙
 // Dùng seed tất định: (năm * 1000 + ngày_trong_năm) để nhất quán giữa các lần reload
 // dayOfYear = (seasonIdx * FARM_DAYS_PER_SEASON) + dayInSeason  →  1..360
-const getDailyGemCropId = (farmYear, dayInSeason, seasonIdx) => {
-  const dayOfYear = seasonIdx * FARM_DAYS_PER_SEASON + dayInSeason; // 1–360
+// farmYear: năm nông trại; dayOfYear: 1–360 (= (month-1)*30 + day)
+const getDailyGemCropId = (farmYear, dayOfYear) => {
   const seed = (farmYear * 1000 + dayOfYear) % 9999;
-  // Lọc cây trồng được trong mùa hiện tại để kết quả hợp lý
-  const seasonKey = SEASON_ORDER[seasonIdx] || "spring";
+  const seasonKey = getSeasonFromDayOfYear(dayOfYear);
   const eligible = CROP_TYPES.filter(c => !c.seasons || c.seasons.includes(seasonKey));
   if (!eligible.length) return CROP_TYPES[0].id;
   return eligible[seed % eligible.length].id;
@@ -306,48 +342,35 @@ function applyOfflineTime(farmState, offlineSecs) {
     return { ...plot, stage, timeLeft: stage < 3 ? remaining : 0 };
   });
 
-  // --- Bù lịch nông trại (mùa, ngày, tháng, năm) ---
-  const _SEASON_ORDER = ["spring", "summer", "autumn", "winter"];
+  // --- Bù lịch nông trại (mùa từ dayOfYear, ngày/tháng/năm) ---
   const _FARM_DAY_SEC = 300;
-  const _FARM_DAYS_PER_MONTH = 30;
-  const _FARM_MONTHS_PER_SEASON = 3;
-  const _SEASON_DURATION_SEC = 27000;
 
-  let seasonTimer = farmState.seasonTimer ?? _SEASON_DURATION_SEC;
   let weatherTimer = farmState.weatherTimer ?? _FARM_DAY_SEC;
-  let season = farmState.season ?? "spring";
   let farmDay = farmState.farmDay ?? 1;
   let farmMonth = farmState.farmMonth ?? 1;
   let farmYear = farmState.farmYear ?? 1;
+  let season = farmState.season ?? getSeasonFromDayOfYear(toDayOfYear(farmMonth, farmDay));
 
   // Bù từng "ngày nông trại" (300s) một để chính xác
   let remainSecs = secs;
   while (remainSecs > 0) {
     const tickDay = Math.min(remainSecs, weatherTimer);
     weatherTimer -= tickDay;
-    seasonTimer -= tickDay;
     remainSecs -= tickDay;
 
     if (weatherTimer <= 0) {
       weatherTimer = _FARM_DAY_SEC;
       farmDay++;
-      if (farmDay > _FARM_DAYS_PER_MONTH) {
+      if (farmDay > 30) {
         farmDay = 1;
         farmMonth++;
-        if (farmMonth > _FARM_MONTHS_PER_SEASON) {
+        if (farmMonth > 12) {
           farmMonth = 1;
+          farmYear++;
         }
       }
-    }
-
-    if (seasonTimer <= 0) {
-      seasonTimer = _SEASON_DURATION_SEC;
-      const idx = _SEASON_ORDER.indexOf(season);
-      const nextIdx = (idx + 1) % 4;
-      season = _SEASON_ORDER[nextIdx];
-      farmDay = 1;
-      farmMonth = 1;
-      if (nextIdx === 0) farmYear++;
+      // Cập nhật mùa từ dayOfYear
+      season = getSeasonFromDayOfYear(toDayOfYear(farmMonth, farmDay));
     }
   }
 
@@ -365,7 +388,6 @@ function applyOfflineTime(farmState, offlineSecs) {
   return {
     ...farmState,
     plots: updatedPlots,
-    seasonTimer,
     weatherTimer,
     season,
     farmDay,
@@ -385,19 +407,18 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [weather, setWeather] = useState("sunny");
-  const [season, setSeason] = useState("spring");
-  const [seasonTimer, setSeasonTimer] = useState(SEASON_DURATION_SEC); // giây còn lại trong mùa
+  const [season, setSeason] = useState(() => getSeasonFromDayOfYear(1));
   const [weatherTimer, setWeatherTimer] = useState(WEATHER_DURATION_SEC); // giây còn lại trong ngày
 
   // ===== LỊCH NÔNG TRẠI =====
-  const [farmDay, setFarmDay]     = useState(1);   // ngày trong mùa: 1–90
-  const [farmMonth, setFarmMonth] = useState(1);   // tháng trong mùa: 1–3
+  const [farmDay, setFarmDay]     = useState(1);   // ngày trong tháng: 1–30
+  const [farmMonth, setFarmMonth] = useState(1);   // tháng trong năm: 1–12
   const [farmYear, setFarmYear]   = useState(1);   // năm nông trại
   // Giờ trong ngày: 0–23 (tua nhanh, 1 ngày thực = 24 giờ nông trại → cứ 300/24 ≈ 12.5s thực = +1 giờ)
   const [farmHour, setFarmHour] = useState(6);  // bắt đầu từ 6 giờ sáng
   const [farmMinute, setFarmMinute] = useState(0);
   const [dailyGemCrop, setDailyGemCrop] = useState(() =>
-    getDailyGemCropId(1, 1, 0) // khởi tạo ban đầu: năm 1, ngày 1, xuân
+    getDailyGemCropId(1, toDayOfYear(1, 1)) // khởi tạo ban đầu: năm 1, tháng 1, ngày 1
   );
   const [inventory, setInventory] = useState({});
   const [produceInventory, setProduceInventory] = useState({}); // kho nông sản thu hoạch được
@@ -705,20 +726,19 @@ const tradeSeedsForCoins = (option) => {
             setStreak(fs.streak ?? 0);
             setWeather(fs.weather ?? "sunny");
             setSeason(fs.season ?? "spring");
-            setSeasonTimer(Math.min(fs.seasonTimer ?? SEASON_DURATION_SEC, SEASON_DURATION_SEC));
             setWeatherTimer(fs.weatherTimer ?? WEATHER_DURATION_SEC);
             // Lịch nông trại
             const loadedDay   = fs.farmDay   ?? 1;
             const loadedMonth = fs.farmMonth ?? 1;
             const loadedYear  = fs.farmYear  ?? 1;
-            const loadedSeason = fs.season ?? "spring";
-            const loadedSeasonIdx = Math.max(0, SEASON_ORDER.indexOf(loadedSeason));
+            const loadedDayOfYear = toDayOfYear(loadedMonth, loadedDay);
+            setSeason(getSeasonFromDayOfYear(loadedDayOfYear));
             setFarmDay(loadedDay);
             setFarmMonth(loadedMonth);
             setFarmYear(loadedYear);
             setFarmHour(fs.farmHour ?? 6);
             setFarmMinute(fs.farmMinute ?? 0);
-            setDailyGemCrop(getDailyGemCropId(loadedYear, loadedDay, loadedSeasonIdx));
+            setDailyGemCrop(getDailyGemCropId(loadedYear, loadedDayOfYear));
             setInventory(fs.inventory ?? {});
             setProduceInventory(fs.produceInventory ?? {});
             setRemainingKills(fs.remainingKills ?? 0);
@@ -738,9 +758,10 @@ const tradeSeedsForCoins = (option) => {
             }));
             setPlots(newPlots);
             setPlotCount(DEFAULT_PLOT_COUNT);
-            // Lịch mới: ngày 1, tháng 1, năm 1, mùa xuân
+            // Lịch mới: ngày 1, tháng 1, năm 1, mùa đông (ngày 1 thuộc đông)
             setFarmDay(1); setFarmMonth(1); setFarmYear(1);
-            setDailyGemCrop(getDailyGemCropId(1, 1, 0));
+            setSeason(getSeasonFromDayOfYear(toDayOfYear(1, 1)));
+            setDailyGemCrop(getDailyGemCropId(1, toDayOfYear(1, 1)));
           }
         }
         
@@ -816,7 +837,7 @@ const tradeSeedsForCoins = (option) => {
     const saveTimeout = setTimeout(async () => {
       try {
         const farmState = {
-          plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
+          plots, plotCount, coins, gems, seeds, score, streak, weather, season, weatherTimer,
           farmDay, farmMonth, farmYear, farmHour, farmMinute,
           inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements,
           level, exp, ancientTrees, livestock,
@@ -830,7 +851,7 @@ const tradeSeedsForCoins = (option) => {
     }, 1000);
     
     return () => clearTimeout(saveTimeout);
-  }, [plots, plotCount, coins, gems, seeds, score, streak, weather, season, seasonTimer, weatherTimer,
+  }, [plots, plotCount, coins, gems, seeds, score, streak, weather, season, weatherTimer,
       farmDay, farmMonth, farmYear, farmHour, farmMinute,
       inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements, level, exp, ancientTrees, livestock, currentUser, isLoading]);
 
@@ -920,97 +941,84 @@ const tradeSeedsForCoins = (option) => {
         if (prev > 1) return prev - 1;
 
         // ── Hết 1 ngày → sang ngày mới ──
-        setSeason(currentSeason => {
-          const seasonIdx = SEASON_ORDER.indexOf(currentSeason);
-
-          setFarmYear(currentYear => {
+        setFarmYear(currentYear => {
+          setFarmMonth(currentMonth => {
             setFarmDay(currentDay => {
               const nextDay = currentDay + 1;
+              let realNextDay = nextDay;
+              let nextMonth = currentMonth;
+              let nextYear = currentYear;
 
-              setFarmMonth(currentMonth => {
-                const nextMonth = nextDay > FARM_DAYS_PER_MONTH ? currentMonth + 1 : currentMonth;
-                const realNextDay = nextDay > FARM_DAYS_PER_MONTH ? 1 : nextDay;
-                const dayInSeason = (nextMonth - 1) * FARM_DAYS_PER_MONTH + realNextDay;
+              if (nextDay > 30) {
+                realNextDay = 1;
+                nextMonth = currentMonth + 1;
+                if (nextMonth > 12) {
+                  nextMonth = 1;
+                  nextYear = currentYear + 1;
+                }
+              }
 
-                // Tính cây gem cho ngày mới
-                const newGemCropId = getDailyGemCropId(currentYear, dayInSeason, seasonIdx);
-                setDailyGemCrop(newGemCropId);
+              const dayOfYear = toDayOfYear(nextMonth, realNextDay);
+              const newSeason = getSeasonFromDayOfYear(dayOfYear);
 
-                // Thay đổi thời tiết ngẫu nhiên theo mùa
-                const pool = SEASON_WEATHER[currentSeason];
-                setWeather(pool[Math.floor(Math.random() * pool.length)]);
+              // Cập nhật mùa (so sánh với mùa hiện tại để phát hiện đổi mùa)
+              setSeason(currentSeason => {
+                if (newSeason !== currentSeason) {
+                  // ── Chuyển mùa! ──
+                  setSeasonTransition({ name: SEASONS[newSeason].name, emoji: SEASONS[newSeason].emoji, color: SEASONS[newSeason].color });
+                  setTimeout(() => setSeasonTransition(null), 4000);
+
+                  const gemCropId = getDailyGemCropId(nextYear, dayOfYear);
+                  const gemCropObj = CROP_TYPES.find(c => c.id === gemCropId);
+                  setDailyGemCrop(gemCropId);
+
+                  // Đổi thời tiết theo mùa mới
+                  const pool = SEASON_WEATHER[newSeason];
+                  setWeather(pool[Math.floor(Math.random() * pool.length)]);
+
+                  notify(
+                    `🌿 Mùa ${SEASONS[newSeason].name} bắt đầu! ${SEASONS[newSeason].emoji}  ` +
+                    `Năm ${nextYear} • ${gemCropObj?.emoji} ${gemCropObj?.name} bán được 💎 hôm nay!`,
+                    SEASONS[newSeason].color
+                  );
+                } else {
+                  // Ngày thường
+                  const newGemCropId = getDailyGemCropId(nextYear, dayOfYear);
+                  const gemCropName = CROP_TYPES.find(c => c.id === newGemCropId)?.name || "";
+                  const gemCropEmoji = CROP_TYPES.find(c => c.id === newGemCropId)?.emoji || "🌾";
+                  setDailyGemCrop(newGemCropId);
+
+                  // Thay đổi thời tiết ngẫu nhiên theo mùa
+                  const pool = SEASON_WEATHER[newSeason];
+                  setWeather(pool[Math.floor(Math.random() * pool.length)]);
+
+                  notify(
+                    `📅 ${String(realNextDay).padStart(2,"0")}/${String(nextMonth).padStart(2,"0")}/${nextYear} — ${gemCropEmoji} ${gemCropName} bán được 💎 hôm nay!`,
+                    "#8b5cf6"
+                  );
+                }
 
                 // Reset đồng hồ về 00:00 mỗi ngày mới
                 setFarmHour(0);
                 setFarmMinute(0);
 
-                const gemCropName = CROP_TYPES.find(c => c.id === newGemCropId)?.name || "";
-                const gemCropEmoji = CROP_TYPES.find(c => c.id === newGemCropId)?.emoji || "🌾";
-
-                notify(
-                  `📅 Ngày ${realNextDay} Tháng ${nextMonth} — ${gemCropEmoji} ${gemCropName} bán được 💎 hôm nay!`,
-                  "#8b5cf6"
-                );
-
-                return nextMonth > FARM_MONTHS_PER_SEASON ? currentMonth : nextMonth;
+                return newSeason;
               });
 
-              return nextDay > FARM_DAYS_PER_MONTH ? 1 : nextDay;
+              // Cập nhật năm nếu cần (setState lồng nhau — dùng callback để set year từ đây)
+              if (nextYear !== currentYear) {
+                // setFarmYear trả về nextYear từ callback ngoài
+              }
+
+              setFarmMonth(() => nextMonth);
+              return realNextDay;
             });
-            return currentYear;
+            return currentMonth; // sẽ bị override bởi setFarmMonth bên trong
           });
-
-          return currentSeason;
+          return nextDay > 30 && currentMonth === 12 ? currentYear + 1 : currentYear;
         });
 
-        return WEATHER_DURATION_SEC; // reset về 600s (1 ngày)
-      });
-
-      // ── Mỗi giây: đếm mùa (seasonTimer) ──
-      setSeasonTimer(prev => {
-        if (prev > 1) return prev - 1;
-
-        // ── Hết 1 mùa → đổi mùa, reset ngày/tháng ──
-        setSeason(currentSeason => {
-          const idx = SEASON_ORDER.indexOf(currentSeason);
-          const nextSeasonIdx = (idx + 1) % 4;
-          const nextSeason = SEASON_ORDER[nextSeasonIdx];
-
-          setFarmYear(currentYear => {
-            const nextYear = nextSeasonIdx === 0 ? currentYear + 1 : currentYear;
-
-            // Reset ngày/tháng về đầu mùa
-            setFarmDay(1);
-            setFarmMonth(1);
-            setFarmHour(6);
-            setFarmMinute(0);
-
-            // Hiệu ứng chuyển mùa
-            setSeasonTransition({ name: SEASONS[nextSeason].name, emoji: SEASONS[nextSeason].emoji, color: SEASONS[nextSeason].color });
-            setTimeout(() => setSeasonTransition(null), 4000);
-
-            // Tính cây gem cho ngày đầu mùa mới
-            const newGemCropId = getDailyGemCropId(nextYear, 1, nextSeasonIdx);
-            setDailyGemCrop(newGemCropId);
-
-            // Đổi thời tiết theo mùa mới
-            const pool = SEASON_WEATHER[nextSeason];
-            setWeather(pool[Math.floor(Math.random() * pool.length)]);
-
-            const gemCropObj = CROP_TYPES.find(c => c.id === newGemCropId);
-            notify(
-              `🌿 Mùa ${SEASONS[nextSeason].name} bắt đầu! ${SEASONS[nextSeason].emoji}  ` +
-              `Năm ${nextYear} • ${gemCropObj?.emoji} ${gemCropObj?.name} bán được 💎 hôm nay!`,
-              SEASONS[nextSeason].color
-            );
-
-            return nextYear;
-          });
-
-          return nextSeason;
-        });
-
-        return SEASON_DURATION_SEC; // reset về 54.000s
+        return WEATHER_DURATION_SEC; // reset về 300s (1 ngày)
       });
 
     }, 1000);
@@ -2335,14 +2343,13 @@ const killPest = (plotId) => {
     setRemainingKills(0);
     setLastStreakValue(0);
     setWeather("sunny");
-    setSeason("spring");
-    setSeasonTimer(SEASON_DURATION_SEC);
+    setSeason(getSeasonFromDayOfYear(toDayOfYear(1, 1)));
     setWeatherTimer(60);
     setInventory({});
     setProduceInventory({});
     // Reset lịch nông trại
     setFarmDay(1); setFarmMonth(1); setFarmYear(1);
-    setDailyGemCrop(getDailyGemCropId(1, 1, 0));
+    setDailyGemCrop(getDailyGemCropId(1, toDayOfYear(1, 1)));
     setPestKilled(0);
     setWordsMastered(0);
     setAchievements([]);
@@ -2608,11 +2615,11 @@ const killPest = (plotId) => {
         // ── Thời gian dạng số thực (giờ + phút/60) ──
         const timeH = farmHour + farmMinute / 60;
 
-        // ── Pha mặt trăng theo ngày trong mùa (farmDay 1–90) ──
-        // Chu kỳ trăng: 29.5 ngày. Dùng farmDay để tính pha.
+        // ── Pha mặt trăng theo ngày trong năm (dayOfYear 1–360) ──
+        // Chu kỳ trăng: 29.5 ngày. Dùng dayOfYear để tính pha.
         // Ngày 0 = trăng mới (không có trăng), ngày 7 = bán nguyệt, ngày 15 = trăng tròn
         const lunarCycle = 29.5;
-        const dayInCycle = ((farmDay - 1) % lunarCycle);
+        const dayInCycle = ((toDayOfYear(farmMonth, farmDay) - 1) % lunarCycle);
         const moonPhase = dayInCycle / lunarCycle; // 0..1
         // Ngày trăng mới (0–1.5 ngày) → không hiện trăng
         const noMoon = dayInCycle < 1.5 || dayInCycle > 28;
@@ -3368,7 +3375,7 @@ const killPest = (plotId) => {
             fontWeight:"800",fontSize:"11px",color:"#374151",
             display:"flex",alignItems:"center",gap:"4px",
           }}>
-            📅 N{farmDay} T{farmMonth} Năm {farmYear}
+            📅 {String(farmDay).padStart(2,"0")}/{String(farmMonth).padStart(2,"0")}/{farmYear}
             <span style={{
               fontSize:"11px",fontWeight:"900",
               color: farmHour >= 5 && farmHour < 12 ? "#f97316"
@@ -3396,7 +3403,7 @@ const killPest = (plotId) => {
           }}>
             {s.icon} Mùa {s.name}
             <span style={{fontSize:"9px",opacity:0.7,marginLeft:"2px"}}>
-              còn {Math.ceil(seasonTimer/FARM_DAY_SEC)} ngày
+              còn {daysLeftInSeason(toDayOfYear(farmMonth, farmDay))} ngày
             </span>
           </span>
           {/* Cây gem hôm nay */}
@@ -4135,7 +4142,7 @@ const killPest = (plotId) => {
                     <span style={{ fontSize: "24px" }}>{gc.emoji}</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: "800", fontSize: "12px", color: "#92400e" }}>
-                        ⭐ Cây đặc biệt — Ngày {farmDay}/90 Tháng {farmMonth} Năm {farmYear}
+                        ⭐ Cây đặc biệt — {String(farmDay).padStart(2,"0")}/{String(farmMonth).padStart(2,"0")}/{farmYear}
                       </div>
                       <div style={{ fontSize: "11px", color: "#b45309", fontWeight: "700" }}>
                         {gc.name} → nông sản bán được 💎 thay vì 🪙 hôm nay!
