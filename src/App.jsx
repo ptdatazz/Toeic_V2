@@ -5372,12 +5372,31 @@ const handleImportSummary = async (note, formattedText, newJsonData = null) => {
                 
                 {/* Nếu là file tự tạo (.txt) - chỉ hiển thị nút xem nội dung, không có AI */}
                   {note.isManual ? (
-                    <button 
-                      onClick={() => setExpandedId(isExpanded ? null : note.id)}
-                      style={{ padding: "5px 12px", background: isExpanded ? "#e3f2fd" : "#4CAF50", color: isExpanded ? "#1565c0" : "white", border: "1px solid #90caf9", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}
-                    >
-                      {isExpanded ? "▲ Ẩn nội dung" : "▼ Xem nội dung"}
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => setExpandedId(isExpanded ? null : note.id)}
+                        style={{ padding: "5px 12px", background: isExpanded ? "#e3f2fd" : "#4CAF50", color: isExpanded ? "#1565c0" : "white", border: "1px solid #90caf9", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}
+                      >
+                        {isExpanded ? "▲ Ẩn nội dung" : "▼ Xem nội dung"}
+                      </button>
+
+                      {/* NÚT TẢI VỀ */}
+                      <button
+                        onClick={() => {
+                          const blob = new Blob([note.content], { type: "text/plain;charset=utf-8" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = note.filename.endsWith(".txt") ? note.filename : `${note.filename}.txt`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        style={{ padding: "5px 10px", background: "#1976d2", color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}
+                        title="Tải file .txt về máy"
+                      >
+                        ⬇️ Tải về
+                      </button>
+                    </>
                     ) : (
                     /* File upload (.docx) - hiển thị đầy đủ các nút AI */
                     hasSummary && (
