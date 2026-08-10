@@ -135,7 +135,6 @@ const getMeaning = (item) => {
   return parts.join(" / ") || "";
 };
 
-<<<<<<< HEAD
 // --- TÁCH 1 TỪ NHIỀU NGHĨA THÀNH TỪNG NGHĨA RIÊNG (để ôn từng nghĩa 1) ---
 // Trả về mảng [{ tag: "n"|"v"|"adj"|null, meaning: "..." }, ...]
 const getMeaningParts = (item) => {
@@ -149,8 +148,6 @@ const getMeaningParts = (item) => {
   return [{ tag: null, meaning: "" }];
 };
 
-=======
->>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
 const getRandomWrongOptions = (fullData, currentItem, fieldToGet) => {
   const wrongOptions = [];
   let attempts = 0; 
@@ -170,7 +167,6 @@ const getDisplayMeaning = (item) => {
 };
 
 // --- BỘ MÁY TẠO ĐỀ THI ĐA DẠNG (TỪ VỰNG) ---
-<<<<<<< HEAD
 // Mỗi từ có nhiều nghĩa (n)/(v)/(adj) sẽ được tách thành NHIỀU câu hỏi riêng,
 // mỗi câu hỏi chỉ hỏi đúng 1 nghĩa để ôn kỹ từng nghĩa của từ.
 const generateVocabQuestions = (selectedData, fullData, level) => {
@@ -238,63 +234,6 @@ const generateVocabQuestions = (selectedData, fullData, level) => {
 
       return questionObj;
     });
-=======
-const generateVocabQuestions = (selectedData, fullData, level) => {
-  return selectedData.map((item) => {
-    let qType = "en_to_vn"; 
-
-    if (level === 0) {
-      qType = "flashcard";
-    }
-    
-    if (level === 1) {
-      if (Math.random() > 0.5) qType = "vn_to_en";
-    }
-    else if (level >= 2) {
-      const types = ["en_to_vn", "vn_to_en", "typing", "listening"];
-      if (!item.word.includes(' ')) types.push("scramble");
-     
-      // --- TÍNH NĂNG MỚI: TẠO CÂU HỎI PART 5 TỪ CÂU VÍ DỤ ---
-      if (item.usage && item.usage.toLowerCase().includes(item.word.toLowerCase())) {
-          types.push("part5_vocab"); // Đục lỗ câu ví dụ
-      }
-
-      qType = types[Math.floor(Math.random() * types.length)];
-
-    }
-
-    const itemMeaning = getMeaning(item);
-    let questionObj = { ...item, type: qType, meaning: itemMeaning };
-
-   if (qType === "en_to_vn" || qType === "listening") {
-    const displayAnswer = getDisplayMeaning(item);
-    const correctLen = displayAnswer.length;
-    const similarPool = fullData.filter(d => {
-      const m = getDisplayMeaning(d);
-      if (!m || m === displayAnswer) return false;
-      const ratio = m.length / correctLen;
-      return ratio >= 0.5 && ratio <= 2.0;
-    });
-    const pool = similarPool.length >= 3
-      ? similarPool
-      : fullData.filter(d => getDisplayMeaning(d) && getDisplayMeaning(d) !== displayAnswer);
-    const wrongOptions = pool
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 3)
-      .map(d => getDisplayMeaning(d));
-    questionObj.options = shuffleArray([...wrongOptions, displayAnswer]);
-    questionObj.answer = displayAnswer;
-  } else if (qType === "vn_to_en" || qType === "part5_vocab") {
-      const wrongOptions = getRandomWrongOptions(fullData, item, "word");
-      questionObj.options = shuffleArray([...wrongOptions, item.word]);
-      questionObj.answer = item.word;
-    } else if (qType === "typing" || qType === "scramble"|| qType === "flashcard") {
-      const cleanAnswer = item.word.replace(/\s*\(.*?\)\s*/g, '').trim();
-      questionObj.answer = cleanAnswer;
-    }
-
-    return questionObj;
->>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
   });
 };
 
@@ -527,19 +466,11 @@ function QuizSettings({ mode, onStart, onBack, customWordsCount = 0, customGramm
                 <span style={labelStyle}>📖 Chế độ học Level 0</span>
                 <label style={{ ...radioCardBase, background: !settings.storyMode ? `${primaryColor}15` : "#f9fafb", border: `2px solid ${!settings.storyMode ? primaryColor : "transparent"}` }}>
                   <input type="radio" name="storyMode" value="flashcard" checked={!settings.storyMode} onChange={() => setSettings({...settings, storyMode: false})} style={{ accentColor: primaryColor }} />
-<<<<<<< HEAD
                   <div><strong>🎴 Flashcard</strong></div>
                 </label>
                 <label style={{ ...radioCardBase, background: settings.storyMode ? `${primaryColor}15` : "#f9fafb", border: `2px solid ${settings.storyMode ? primaryColor : "transparent"}`, marginBottom: 0 }}>
                   <input type="radio" name="storyMode" value="story" checked={settings.storyMode === true} onChange={() => setSettings({...settings, storyMode: true})} style={{ accentColor: primaryColor }} />
                   <div><strong>📖 Song Ngữ</strong></div>
-=======
-                  <div><strong>🎴 Flashcard</strong> — Lật thẻ học từ truyền thống</div>
-                </label>
-                <label style={{ ...radioCardBase, background: settings.storyMode ? `${primaryColor}15` : "#f9fafb", border: `2px solid ${settings.storyMode ? primaryColor : "transparent"}`, marginBottom: 0 }}>
-                  <input type="radio" name="storyMode" value="story" checked={settings.storyMode === true} onChange={() => setSettings({...settings, storyMode: true})} style={{ accentColor: primaryColor }} />
-                  <div><strong>📖 Song Ngữ</strong> — Học qua truyện chêm từ, dễ nhớ hơn</div>
->>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
                 </label>
               </div>
             )}
@@ -5830,11 +5761,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
   }, [wordDetailModal?.wordStr]);
 
   const [isEditingManual, setIsEditingManual] = useState(false);
-<<<<<<< HEAD
   const [manualInputs, setManualInputs] = useState({ phonetic: "", meaning: "", noun_meaning: "", verb_meaning: "", adj_meaning: "", usage: "", synonym: "", structure: "" });
-=======
-  const [manualInputs, setManualInputs] = useState({ phonetic: "", meaning: "", usage: "", synonym: "", structure: "" });
->>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
 
 
   // --- TÍNH NĂNG MỚI: NHẬP JSON THỦ CÔNG TỪ AI NGOÀI ---
@@ -6178,22 +6105,17 @@ const handleSaveToFile = async () => {
     setManualInputs({
         phonetic: wordDetailModal.detail?.phonetic || "",
         meaning: wordDetailModal.detail?.meaning || "",
-<<<<<<< HEAD
         noun_meaning: wordDetailModal.detail?.noun_meaning || "",
         verb_meaning: wordDetailModal.detail?.verb_meaning || "",
         adj_meaning: wordDetailModal.detail?.adj_meaning || "",
         usage: wordDetailModal.detail?.usage || "",
         synonym: wordDetailModal.detail?.synonym || "",
         structure: wordDetailModal.detail?.structure || ""
-=======
-        usage: wordDetailModal.detail?.usage || ""
->>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
     });
     setIsEditingManual(true);
   }
 
   const saveManualEdit = () => {
-<<<<<<< HEAD
       const hasAnyMeaning = manualInputs.meaning.trim() || manualInputs.noun_meaning.trim() || manualInputs.verb_meaning.trim() || manualInputs.adj_meaning.trim();
       if (!hasAnyMeaning) { alert("Bạn phải nhập ít nhất 1 Nghĩa nhé (Nghĩa chung hoặc (n)/(v)/(adj))."); return; }
       playSound("click");
@@ -6209,15 +6131,6 @@ const handleSaveToFile = async () => {
           usage: manualInputs.usage.trim(),
           synonym: manualInputs.synonym.trim(),
           structure: manualInputs.structure.trim()
-=======
-      if (!manualInputs.meaning.trim()) { alert("Bạn phải nhập Nghĩa nhé."); return; }
-      playSound("click");
-      const updatedWordObj = {
-          word: wordDetailModal.wordStr, 
-          phonetic: manualInputs.phonetic.trim(),
-          meaning: manualInputs.meaning.trim(),
-          usage: manualInputs.usage.trim()
->>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
       };
       onSaveWord(activeTab, updatedWordObj);
       setWordDetailModal({ ...wordDetailModal, detail: updatedWordObj });
@@ -6798,7 +6711,6 @@ const handleSaveToFile = async () => {
                         <label style={{ fontSize: "12px", color: "#666", fontWeight: "bold" }}>{activeTab === "grammar" ? "📐 Công thức / Cấu trúc:" : "🗣️ Phiên âm:"}</label>
                         <input type="text" value={manualInputs.phonetic} onChange={(e) => setManualInputs({...manualInputs, phonetic: e.target.value})} placeholder={activeTab === "grammar" ? "VD: S + suggest + V-ing" : "/Phiên âm quốc tế/"} style={editInputStyle}/>
                         
-<<<<<<< HEAD
                         {activeTab === "grammar" ? (
                           <>
                             <label style={{ fontSize: "12px", color: "#666", fontWeight: "bold" }}>🔖 Cách dùng / Nghĩa (Bắt buộc):</label>
@@ -6819,10 +6731,6 @@ const handleSaveToFile = async () => {
                             <input type="text" value={manualInputs.meaning} onChange={(e) => setManualInputs({...manualInputs, meaning: e.target.value})} placeholder="Định nghĩa ngắn gọn..." style={editInputStyle}/>
                           </>
                         )}
-=======
-                        <label style={{ fontSize: "12px", color: "#666", fontWeight: "bold" }}>🔖 Cách dùng / Nghĩa (Bắt buộc):</label>
-                        <input type="text" value={manualInputs.meaning} onChange={(e) => setManualInputs({...manualInputs, meaning: e.target.value})} placeholder="Định nghĩa ngắn gọn..." style={editInputStyle}/>
->>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
                         
                         <label style={{ fontSize: "12px", color: "#666", fontWeight: "bold" }}>📖 Ví dụ:</label>
                         <textarea value={manualInputs.usage} onChange={(e) => setManualInputs({...manualInputs, usage: e.target.value})} placeholder="Một câu ví dụ ngắn..." style={{ ...editInputStyle, height: "60px", resize: "none", fontFamily: "inherit" }}/>
