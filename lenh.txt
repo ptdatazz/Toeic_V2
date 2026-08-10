@@ -4,6 +4,7 @@ git push
 
 npm run dev
 
+<<<<<<< HEAD
 lệnh upload:
     git remote set-url origin https://github.com/ptdatazz/Toeic_V4.git
     git remote -v
@@ -12,3 +13,5 @@ lệnh upload:
     git commit -m "upload V4"
     git push -u origin main
     
+=======
+>>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058

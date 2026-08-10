@@ -522,6 +522,7 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
       }
     }
 
+<<<<<<< HEAD
     // ĐÃ FIX: cập nhật ref NGAY (đồng bộ) thay vì chờ tới lần render sau,
     // để nếu addExp() được gọi liên tiếp gần nhau (vd thu hoạch nhanh 2 lần),
     // lệnh gọi sau vẫn đọc đúng exp/level mới nhất, không bị mất EXP đã cộng trước đó
@@ -530,6 +531,8 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
     plotsRef.current = finalPlotCount > currentPlotCount ? finalPlots : plotsRef.current;
     plotCountRef.current = finalPlotCount;
 
+=======
+>>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
     setLevel(curLevel);
     setExp(curExp);
     setNextLevelExp(LEVEL_CONFIG[curLevel]?.expRequired || 9999);
@@ -756,10 +759,13 @@ const tradeSeedsForCoins = (option) => {
             setAchievements(fs.achievements ?? []);
             setLevel(fs.level ?? 1);
             setExp(fs.exp ?? 0);
+<<<<<<< HEAD
             // ĐÃ FIX: phải tính lại nextLevelExp theo đúng level vừa load,
             // nếu không nó sẽ giữ giá trị mặc định ban đầu (50, tương ứng cấp 1→2)
             // khiến thanh EXP hiển thị sai mẫu số sau khi tải lại trang (vd "170/50" dù đang ở cấp 3)
             setNextLevelExp(LEVEL_CONFIG[fs.level ?? 1]?.expRequired || 9999);
+=======
+>>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
             setAncientTrees(fs.ancientTrees || []);
             setLivestock(fs.livestock || []);
 
@@ -1017,16 +1023,29 @@ const tradeSeedsForCoins = (option) => {
                 return newSeason;
               });
 
+<<<<<<< HEAD
               // Cập nhật tháng & năm trực tiếp tại đây (tránh dùng nextDay ở scope ngoài)
               setFarmMonth(() => nextMonth);
               if (nextYear !== currentYear) {
                 setFarmYear(() => nextYear);
               }
+=======
+              // Cập nhật năm nếu cần (setState lồng nhau — dùng callback để set year từ đây)
+              if (nextYear !== currentYear) {
+                // setFarmYear trả về nextYear từ callback ngoài
+              }
+
+              setFarmMonth(() => nextMonth);
+>>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
               return realNextDay;
             });
             return currentMonth; // sẽ bị override bởi setFarmMonth bên trong
           });
+<<<<<<< HEAD
           return currentYear; // sẽ bị override bởi setFarmYear bên trong nếu sang năm mới
+=======
+          return nextDay > 30 && currentMonth === 12 ? currentYear + 1 : currentYear;
+>>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
         });
 
         return WEATHER_DURATION_SEC; // reset về 300s (1 ngày)
