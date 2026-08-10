@@ -4,14 +4,17 @@ git push
 
 npm run dev
 
-<<<<<<< HEAD
 lệnh upload:
-    git remote set-url origin https://github.com/ptdatazz/Toeic_V4.git
-    git remote -v
+
+    git init
+    git add .
+    git commit -m "Cap nhat"
+    git branch -M main
+    git remote add origin https://github.com/ptdatazz/Toeic_V2.git
+    git push -u origin main
+
+    git pull origin main --allow-unrelated-histories
 
     git add .
-    git commit -m "upload V4"
+    git commit -m "Merge"
     git push -u origin main
-    
-=======
->>>>>>> cbc0e14a59bf8cdc833bf8db9a40a083733f4058
