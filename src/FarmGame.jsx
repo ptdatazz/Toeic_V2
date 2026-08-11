@@ -2851,6 +2851,9 @@ const killPest = (plotId) => {
         </div>
       )}
 
+      {/* ===== HIỆU ỨNG THỜI TIẾT & MÙA — CHỈ HIỆN Ở TAB NÔNG TRẠI ===== */}
+      {activePanel === "farm" && (
+        <>
       {/* ===== WEATHER OVERLAY ===== */}
 
       {/* SUNNY — màn hình sáng, tia nắng */}
@@ -3030,6 +3033,8 @@ const killPest = (plotId) => {
             }}>{l.emoji}</div>
           ))}
         </div>
+      )}
+        </>
       )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
