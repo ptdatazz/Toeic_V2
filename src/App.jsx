@@ -177,15 +177,51 @@ const generateVocabQuestions = (selectedData, fullData, level) => {
       .map((p) => ({ word: d.word, meaning: p.meaning }))
   );
 
+  // 🎯 LEVEL 0 (Chế độ học 5 giai đoạn: Quiz -> Song ngữ -> Flashcard -> Bắn từ -> Crossword)
+  // Giai đoạn Quiz (trắc nghiệm chọn nghĩa) và Flashcard đều dùng CHUNG 1 bộ từ, ghép nối tiếp nhau trong 1 mảng.
+  // Giai đoạn Song ngữ và Bắn từ được chèn xen giữa (xử lý riêng trong component WordQuiz), không nằm trong mảng này.
+  if (level === 0) {
+    // Giai đoạn 1: QUIZ — trắc nghiệm chọn nghĩa đơn giản (như Level 1)
+    const quizQs = selectedData.map((item) => {
+      const displayAnswer = getDisplayMeaning(item);
+      const correctLen = displayAnswer.length || 1;
+      const similarPool = meaningPool.filter((p) => {
+        if (p.word === item.word || !p.meaning || p.meaning === displayAnswer) return false;
+        const ratio = p.meaning.length / correctLen;
+        return ratio >= 0.5 && ratio <= 2.0;
+      });
+      const pool = similarPool.length >= 3
+        ? similarPool
+        : meaningPool.filter((p) => p.word !== item.word && p.meaning && p.meaning !== displayAnswer);
+      const wrongOptions = pool
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 3)
+        .map((p) => p.meaning);
+      return {
+        ...item,
+        type: "en_to_vn",
+        meaning: displayAnswer,
+        meaningTag: null,
+        options: shuffleArray([...wrongOptions, displayAnswer]),
+        answer: displayAnswer,
+      };
+    });
+
+    // Giai đoạn 3: FLASHCARD — mỗi từ = đúng 1 thẻ, gộp hết nghĩa n/v/adj lại
+    const flashcardQs = selectedData.map((item) => {
+      const combinedMeaning = getDisplayMeaning(item);
+      const cleanAnswer = item.word.replace(/\s*\(.*?\)\s*/g, '').trim();
+      return { ...item, type: "flashcard", meaning: combinedMeaning, meaningTag: null, answer: cleanAnswer };
+    });
+
+    return [...quizQs, ...flashcardQs];
+  }
+
   return selectedData.flatMap((item) => {
     const meaningParts = getMeaningParts(item);
 
     return meaningParts.map((part) => {
       let qType = "en_to_vn";
-
-      if (level === 0) {
-        qType = "flashcard";
-      }
 
       if (level === 1) {
         if (Math.random() > 0.5) qType = "vn_to_en";
@@ -227,7 +263,7 @@ const generateVocabQuestions = (selectedData, fullData, level) => {
         const wrongOptions = getRandomWrongOptions(fullData, item, "word");
         questionObj.options = shuffleArray([...wrongOptions, item.word]);
         questionObj.answer = item.word;
-      } else if (qType === "typing" || qType === "scramble"|| qType === "flashcard") {
+      } else if (qType === "typing" || qType === "scramble") {
         const cleanAnswer = item.word.replace(/\s*\(.*?\)\s*/g, '').trim();
         questionObj.answer = cleanAnswer;
       }
@@ -460,18 +496,14 @@ function QuizSettings({ mode, onStart, onBack, customWordsCount = 0, customGramm
           {/* LEVEL */}
           <div style={{ ...cardStyle, borderLeft: `4px solid ${levelColor}` }}>
 
-            {/* CHẾ ĐỘ HỌC LEVEL 0 */}
+            {/* CHẾ ĐỘ HỌC LEVEL 0 — GIỜ LÀ 1 LUỒNG DUY NHẤT: Quiz -> Song ngữ -> Flashcard -> Bắn từ -> Crossword */}
             {settings.difficultyLevel === 0 && mode === "vocab" && (
-              <div style={{ ...cardStyle, marginTop: "12px" }}>
-                <span style={labelStyle}>📖 Chế độ học Level 0</span>
-                <label style={{ ...radioCardBase, background: !settings.storyMode ? `${primaryColor}15` : "#f9fafb", border: `2px solid ${!settings.storyMode ? primaryColor : "transparent"}` }}>
-                  <input type="radio" name="storyMode" value="flashcard" checked={!settings.storyMode} onChange={() => setSettings({...settings, storyMode: false})} style={{ accentColor: primaryColor }} />
-                  <div><strong>🎴 Flashcard</strong></div>
-                </label>
-                <label style={{ ...radioCardBase, background: settings.storyMode ? `${primaryColor}15` : "#f9fafb", border: `2px solid ${settings.storyMode ? primaryColor : "transparent"}`, marginBottom: 0 }}>
-                  <input type="radio" name="storyMode" value="story" checked={settings.storyMode === true} onChange={() => setSettings({...settings, storyMode: true})} style={{ accentColor: primaryColor }} />
-                  <div><strong>📖 Song Ngữ</strong></div>
-                </label>
+              <div style={{ ...cardStyle, marginTop: "12px", borderLeft: `4px solid ${primaryColor}` }}>
+                <span style={labelStyle}>🎯 Luồng học Level 0 (tự động chạy đủ 5 bước)</span>
+                <div style={{ fontSize: "13px", color: "#555", lineHeight: "1.7" }}>
+                  📝 Quiz &nbsp;➡️&nbsp; 📖 Song ngữ &nbsp;➡️&nbsp; 🎴 Flashcard &nbsp;➡️&nbsp; 🔫 Bắn từ &nbsp;➡️&nbsp; 🧩 Crossword
+                </div>
+                <p style={{ fontSize: "12px", color: "#888", margin: "8px 0 0 0" }}>Cả 5 bước đều dùng chung đúng số từ bạn set bên dưới. Bấm "⭐ Đã thuộc" ở bước Crossword cuối cùng để chuyển từ từ Ô vàng sang Ô xanh.</p>
               </div>
             )}
 
@@ -584,6 +616,7 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
   const streakRef = useRef(0);
   const spawnIntervalRef = useRef(null);
   const correctWordSpawnedRef = useRef(false);
+  const questionTimeoutRef = useRef(null); // ⏱️ Hết giờ cho câu hiện tại (thay cho việc "chạm đất là trượt" khi từ rơi dọc)
 
   // Tốc độ cơ bản tăng theo streak (chậm vừa phải)
   const getBaseSpeed = () => {
@@ -610,7 +643,7 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     setMousePos({ x: Math.min(Math.max(x, 0), 100), y: Math.min(Math.max(y, 0), 100) });
   };
 
-  // Tạo 1 đợt từ - CHỈ 3-5 TỪ (bao gồm 1 từ đúng)
+  // Tạo 1 đợt từ - CHỈ 3-5 TỪ (bao gồm 1 từ đúng) - DÀN RA THÀNH HÀNG, BAY QUA BAY LẠI NGANG MÀN HÌNH
   const createWave = (question) => {
     if (!question) return [];
     
@@ -635,18 +668,15 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
     
-    const usedX = [];
     const baseSpeed = getBaseSpeed();
-    
+    const rowSlots = [18, 34, 50, 66, 82]; // 5 hàng cố định, dàn đều từ trên xuống dưới
+    const shuffledRows = [...rowSlots].sort(() => Math.random() - 0.5);
+
     return pool.map((opt, idx) => {
-      let x, tries = 0;
-      do { 
-        x = 10 + Math.random() * 80; 
-        tries++;
-      } while (usedX.some(px => Math.abs(px - x) < 28) && tries < 30);
-      usedX.push(x);
-      
-      const startY = -40 - Math.random() * 40;
+      // Mỗi từ 1 hàng cố định (không đè lên nhau), bay ngang qua lại trên hàng đó
+      const y = shuffledRows[idx % shuffledRows.length];
+      const x = 10 + Math.random() * 80; // vị trí ngang khởi điểm ngẫu nhiên
+      const dir = Math.random() > 0.5 ? 1 : -1; // hướng bay ban đầu: trái hoặc phải
       const speedVariation = (Math.random() - 0.5) * 0.08;
       let finalSpeed = baseSpeed + speedVariation;
       finalSpeed = Math.min(Math.max(finalSpeed, 0.35), 0.9);
@@ -655,7 +685,8 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
         ...opt, 
         id: Date.now() + idx + Math.random(),
         x: x, 
-        y: startY,
+        y: y,
+        dir: dir,
         speed: finalSpeed,
         word: opt.word,
         cleanWord: opt.cleanWord || opt.word,
@@ -674,6 +705,50 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     targetsRef.current = [...targetsRef.current, ...newWave];
     setTargets([...targetsRef.current]);
     correctWordSpawnedRef.current = true;
+  };
+
+  // ⏱️ Hết giờ cho câu hiện tại mà chưa bắn trúng từ đúng -> tính là trượt, mất mạng (thay cho "chạm đất là trượt" khi còn rơi dọc)
+  const triggerMiss = () => {
+    if (isProcessingRef.current || isGameOverRef.current || gameOver) return;
+    isProcessingRef.current = true;
+
+    setLives(prev => {
+      const newLives = prev - 1;
+      if (newLives <= 0) {
+        isGameOverRef.current = true;
+        setGameOver(true);
+        if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+      }
+      return newLives;
+    });
+    setShowResult("miss");
+    streakRef.current = 0;
+    setBlastStreak(0);
+    playSound("wrong");
+
+    if (areaRef.current) {
+      areaRef.current.style.transform = "translateX(4px)";
+      setTimeout(() => { if (areaRef.current) areaRef.current.style.transform = ""; }, 100);
+    }
+
+    setTimeout(() => {
+      if (isGameOverRef.current) return;
+      const nextIdx = (qIdxRef.current + 1) % questions.length;
+
+      if (nextIdx === 0 && qIdxRef.current === questions.length - 1) {
+        if (scoreRef.current >= questions.length - 1) {
+          if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+          confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 });
+          playSound("combo_max");
+          onWin();
+          return;
+        }
+      }
+
+      setQIdx(nextIdx);
+      setShowResult(null);
+      isProcessingRef.current = false;
+    }, 800);
   };
 
   // Reset cho câu hỏi mới
@@ -706,6 +781,12 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
+
+    // Hủy bộ đếm giờ của câu trước (nếu có)
+    if (questionTimeoutRef.current) {
+      clearTimeout(questionTimeoutRef.current);
+      questionTimeoutRef.current = null;
+    }
     
     // Reset targets
     targetsRef.current = [];
@@ -720,6 +801,12 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     setTimeout(() => {
       if (!isGameOverRef.current && currentQRef.current && !correctWordSpawnedRef.current) {
         spawnWave();
+        // ⏱️ Bắt đầu đếm giờ bay cho câu này - hết giờ mà chưa bắn trúng thì tính trượt
+        const baseSpeed = getBaseSpeed();
+        const flyDurationMs = Math.round(9000 / (baseSpeed / 0.45)); // streak càng cao, tốc độ càng nhanh -> thời gian càng ngắn
+        questionTimeoutRef.current = setTimeout(() => {
+          triggerMiss();
+        }, flyDurationMs);
       }
     }, 500);
   };
@@ -731,10 +818,11 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     
     return () => {
       if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
+      if (questionTimeoutRef.current) clearTimeout(questionTimeoutRef.current);
     };
   }, [qIdx, questions]);
 
-  // Animation loop
+  // Animation loop — từ giờ BAY NGANG QUA LẠI trên hàng cố định, không rơi dọc xuống đất nữa
   useEffect(() => {
     if (questions.length === 0) return;
     if (gameOver) {
@@ -754,62 +842,17 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
       if (currentTime - lastTime > 50) {
         lastTime = currentTime;
         
-        let fallenCorrectWord = false;
         const updatedTargets = targetsRef.current.map(t => {
-          const newY = t.y + t.speed;
-          if (newY > 90 && t.isCorrect === true) {
-            fallenCorrectWord = true;
-          }
-          if (newY > 105) return null;
-          return { ...t, y: Math.min(newY, 100) };
-        }).filter(t => t !== null);
+          let newX = t.x + t.speed * t.dir;
+          let newDir = t.dir;
+          // Chạm mép trái/phải thì bật ngược hướng bay lại (bay qua bay lại)
+          if (newX <= 6) { newX = 6; newDir = 1; }
+          else if (newX >= 94) { newX = 94; newDir = -1; }
+          return { ...t, x: newX, dir: newDir };
+        });
         
         targetsRef.current = updatedTargets;
         setTargets([...updatedTargets]);
-        
-        // Khi từ đúng rơi xuống đất
-        if (fallenCorrectWord && !isProcessingRef.current && !gameOver && !isGameOverRef.current) {
-          isProcessingRef.current = true;
-          
-          setLives(prev => { 
-            const newLives = prev - 1;
-            if (newLives <= 0) {
-              isGameOverRef.current = true;
-              setGameOver(true);
-              if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
-            }
-            return newLives;
-          });
-          setShowResult("miss");
-          streakRef.current = 0;
-          setBlastStreak(0);
-          playSound("wrong");
-          
-          if (areaRef.current) {
-            areaRef.current.style.transform = "translateX(4px)";
-            setTimeout(() => { if(areaRef.current) areaRef.current.style.transform = ""; }, 100);
-          }
-          
-          setTimeout(() => {
-            if (isGameOverRef.current) return;
-            const nextIdx = (qIdxRef.current + 1) % questions.length;
-            
-            if (nextIdx === 0 && qIdxRef.current === questions.length - 1) {
-              if (scoreRef.current >= questions.length - 1) {
-                if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
-                confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 });
-                playSound("combo_max");
-                onWin();
-                return;
-              }
-            }
-            
-            setQIdx(nextIdx);
-            setShowResult(null);
-            isProcessingRef.current = false;
-          }, 800);
-          return;
-        }
       }
       
       if (!isGameOverRef.current) {
@@ -854,6 +897,8 @@ const handleShoot = (opt, idx) => {
     const isCorrect = currentTargetStill.isCorrect === true;
     
     if (isCorrect) {
+      // Bắn trúng rồi -> hủy luôn bộ đếm giờ bay của câu này để tránh báo trượt nhầm
+      if (questionTimeoutRef.current) { clearTimeout(questionTimeoutRef.current); questionTimeoutRef.current = null; }
       setHitIdx(idx);
       setShowResult("hit");
       
@@ -937,6 +982,7 @@ const handleShoot = (opt, idx) => {
   const handleRestart = () => {
     if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (questionTimeoutRef.current) clearTimeout(questionTimeoutRef.current);
     
     isGameOverRef.current = false;
     isProcessingRef.current = false;
@@ -1079,7 +1125,7 @@ const handleShoot = (opt, idx) => {
         gap: "8px",
         flexShrink: 0
       }}>
-        <span style={{ fontSize: "11px", color: "#FFD700" }}>⚡ Tốc độ rơi:</span>
+        <span style={{ fontSize: "11px", color: "#FFD700" }}>⚡ Tốc độ bay:</span>
         <div style={{ flex: 1, height: "5px", backgroundColor: "rgba(255,255,255,0.2)", borderRadius: "3px", overflow: "hidden" }}>
           <div style={{ 
             width: `${speedPercent}%`, 
@@ -1175,7 +1221,7 @@ const handleShoot = (opt, idx) => {
                 background: isHit ? "#4CAF50" : isMiss ? "#F44336" : "rgba(13,27,62,0.9)",
                 color: isHit || isMiss ? "white" : "#00e5ff",
                 boxShadow: isHit ? "0 0 20px #4CAF50" : "0 4px 10px rgba(0,0,0,0.3)",
-                opacity: opt.y < -8 ? 0 : 1,
+                opacity: 1,
                 transition: "opacity 0.15s",
                 pointerEvents: shooting || !!showResult || gameOver ? "none" : "auto",
                 textShadow: "0 1px 2px rgba(0,0,0,0.2)",
@@ -1430,7 +1476,7 @@ function BlastGameScreen({ mode, onBack, settings, stats }) {
 
 // Thay thế hoàn toàn component StoryMode trong file App.jsx
 
-function StoryMode({ words, onComplete, onBack, updateGlobal, onSaveWord, settings }) {
+function StoryMode({ words, onComplete, onBack, updateGlobal, onSaveWord, settings, embedded = false }) {
   const [stories, setStories] = useState([]);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -1724,12 +1770,18 @@ const submitMeaning = () => {
     confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 }, zIndex: 9999 });
     
     if (currentStoryIndex + 1 >= stories.length) {
-      setCompleted(true);
-      playSound("combo_max");
-      confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 });
-      setTimeout(() => {
+      if (embedded) {
+        // 🆕 Đang chạy như 1 giai đoạn trong luồng 5 bước -> bỏ qua màn "Chúc mừng" riêng, sang thẳng bước tiếp theo (Flashcard)
+        playSound("combo_max");
         onComplete && onComplete(score);
-      }, 1500);
+      } else {
+        setCompleted(true);
+        playSound("combo_max");
+        confetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, zIndex: 9999 });
+        setTimeout(() => {
+          onComplete && onComplete(score);
+        }, 1500);
+      }
     } else {
       setCurrentStoryIndex(prev => prev + 1);
     }
@@ -1950,6 +2002,7 @@ console.log("🔄 storyParts isLearned:", storyParts.filter(p => p.type === 'wor
               onKeyDown={e => e.key === "Enter" && submitMeaning()}
               placeholder="Gõ nghĩa tiếng Việt..."
               style={{ width:"100%", padding:"12px 16px", fontSize:"16px", borderRadius:"12px", boxSizing:"border-box",
+                      color: "#1a237e", caretColor: "#1a237e",
                       border: inputResult === "correct" ? "2px solid #4CAF50" 
                             : inputResult === "wrong" ? "2px solid #f44336" 
                             : "2px solid #e0e0e0",
@@ -2029,6 +2082,20 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
   const [scrambleAvailable, setScrambleAvailable] = useState([]);
   const [scrambleSelected, setScrambleSelected] = useState([]);
   const [isStoryModeActive, setIsStoryModeActive] = useState(false);
+  // 🆕 LEVEL 0 — 5 giai đoạn: Quiz -> Song ngữ -> Flashcard -> Bắn từ -> Crossword
+  const [songNguDone, setSongNguDone] = useState(false);
+  const [banTuDone, setBanTuDone] = useState(false);
+
+  // 🆕 Ghim (memo hóa) bộ từ dùng chung cho Song ngữ + Bắn từ, tránh bị tính lại (tạo mảng mới) mỗi giây
+  // do đồng hồ đếm giờ ngầm vẫn tick dù đang ở 2 màn này -> khiến BlastGame/StoryMode tưởng đổi bộ từ nên xáo lại liên tục.
+  const level0PhaseWords = useMemo(() => {
+    if (DIFFICULTY_LEVEL !== 0 || questionsData.length === 0) return [];
+    const hasCrossword = questionsData[questionsData.length - 1]?.type === "crossword_boss";
+    const totalCore = hasCrossword ? questionsData.length - 1 : questionsData.length;
+    const N = Math.floor(totalCore / 2);
+    return questionsData.slice(N, N * 2);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questionsData, DIFFICULTY_LEVEL]);
 
   const typingValueRef = useRef("");
   useEffect(() => { typingValueRef.current = typingValue; }, [typingValue]);
@@ -2181,7 +2248,7 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
         if (DIFFICULTY_LEVEL === 0) {
             wordsToLearn = [...savedWords];
         } else {
-            wordsToLearn = [...masteredWords];
+            wordsToLearn = [...savedWords, ...wrongWords];
         }
         
         const customWordSet = new Set(wordsToLearn.filter(w => typeof w === "string").map(w => w.toLowerCase().trim()));
@@ -2798,36 +2865,59 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
     onBack(); 
   };
 
-  // KIỂM TRA STORY MODE
-// KIỂM TRA STORY MODE - Cập nhật để truyền settings
-// KIỂM TRA STORY MODE - Cập nhật để truyền settings
-if (DIFFICULTY_LEVEL === 0 && settings.storyMode && !isStoryModeActive && questionsData.length > 0 && !loadingData) {
-  const uniqueWords = [];
-  const seen = new Set();
-  questionsData.forEach(q => {
-    if (q.word && !seen.has(q.word.toLowerCase())) {
-      seen.add(q.word.toLowerCase());
-      uniqueWords.push(q);
+  // 🆕 LUỒNG HỌC 5 GIAI ĐOẠN CHO LEVEL 0: Quiz -> Song ngữ -> Flashcard -> Bắn từ -> Crossword
+  // questionsData ở Level 0 có cấu trúc: [N câu Quiz] + [N câu Flashcard] + [1 câu Crossword (nếu có)]
+  if (DIFFICULTY_LEVEL === 0 && !loadingData && questionsData.length > 0) {
+    const hasCrossword = questionsData[questionsData.length - 1]?.type === "crossword_boss";
+    const totalCore = hasCrossword ? questionsData.length - 1 : questionsData.length;
+    const N = Math.floor(totalCore / 2);
+
+    // GIAI ĐOẠN 2 — SONG NGỮ: chèn ngay sau khi làm xong hết Quiz (current === N), trước khi vào Flashcard
+    if (N > 0 && current === N && !songNguDone) {
+      const storyWords = level0PhaseWords;
+      if (storyWords.length > 0) {
+        return (
+          <StoryMode
+            key="story-mode-stable"
+            words={storyWords}
+            settings={settings}
+            embedded={true}
+            onComplete={() => { setSongNguDone(true); }}
+            onBack={onBack}
+            updateGlobal={updateGlobal}
+            onSaveWord={onSaveWord}
+          />
+        );
+      }
+      setSongNguDone(true);
     }
-  });
-  
-  if (uniqueWords.length > 0) {
-    return (
-      <StoryMode
-        key="story-mode-stable"   // ← thêm dòng này
-        words={uniqueWords}
-        settings={settings}  // ← THÊM DÒNG NÀY để truyền settings
-        onComplete={(finalScore) => {
-          setIsStoryModeActive(false);
-          setIsGameOver(true);
-        }}
-        onBack={onBack}
-        updateGlobal={updateGlobal}
-        onSaveWord={onSaveWord}
-      />
-    );
+
+    // GIAI ĐOẠN 4 — BẮN TỪ: chèn ngay sau khi làm xong hết Flashcard (current === N*2), trước Crossword
+    if (N > 0 && current === N * 2 && !banTuDone) {
+      const blastWords = level0PhaseWords;
+      if (blastWords.length >= 4) {
+        return (
+          <div className="container">
+            <BlastGame
+              key="blast-mode-stable"
+              words={blastWords}
+              onWin={() => {
+                setBanTuDone(true);
+                if (hasCrossword) { setCurrent(questionsData.length - 1); }
+                else { setIsGameOver(true); }
+              }}
+              onBack={onBack}
+              initialLives={settings.survivalLives || 3}
+            />
+          </div>
+        );
+      }
+      // Không đủ từ để chơi Bắn từ -> bỏ qua giai đoạn này
+      setBanTuDone(true);
+      if (hasCrossword) { setCurrent(questionsData.length - 1); }
+      else { setIsGameOver(true); }
+    }
   }
-}
 
   // ĐÃ FIX: Thông báo Loading xịn xò đổi theo từng Level
   if (loadingData) {
@@ -3012,6 +3102,25 @@ if (questionsData.length === 0) {
   const currentQ = questionsData[current];
   const timePercentage = (timeLeft / TIME_PER_QUESTION) * 100;
 
+  // 🆕 LEVEL 0: nhãn + số đếm hiển thị đúng theo TỪNG giai đoạn (không phải tổng toàn bộ 2N+1 câu)
+  let level0PhaseLabel = "🎴 Flashcard";
+  let level0Counter = `${current + 1}/${questionsData.length}`;
+  if (DIFFICULTY_LEVEL === 0) {
+    const hasCrosswordNow = questionsData[questionsData.length - 1]?.type === "crossword_boss";
+    const totalCoreNow = hasCrosswordNow ? questionsData.length - 1 : questionsData.length;
+    const N0 = Math.floor(totalCoreNow / 2);
+    if (currentQ?.type === "en_to_vn") {
+      level0PhaseLabel = "📝 Quiz";
+      level0Counter = `${current + 1}/${N0}`;
+    } else if (currentQ?.type === "flashcard") {
+      level0PhaseLabel = "🎴 Flashcard";
+      level0Counter = `${current - N0 + 1}/${N0}`;
+    } else if (currentQ?.type === "crossword_boss") {
+      level0PhaseLabel = "🧩 Crossword";
+      level0Counter = "Thử thách cuối";
+    }
+  }
+
   let comboClass = "";
   if (answerStatus) {
       if (answerStatus.type === "wrong" || answerStatus.type === "timeout") comboClass = "feedback-wrong";
@@ -3069,7 +3178,7 @@ return (
 
         <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.2)", padding: "6px 16px", borderRadius: "30px", backdropFilter: "blur(4px)", flexShrink: 0 }}>
           <span style={{ fontWeight: "bold", color: "white", fontSize: "15px", textAlign: "center", whiteSpace: "nowrap" }}>
-            {DIFFICULTY_LEVEL === 0 ? "🎴 Flashcard" : (DIFFICULTY_LEVEL === 4 ? `⏱️ ${globalTime}s` : `⏱️ ${timeLeft}s`)}
+            {DIFFICULTY_LEVEL === 0 ? level0PhaseLabel : (DIFFICULTY_LEVEL === 4 ? `⏱️ ${globalTime}s` : `⏱️ ${timeLeft}s`)}
           </span>
         </div>
 
@@ -3088,7 +3197,7 @@ return (
             </div>
           ) : (
             <span style={{ color: "white", fontSize: "14px", whiteSpace: "nowrap", fontWeight: "bold", flexShrink: 0, backgroundColor: "rgba(0,0,0,0.2)", padding: "4px 12px", borderRadius: "20px" }}>
-              {DIFFICULTY_LEVEL === 4 ? `Đúng: ${score}` : `${current + 1}/${questionsData.length}`}
+              {DIFFICULTY_LEVEL === 4 ? `Đúng: ${score}` : (DIFFICULTY_LEVEL === 0 ? level0Counter : `${current + 1}/${questionsData.length}`)}
             </span>
           )}
         </div>
@@ -5012,8 +5121,69 @@ const BGM_PLAYLIST = [
   "/music/9.mp3"
 ];
 
+// Tên hiển thị cho từng bài nhạc trong dropdown chọn nhạc (sửa lại tên cho đúng ý bạn nếu muốn)
+const BGM_NAMES = [
+  "🎵 Nhạc nền 1",
+  "🎵 Nhạc nền 2",
+  "🎵 Nhạc nền 3",
+  "🎵 Nhạc nền 4",
+  "🎵 Nhạc nền 5",
+  "🎵 Nhạc nền 6",
+  "🎵 Nhạc nền 7",
+  "🎵 Nhạc nền 8",
+  "🎵 Nhạc nền 9",
+];
+
 const globalBgm = new Audio();
 globalBgm.loop = false;
+
+// --- KHO LƯU NHẠC NGƯỜI DÙNG TỰ TẢI LÊN (IndexedDB, vì file nhạc thường nặng nên không hợp để nhét vào localStorage) ---
+const MUSIC_DB_NAME = "toeic_music_db";
+const MUSIC_STORE = "custom_tracks";
+
+function openMusicDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(MUSIC_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(MUSIC_STORE)) {
+        db.createObjectStore(MUSIC_STORE, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbPutTrack(track) {
+  const db = await openMusicDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MUSIC_STORE, "readwrite");
+    tx.objectStore(MUSIC_STORE).put(track);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function idbGetAllTracks() {
+  const db = await openMusicDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MUSIC_STORE, "readonly");
+    const req = tx.objectStore(MUSIC_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbDeleteTrack(id) {
+  const db = await openMusicDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MUSIC_STORE, "readwrite");
+    tx.objectStore(MUSIC_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
 
 // --- COMPONENT MỚI: MÀN HÌNH CHỌN CHẾ ĐỘ HỌC DẠNG Ô (ĐÃ TỐI GIẢN) ---
 function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }) {
@@ -5728,6 +5898,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
 
   const [viewAllModal, setViewAllModal] = useState(null); 
   const [wordDetailModal, setWordDetailModal] = useState(null); 
+  const [greenSearchTerm, setGreenSearchTerm] = useState(""); // 🔍 Tìm kiếm trong Ô xanh (Đã thuộc)
 
   useEffect(() => {
     if (!wordDetailModal) return;
@@ -6484,8 +6655,34 @@ const handleSaveToFile = async () => {
             <span style={{ color:"white", fontWeight:"900", fontSize:"13px" }}>Đã thuộc / Ôn ở Lv Cao</span>
             <span style={{ marginLeft:"auto", background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.masteredWords||[]).length}</span>
           </div>
-          <div style={{ flex:1, overflowY:"auto", padding:"10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
-            {renderTags(stats.masteredWords, "#4CAF50", "#e8f5e9", "masteredWords", null, true)}
+          {/* 🔍 Ô TÌM KIẾM RIÊNG CHO Ô XANH */}
+          <div style={{ padding:"8px 12px 4px 12px", flexShrink:0, position:"relative" }}>
+            <input
+              type="text"
+              value={greenSearchTerm}
+              onChange={(e) => setGreenSearchTerm(e.target.value)}
+              placeholder="🔍 Tìm từ đã thuộc..."
+              style={{ width:"100%", padding:"8px 30px 8px 10px", borderRadius:"8px", border:"1px solid #c8e6c9", fontSize:"13px", boxSizing:"border-box", outline:"none", backgroundColor:"#f1f8f1", color:"#2e7d32" }}
+            />
+            {greenSearchTerm && (
+              <button
+                onClick={() => setGreenSearchTerm("")}
+                title="Xóa tìm kiếm"
+                style={{ position:"absolute", right:"18px", top:"50%", transform:"translateY(-50%)", width:"20px", height:"20px", borderRadius:"50%", border:"none", backgroundColor:"#c8e6c9", color:"#2e7d32", fontSize:"12px", fontWeight:"bold", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0 }}
+              >×</button>
+            )}
+          </div>
+          <div style={{ flex:1, overflowY:"auto", padding:"6px 12px 10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
+            {(() => {
+              const term = greenSearchTerm.trim().toLowerCase();
+              const filteredMastered = term
+                ? (stats.masteredWords || []).filter(w => getWordStr(w).toLowerCase().includes(term))
+                : (stats.masteredWords || []);
+              if (term && filteredMastered.length === 0) {
+                return <p style={{ color:"#aaa", fontSize:"14px", fontStyle:"italic", margin:0 }}>Không tìm thấy từ nào khớp "{greenSearchTerm}".</p>;
+              }
+              return renderTags(filteredMastered, "#4CAF50", "#e8f5e9", "masteredWords", null, true);
+            })()}
           </div>
         </div>
       </div>
@@ -7313,9 +7510,28 @@ function App() {
   // Tìm khoảng dòng ~7240, sau các useState khác
   const [vocabData, setVocabData] = useState([]);  // ← THÊM DÒNG NÀY
   const [showTutorial, setShowTutorial] = useState(false);
-  const [isMusicPlaying, setIsMusicPlaying] = useState(true); 
-  const [currentTrackIndex, setCurrentTrackIndex] = useState(Math.floor(Math.random() * BGM_PLAYLIST.length));
-  const [volume, setVolume] = useState(0.4); 
+  const [isMusicPlaying, setIsMusicPlaying] = useState(() => {
+    const saved = localStorage.getItem("toeic_music_playing");
+    return saved !== null ? saved === "true" : true;
+  });
+  // 🎧 Danh sách nhạc người dùng tự tải lên từ máy (nội dung file nằm trong IndexedDB, đây chỉ là metadata)
+  const [customTracks, setCustomTracks] = useState([]);
+  useEffect(() => {
+    idbGetAllTracks().then(setCustomTracks).catch(e => console.log("Lỗi tải danh sách nhạc đã lưu:", e));
+  }, []);
+  // Ghép playlist có sẵn + nhạc người dùng tải lên thành 1 danh sách duy nhất, mỗi bài có 1 "id" cố định
+  const playlist = useMemo(() => ([
+    ...BGM_PLAYLIST.map((src, idx) => ({ id: `builtin-${idx}`, name: BGM_NAMES[idx] || `🎵 Nhạc nền ${idx + 1}`, src, custom: false })),
+    ...customTracks.map((t) => ({ id: t.id, name: t.name, src: t.dataUrl, custom: true })),
+  ]), [customTracks]);
+  const [currentTrackId, setCurrentTrackId] = useState(() => {
+    return localStorage.getItem("toeic_music_track_id") || `builtin-${Math.floor(Math.random() * BGM_PLAYLIST.length)}`;
+  });
+  const [volume, setVolume] = useState(() => {
+    const saved = localStorage.getItem("toeic_music_volume");
+    const v = saved !== null ? parseFloat(saved) : NaN;
+    return !isNaN(v) ? v : 0.4;
+  });
 
   // State cho background ảnh
   const [backgroundImage, setBackgroundImage] = useState(() => {
@@ -7323,10 +7539,14 @@ function App() {
     return saved || null;
   });
 
+  const currentTrack = playlist.find(t => t.id === currentTrackId) || playlist[0];
+  const lastLoadedTrackIdRef = useRef(null);
+
   const forcePlayMusic = () => {
-    if (isMusicPlaying) {
-      if (!globalBgm.src || !globalBgm.src.includes(BGM_PLAYLIST[currentTrackIndex])) {
-        globalBgm.src = BGM_PLAYLIST[currentTrackIndex];
+    if (isMusicPlaying && currentTrack) {
+      if (lastLoadedTrackIdRef.current !== currentTrack.id) {
+        globalBgm.src = currentTrack.src;
+        lastLoadedTrackIdRef.current = currentTrack.id;
       }
       globalBgm.play().catch(e => console.log("Trình duyệt đợi tương tác:", e));
     }
@@ -7352,6 +7572,57 @@ function App() {
     reader.readAsDataURL(file);
   };
 
+  // 🎵 Hàm upload nhạc từ máy lên (lưu vĩnh viễn trong IndexedDB của trình duyệt)
+  const handleUploadMusic = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("audio/")) {
+      alert("Vui lòng chọn 1 file âm thanh (mp3, wav, m4a...) nhé!");
+      e.target.value = "";
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert("File nhạc quá lớn! Vui lòng chọn file dưới 10MB để tránh đầy bộ nhớ trình duyệt.");
+      e.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = event.target.result;
+      const id = `custom-${Date.now()}`;
+      const name = `🎧 ${file.name.replace(/\.[^/.]+$/, "")}`;
+      const newTrack = { id, name, dataUrl };
+      try {
+        await idbPutTrack(newTrack);
+        setCustomTracks(prev => [...prev, newTrack]);
+        setCurrentTrackId(id);
+        if (!isMusicPlaying) setIsMusicPlaying(true);
+        playSound("click");
+      } catch (err) {
+        console.log("Lỗi lưu nhạc:", err);
+        alert("Không lưu được bài nhạc này, thử file khác nhỏ hơn nhé!");
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ""; // reset để chọn lại đúng file đó vẫn kích hoạt được
+  };
+
+  // 🗑️ Xóa 1 bài nhạc đã tải lên
+  const handleDeleteCustomTrack = async (id) => {
+    try {
+      await idbDeleteTrack(id);
+      setCustomTracks(prev => prev.filter(t => t.id !== id));
+      if (currentTrackId === id) {
+        setCurrentTrackId(`builtin-0`);
+      }
+      playSound("click");
+    } catch (err) {
+      console.log("Lỗi xóa nhạc:", err);
+    }
+  };
+
   // Hàm xóa background
   const handleRemoveBackground = () => {
     setBackgroundImage(null);
@@ -7373,7 +7644,18 @@ function App() {
 
   useEffect(() => {
     globalBgm.volume = volume;
+    localStorage.setItem("toeic_music_volume", String(volume));
   }, [volume]);
+
+  // 💾 Lưu lại bài nhạc đang chọn (kể cả nhạc tự tải lên) để mở web lại vẫn đúng bài đó
+  useEffect(() => {
+    localStorage.setItem("toeic_music_track_id", currentTrackId);
+  }, [currentTrackId]);
+
+  // 💾 Lưu lại trạng thái bật/tắt nhạc
+  useEffect(() => {
+    localStorage.setItem("toeic_music_playing", String(isMusicPlaying));
+  }, [isMusicPlaying]);
 
   // Mắt thần tự động dừng nhạc khi thu nhỏ web
   useEffect(() => {
@@ -7393,19 +7675,27 @@ function App() {
 
   useEffect(() => {
     const handleEnded = () => {
-      setCurrentTrackIndex((prev) => (prev + 1) % BGM_PLAYLIST.length);
+      setCurrentTrackId((prevId) => {
+        const idx = playlist.findIndex((t) => t.id === prevId);
+        const nextIdx = idx >= 0 ? (idx + 1) % playlist.length : 0;
+        return playlist[nextIdx]?.id || prevId;
+      });
     };
     globalBgm.addEventListener("ended", handleEnded);
     return () => globalBgm.removeEventListener("ended", handleEnded);
-  }, []);
+  }, [playlist]);
 
   useEffect(() => {
-    globalBgm.src = BGM_PLAYLIST[currentTrackIndex];
+    if (!currentTrack) return;
+    if (lastLoadedTrackIdRef.current !== currentTrack.id) {
+      globalBgm.src = currentTrack.src;
+      lastLoadedTrackIdRef.current = currentTrack.id;
+    }
     // ĐÃ FIX: Đổi bài hát thì phát nhạc cho cả Sổ tay
     if (isMusicPlaying && (screen === "home" || screen === "notebook") && !showTutorial) {
       globalBgm.play().catch(e => console.log("Đợi tương tác..."));
     }
-  }, [currentTrackIndex, isMusicPlaying, screen, showTutorial]);
+  }, [currentTrackId, currentTrack, isMusicPlaying, screen, showTutorial]);
 
   useEffect(() => {
     // ĐÃ FIX: Cho phép nhạc phát khi đang ở Trang chủ HOẶC Sổ tay
@@ -7428,7 +7718,18 @@ function App() {
 
   const playNextTrack = () => {
     playSound("click");
-    setCurrentTrackIndex((prev) => (prev + 1) % BGM_PLAYLIST.length);
+    setCurrentTrackId((prevId) => {
+      const idx = playlist.findIndex((t) => t.id === prevId);
+      const nextIdx = idx >= 0 ? (idx + 1) % playlist.length : 0;
+      return playlist[nextIdx]?.id || prevId;
+    });
+    if (!isMusicPlaying) setIsMusicPlaying(true);
+  };
+
+  // 🎶 Cho người dùng chọn thẳng 1 bài nhạc cụ thể (kể cả nhạc tự tải lên)
+  const selectTrack = (id) => {
+    playSound("click");
+    setCurrentTrackId(id);
     if (!isMusicPlaying) setIsMusicPlaying(true);
   };
   
@@ -8691,14 +8992,55 @@ return (
           {/* Nhạc sidebar */}
           <div style={{ padding: "12px 14px", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: "14px", marginBottom: "20px" }}>
             <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px", fontWeight: "bold", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "1px" }}>🎵 Âm nhạc</div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
               <button onClick={toggleMusic} style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: isMusicPlaying ? "#FF9800" : "rgba(255,255,255,0.15)", color: "white", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>
                 {isMusicPlaying ? "🔊" : "🔇"}
               </button>
               <button onClick={playNextTrack} style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: "rgba(255,255,255,0.15)", color: "white", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>⏭️</button>
               <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} style={{ width: "70px", cursor: "pointer", accentColor: "#4facfe" }} />
             </div>
+            {/* Dropdown chọn thẳng bài nhạc mong muốn (có sẵn + tự tải lên) - tự lưu lại, mở web lại vẫn giữ đúng bài này */}
+            <select
+              value={currentTrackId}
+              onChange={(e) => selectTrack(e.target.value)}
+              style={{ width: "100%", padding: "7px 8px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.25)", backgroundColor: "rgba(255,255,255,0.1)", color: "white", fontSize: "12px", cursor: "pointer", outline: "none", marginBottom: "8px" }}
+            >
+              {playlist.map((t) => (
+                <option key={t.id} value={t.id} style={{ color: "#333" }}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+
+            {/* 📤 Tải nhạc từ máy lên */}
+            <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", width: "100%", padding: "7px 8px", borderRadius: "8px", border: "1px dashed rgba(255,255,255,0.35)", color: "rgba(255,255,255,0.85)", fontSize: "12px", cursor: "pointer", boxSizing: "border-box" }}>
+              📤 Tải nhạc từ máy lên
+              <input type="file" accept="audio/*" onChange={handleUploadMusic} style={{ display: "none" }} />
+            </label>
+
+            {/* Danh sách nhạc đã tải lên, kèm nút xóa */}
+            {customTracks.length > 0 && (
+              <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "4px", maxHeight: "110px", overflowY: "auto" }}>
+                {customTracks.map((t) => (
+                  <div key={t.id} style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: currentTrackId === t.id ? "rgba(255,152,0,0.25)" : "rgba(255,255,255,0.06)", borderRadius: "6px", padding: "4px 6px" }}>
+                    <span
+                      onClick={() => selectTrack(t.id)}
+                      style={{ flex: 1, color: "rgba(255,255,255,0.85)", fontSize: "11px", cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                      title={t.name}
+                    >
+                      {t.name}
+                    </span>
+                    <button
+                      onClick={() => handleDeleteCustomTrack(t.id)}
+                      title="Xóa bài nhạc này"
+                      style={{ width: "18px", height: "18px", borderRadius: "50%", border: "none", backgroundColor: "rgba(255,255,255,0.15)", color: "white", fontSize: "11px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+
 
           {/* Stats sidebar */}
           <div style={{ flex: 1 }}>
