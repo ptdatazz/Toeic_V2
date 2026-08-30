@@ -2106,7 +2106,7 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
   const [crosswordInputs, setCrosswordInputs] = useState({});
   const [bossMastered, setBossMastered] = useState({});
   const [bossHinted, setBossHinted] = useState({});
-  const [bossGameChoice, setBossGameChoice] = useState(null);
+  const [bossGameChoice, setBossGameChoice] = useState("cross"); // 🆕 Mặc định thẳng vào Ô Chữ, bỏ qua màn chọn (Bắn Từ giờ đã là 1 giai đoạn riêng)
 
   const handleBossHint = (idx, targetCleanWord) => {
       playSound("click");
@@ -2852,7 +2852,7 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
     setKeywordInput("");
     setIsKeywordSolved(false);
     setKeywordExplanation("");
-    setBossGameChoice(null);
+    setBossGameChoice("cross");
 
     const nextIdx = current + 1;
     setCurrent(nextIdx);
