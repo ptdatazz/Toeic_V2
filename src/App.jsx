@@ -6017,6 +6017,10 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
   const [jsonPasteInput, setJsonPasteInput] = useState("");
   const [jsonModalStep, setJsonModalStep] = useState(1);
   const [jsonSaveStatus, setJsonSaveStatus] = useState("");
+  const [showExternalReloadModal, setShowExternalReloadModal] = useState(false);
+  const [externalReloadPrompt, setExternalReloadPrompt] = useState("");
+  const [externalReloadInput, setExternalReloadInput] = useState("");
+  const [externalReloadStatus, setExternalReloadStatus] = useState("");
     // --- TÍNH NĂNG MỚI: NHẬP CÂU HỎI TOEIC TỪ AI NGOÀI ---
   const [showToeicJsonModal, setShowToeicJsonModal] = useState(false);
   const [toeicJsonInput, setToeicJsonInput] = useState("");
@@ -6036,9 +6040,9 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
       return `Giải thích các cấu trúc ngữ pháp TOEIC sau: "${wordsStr}".\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON, KHÔNG giải thích thêm:\n[{"word": "Tên cấu trúc", "phonetic": "Công thức đầy đủ (VD: S + V + O)", "meaning": "Ý nghĩa / cách dùng cốt lõi trong 1-2 câu", "usage": "1 câu ví dụ tiếng Anh hoàn chỉnh (có dịch nghĩa tiếng Việt trong ngoặc)"}]`;
     }
     if (tab === "collocation") {
-      return `Phân tích các collocation (cụm từ cố định) tiếng Anh sau dùng trong TOEIC: "${wordsStr}".\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON, KHÔNG giải thích thêm:\n[{"word": "Collocation đầy đủ (VD: make a decision)", "phonetic": "Phiên âm IPA của từ khóa chính", "meaning": "Nghĩa tiếng Việt TỐI ĐA 6 TỪ", "usage": "1 câu ví dụ ngắn trong ngữ cảnh TOEIC", "synonym": "2-4 collocation tương đương hoặc từ đồng nghĩa"}]`;
+      return `Phân tích các collocation (cụm từ cố định) tiếng Anh sau dùng trong TOEIC: "${wordsStr}".\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON, KHÔNG giải thích thêm:\n[{"word": "Collocation đầy đủ (VD: make a decision)", "phonetic": "Phiên âm IPA của từ khóa chính", "meaning": "Nghĩa tiếng Việt TỐI ĐA 6 TỪ", "usage": "1 câu ví dụ ngắn trong ngữ cảnh TOEIC", "synonym": "2-4 collocation tương đương hoặc từ đồng nghĩa", "topic": "Chủ đề/lĩnh vực 1-3 từ tiếng Việt (VD: Công việc, Tài chính, Du lịch)"}]`;
     }
-    return `Phân tích các từ/cụm từ tiếng Anh sau: "${wordsStr}".\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON:\n[{"word": "Từ chuẩn (kèm loại từ)", "phonetic": "Phiên âm IPA", "noun_meaning": "Nghĩa (n) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "verb_meaning": "Nghĩa (v) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "adj_meaning": "Nghĩa (adj/adv) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "meaning": "Nghĩa chung TỐI ĐA 5 TỪ nếu không chia được", "synonym": "tối thiểu 3 từ đồng nghĩa và tối đa là 7 từ đồng nghĩa", "usage": "1 câu ví dụ ngắn"}]`;
+    return `Phân tích các từ/cụm từ tiếng Anh sau: "${wordsStr}".\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON:\n[{"word": "Từ chuẩn (kèm loại từ)", "phonetic": "Phiên âm IPA", "noun_meaning": "Nghĩa (n) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "verb_meaning": "Nghĩa (v) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "adj_meaning": "Nghĩa (adj/adv) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "meaning": "Nghĩa chung TỐI ĐA 5 TỪ nếu không chia được", "synonym": "tối thiểu 3 từ đồng nghĩa và tối đa là 7 từ đồng nghĩa", "usage": "1 câu ví dụ ngắn", "topic": "Chủ đề/lĩnh vực 1-3 từ tiếng Việt (VD: Công việc, Du lịch, Y tế, Tài chính)"}]`;
   };
 
  const handleSaveJson = async () => {
@@ -6465,8 +6469,15 @@ const handleSaveToFile = async () => {
       }
       const wStr = typeof w === 'string' ? w : (w.word || w.question || "");
       const dict = globalStats[activeTab]?.addedWordsObj || [];
-      const foundDetail = [...dict].reverse().find(item => item.word && item.word.toLowerCase() === wStr.toLowerCase());
-      setWordDetailModal({ wordStr: wStr, listType, detail: foundDetail || null });
+      const normalizeDetailWord = (value) => (value || "")
+        .toLowerCase()
+        .replace(/\s*\(.*?\)\s*/g, "")
+        .trim();
+      const itemDetail = typeof w === "object" && w !== null ? w : null;
+      const foundDetail = [...dict].reverse().find(item =>
+        normalizeDetailWord(item.word) === normalizeDetailWord(wStr)
+      );
+      setWordDetailModal({ wordStr: wStr, listType, detail: itemDetail || foundDetail || null });
       setIsEditingManual(false); 
   };
 
@@ -6654,86 +6665,79 @@ const handleSaveToFile = async () => {
 
 
       {/* ===== HÀNG 1: TOPBAR ===== */}
-      <div style={{ background: tabGrad, padding:"0 20px", height:"56px", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0, boxShadow:"0 2px 12px rgba(0,0,0,0.18)" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:"12px" }}>
+      <div style={{ background: tabGrad, padding:"0 20px", height:"56px", display:"flex", alignItems:"center", justifyContent:"flex-start", flexShrink:0, boxShadow:"0 2px 12px rgba(0,0,0,0.18)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:"12px", flex:1, minWidth:0 }}>
           <button onClick={() => { onBack(); }} style={{ background:"rgba(255,255,255,0.18)", border:"none", color:"white", borderRadius:"10px", padding:"6px 12px", cursor:"pointer", fontWeight:"bold", fontSize:"14px", fontFamily:"inherit" }}>← Về</button>
           <span style={{ color:"white", fontWeight:"900", fontSize:"18px", letterSpacing:"0.5px" }}>📖 Sổ Tay Của Tôi</span>
         </div>
-        <div style={{ display:"flex", gap:"6px", background:"rgba(0,0,0,0.18)", borderRadius:"12px", padding:"4px" }}>
-        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:"8px", flexShrink:0 }}>
         <button
           disabled={isReloading || isAdding}
-          onClick={async () => {
+          onClick={() => {
             const stats = globalStats[activeTab] || {};
             const dict = stats.addedWordsObj || [];
 
-            // Hàm kiểm tra từ có thiếu nghĩa không
             const hasMeaning = (item) => {
               if (!item || typeof item !== "object") return false;
               return !!(item.meaning?.trim() || item.noun_meaning?.trim() || item.verb_meaning?.trim() || item.adj_meaning?.trim());
             };
+            const hasTopic = (item) => !!(item && typeof item === "object" && item.topic?.trim());
 
-            // Tìm tất cả từ đang nằm trong các ô (savedWords, masteredWords, wrongWords)
-            const allWords = [
-              ...(stats.savedWords || []),
-              ...(stats.masteredWords || []),
-              ...(stats.wrongWords || []),
+            // Chỉ reload từ ở ô vàng và ô xanh; ô đỏ không thuộc phạm vi reload.
+            // Ô xanh không còn nằm trong addedWordsObj sau khi chuyển ô,
+            // nên phải kiểm tra nghĩa ngay trên item của ô xanh.
+            const wordsToCheck = [
+              ...(stats.savedWords || []).map(item => ({ item, listType: "savedWords" })),
+              ...(stats.masteredWords || []).map(item => ({ item, listType: "masteredWords" })),
             ];
             const normalizeW = (w) => (typeof w === "string" ? w : (w?.word || "")).toLowerCase().replace(/\s*\(.*?\)\s*/g, "").trim();
 
-            // Tìm từ thiếu nghĩa: có trong các ô nhưng không có object đầy đủ trong addedWordsObj
-            const wordsMissingMeaning = [];
+            // Tìm từ thiếu nghĩa hoặc topic.
+            const wordsMissingFields = [];
             const seen = new Set();
-            for (const w of allWords) {
+            for (const { item: w, listType } of wordsToCheck) {
               const wStr = normalizeW(w);
               if (!wStr || seen.has(wStr)) continue;
               seen.add(wStr);
               const existing = dict.find(obj => normalizeW(obj) === wStr);
-              if (!hasMeaning(existing)) {
-                wordsMissingMeaning.push(typeof w === "string" ? w : (w?.word || wStr));
+              const source = listType === "masteredWords" ? w : (hasMeaning(w) || hasTopic(w) ? w : existing);
+              const missingFields = [];
+              if (!hasMeaning(source)) missingFields.push("meaning");
+              if (!hasTopic(source)) missingFields.push("topic");
+              if (missingFields.length > 0) {
+                wordsMissingFields.push({ word: typeof w === "string" ? w : (w?.word || wStr), missingFields });
               }
             }
 
-            if (wordsMissingMeaning.length === 0) return alert("✅ Tất cả từ đã có nghĩa đầy đủ rồi!");
-            if (!window.confirm(`Tìm thấy ${wordsMissingMeaning.length} từ bị thiếu nghĩa.\nTự động reload chỉ các từ này thôi?`)) return;
+            if (wordsMissingFields.length === 0) return alert("✅ Tất cả từ ở ô vàng và ô xanh đã có nghĩa và topic rồi!");
 
-            setIsReloading(true);
-            setReloadProgress({ done: 0, total: wordsMissingMeaning.length });
+            const prompt = `Bạn là trợ lý từ vựng TOEIC. Hãy bổ sung dữ liệu cho các từ dưới đây.
+CHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON, KHÔNG giải thích thêm.
+Giữ nguyên trường "word". Bắt buộc trả đầy đủ các trường sau:
+[
+  {
+    "word": "Từ gốc giữ nguyên",
+    "phonetic": "Phiên âm IPA",
+    "noun_meaning": "Nghĩa danh từ, để trống nếu không có",
+    "verb_meaning": "Nghĩa động từ, để trống nếu không có",
+    "adj_meaning": "Nghĩa tính từ/trạng từ, để trống nếu không có",
+    "meaning": "Nghĩa chung nếu không chia loại từ được",
+    "synonym": "Từ đồng nghĩa",
+    "usage": "Một ví dụ ngắn",
+    "topic": "Chủ đề tiếng Việt, 1-3 từ"
+  }
+]
 
-            // Tạo bản sao addedWordsObj để cập nhật vào đúng chỗ
-            let updatedObjs = [...dict];
+DANH SÁCH CẦN BỔ SUNG:
+${wordsMissingFields.map((entry, index) => `${index + 1}. ${entry.word} (thiếu: ${entry.missingFields.join(", ")})`).join("\n")}`;
 
-            for (let i = 0; i < wordsMissingMeaning.length; i++) {
-              const wordStr = wordsMissingMeaning[i];
-              const normStr = normalizeW(wordStr);
-              try {
-                const r = await fetchAI(wordStr, activeTab);
-                r.word = wordStr;
-                // Tìm và thay thế nếu đã có, hoặc thêm mới vào addedWordsObj
-                const idx = updatedObjs.findIndex(obj => normalizeW(obj) === normStr);
-                if (idx !== -1) {
-                  updatedObjs[idx] = r;
-                } else {
-                  updatedObjs.push(r);
-                }
-              } catch(e) {
-                console.warn("Lỗi reload từ:", wordStr, e);
-              }
-              setReloadProgress({ done: i + 1, total: wordsMissingMeaning.length });
-              await new Promise(r => setTimeout(r, 300));
-            }
-
-            // Chỉ cập nhật addedWordsObj, KHÔNG đụng đến savedWords/masteredWords/wrongWords
-            if (onUpdateWordObjs) {
-              await onUpdateWordObjs(activeTab, updatedObjs);
-            } else {
-              await onSaveWord(activeTab, updatedObjs);
-            }
-            setIsReloading(false);
-            alert(`✅ Đã reload xong ${wordsMissingMeaning.length} từ bị thiếu nghĩa!`);
+            setExternalReloadPrompt(prompt);
+            setExternalReloadInput("");
+            setExternalReloadStatus("");
+            setShowExternalReloadModal(true);
           }}
           style={{ background:"rgba(255,255,255,0.18)", border:"none", color:"white", borderRadius:"10px", padding:"6px 14px", cursor: isReloading ? "not-allowed":"pointer", fontWeight:"bold", fontSize:"13px", fontFamily:"inherit", opacity: isReloading ? 0.6 : 1 }}>
-          {isReloading ? `🔄 ${reloadProgress.done}/${reloadProgress.total}` : "🔄 Reload nghĩa"}
+          {isReloading ? `🔄 ${reloadProgress.done}/${reloadProgress.total}` : "🔄 Reload nghĩa + topic"}
         </button>
 
         {/* 🏷️ AI TỰ ĐỘNG PHÂN LOẠI CHỦ ĐỀ CHO TỪ CHƯA CÓ (chỉ hiện ở Vocab/Collocation) */}
@@ -6806,6 +6810,7 @@ const handleSaveToFile = async () => {
             {isTagging ? `🏷️ ${tagProgress.done}/${tagProgress.total}` : "🏷️ AI phân loại chủ đề"}
           </button>
         )}
+        </div>
       </div>
 
       {/* ===== HÀNG 2: THANH NHẬP TỪ ===== */}
@@ -6951,6 +6956,51 @@ const handleSaveToFile = async () => {
               </div>
             </>)}
             <button onClick={() => setShowJsonModal(false)} style={{ width:"100%", marginTop:"12px", padding:"10px", backgroundColor:"#f5f5f5", color:"#666", border:"none", borderRadius:"8px", cursor:"pointer", fontWeight:"bold" }}>✕ Đóng</button>
+          </div>
+        </div>
+      )}
+
+      {showExternalReloadModal && (
+        <div onClick={() => setShowExternalReloadModal(false)} style={{ position:"fixed", inset:0, backgroundColor:"rgba(0,0,0,0.65)", zIndex:1450, display:"flex", justifyContent:"center", alignItems:"center", padding:"16px", boxSizing:"border-box" }}>
+          <div onClick={e => e.stopPropagation()} style={{ backgroundColor:"white", width:"100%", maxWidth:"680px", borderRadius:"16px", padding:"22px", boxShadow:"0 10px 30px rgba(0,0,0,0.3)", maxHeight:"90vh", overflowY:"auto" }}>
+            <h3 style={{ margin:"0 0 6px", color:"#1565c0" }}>🔄 Reload nghĩa + topic bằng AI ngoài</h3>
+            <p style={{ margin:"0 0 14px", color:"#666", fontSize:"13px" }}>
+              Chỉ gồm các từ thiếu nghĩa hoặc topic trong ô vàng và ô xanh. Kết quả sẽ được lưu lại đúng ô hiện tại.
+            </p>
+            <button onClick={() => { navigator.clipboard.writeText(externalReloadPrompt); setExternalReloadStatus("✅ Đã copy prompt. Hãy gửi prompt cho ChatGPT/Gemini/Claude rồi copy JSON trả về."); }} style={{ width:"100%", marginTop:"8px", padding:"10px", border:"none", borderRadius:"8px", background:"#2196F3", color:"white", fontWeight:"bold", cursor:"pointer" }}>
+              📋 Copy prompt
+            </button>
+            <textarea value={externalReloadInput} onChange={e => setExternalReloadInput(e.target.value)} rows={10} placeholder={'Paste mảng JSON từ AI vào đây...'} style={{ width:"100%", marginTop:"14px", padding:"10px", border:"1px solid #ccc", borderRadius:"8px", boxSizing:"border-box", resize:"vertical", fontFamily:"monospace", fontSize:"12px" }} />
+            {externalReloadStatus && <p style={{ margin:"8px 0 0", color:externalReloadStatus.startsWith("✅") ? "#2e7d32" : "#d32f2f", fontWeight:"bold", fontSize:"13px" }}>{externalReloadStatus}</p>}
+            <div style={{ display:"flex", gap:"8px", marginTop:"12px" }}>
+              <button disabled={!externalReloadInput.trim()} onClick={async () => {
+                try {
+                  const raw = externalReloadInput.trim().replace(/```json/gi, "").replace(/```/g, "").trim();
+                  const match = raw.match(/\[[\s\S]*\]/);
+                  if (!match) throw new Error("Không tìm thấy mảng JSON hợp lệ.");
+                  const parsed = JSON.parse(match[0]);
+                  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Mảng JSON đang rỗng.");
+                  const normalizeW = value => (typeof value === "string" ? value : (value?.word || "")).toLowerCase().replace(/\s*\(.*?\)\s*/g, "").trim();
+                  const validItems = parsed.filter(item => item && typeof item === "object" && normalizeW(item));
+                  if (validItems.length !== parsed.length) throw new Error("Mỗi phần tử phải là object có trường word.");
+                  const updatedObjs = [...(globalStats[activeTab]?.addedWordsObj || [])];
+                  validItems.forEach(item => {
+                    const index = updatedObjs.findIndex(existing => normalizeW(existing) === normalizeW(item));
+                    if (index === -1) updatedObjs.push(item);
+                    else updatedObjs[index] = { ...updatedObjs[index], ...item };
+                  });
+                  if (!onUpdateWordObjs) throw new Error("Không thể lưu mà không làm thay đổi vị trí từ.");
+                  await onUpdateWordObjs(activeTab, updatedObjs);
+                  setExternalReloadStatus(`✅ Đã lưu ${validItems.length} từ. Các từ vẫn ở nguyên ô vàng/ô xanh.`);
+                  setTimeout(() => { setShowExternalReloadModal(false); setExternalReloadInput(""); setExternalReloadStatus(""); }, 1200);
+                } catch (error) {
+                  setExternalReloadStatus(`❌ ${error.message}`);
+                }
+              }} style={{ flex:1, padding:"11px", border:"none", borderRadius:"8px", background:externalReloadInput.trim() ? "#4CAF50" : "#ccc", color:"white", fontWeight:"bold", cursor:externalReloadInput.trim() ? "pointer" : "not-allowed" }}>
+                💾 Lưu JSON
+              </button>
+              <button onClick={() => setShowExternalReloadModal(false)} style={{ flex:1, padding:"11px", border:"none", borderRadius:"8px", background:"#e0e0e0", color:"#333", fontWeight:"bold", cursor:"pointer" }}>Đóng</button>
+            </div>
           </div>
         </div>
       )}
