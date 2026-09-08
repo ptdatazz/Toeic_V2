@@ -3217,7 +3217,12 @@ return (
         <div style={{ animation: "popIn 0.3s ease-out", display: "flex", flexDirection: "column", alignItems: "center" }}>
             {flashcardPhase === "learn" ? (
                 <>
-                    <h2 style={{ fontSize: "18px", color: "#2c3e50", marginBottom: "20px", fontWeight: "600" }}>Lật thẻ để học từ 🎴</h2>
+                    <h2 style={{ fontSize: "18px", color: "#2c3e50", marginBottom: "8px", fontWeight: "600" }}>Lật thẻ để học từ 🎴</h2>
+                    {currentQ.topic && (
+                      <span style={{ display: "inline-block", fontSize: "12px", fontWeight: "bold", color: "#8e24aa", backgroundColor: "#f3e5f5", padding: "3px 12px", borderRadius: "20px", border: "1px solid #ce93d8", marginBottom: "12px" }}>
+                        🏷️ {currentQ.topic}
+                      </span>
+                    )}
 
                     <div
                         onClick={() => { playSound("click"); setIsFlipped(!isFlipped); }}
@@ -3337,6 +3342,11 @@ return (
           <div style={{ marginBottom: "24px" }}>
             <span style={{ fontSize: "14px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", fontWeight: "600" }}>What does this word mean?</span>
             <h1 style={{ fontSize: "clamp(28px, 6vw, 42px)", color: mode==="collocation" ? "#9C27B0" : "#2196F3", margin: "12px 0 8px 0", fontWeight: "800", wordBreak: "break-word" }}>"{currentQ.word}"</h1>
+            {currentQ.topic && (
+              <span style={{ display: "inline-block", fontSize: "12px", fontWeight: "bold", color: "#8e24aa", backgroundColor: "#f3e5f5", padding: "3px 12px", borderRadius: "20px", border: "1px solid #ce93d8", marginBottom: "6px" }}>
+                🏷️ {currentQ.topic}
+              </span>
+            )}
             <p style={{ fontSize: "16px", color: "#666" }}><i>{currentQ.phonetic}</i></p>
           </div>
           <div className="options" style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
@@ -5895,6 +5905,8 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
   const [selectedToDelete, setSelectedToDelete] = useState(new Set());
   const [isReloading, setIsReloading] = useState(false);
   const [reloadProgress, setReloadProgress] = useState({ done: 0, total: 0 }); 
+  const [isTagging, setIsTagging] = useState(false);
+  const [tagProgress, setTagProgress] = useState({ done: 0, total: 0 });
 
   const [viewAllModal, setViewAllModal] = useState(null); 
   const [wordDetailModal, setWordDetailModal] = useState(null); 
@@ -6049,8 +6061,8 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
       let prompt = currentTab === "grammar"
         ? `Giải thích cấu trúc ngữ pháp TOEIC: "${wordInput}".\nCHỈ TRẢ VỀ DUY NHẤT 1 OBJECT JSON, KHÔNG giải thích thêm:\n{"word": "${wordInput}", "phonetic": "Công thức đầy đủ (VD: S + V + O)", "meaning": "Ý nghĩa / cách dùng cốt lõi trong 1-2 câu", "usage": "1 câu ví dụ tiếng Anh hoàn chỉnh (có dịch nghĩa tiếng Việt trong ngoặc)"}`
         : currentTab === "collocation"
-        ? `Phân tích collocation (cụm từ cố định) tiếng Anh dùng trong TOEIC: "${wordInput}".\nCHỈ TRẢ VỀ DUY NHẤT 1 OBJECT JSON, KHÔNG giải thích thêm:\n{"word": "Collocation đầy đủ (VD: make a decision)", "phonetic": "Phiên âm IPA của từ khóa chính", "meaning": "Nghĩa tiếng Việt TỐI ĐA 6 TỪ", "usage": "1 câu ví dụ ngắn trong ngữ cảnh TOEIC", "synonym": "2-4 collocation tương đương hoặc từ đồng nghĩa"}`
-        : `Phân tích từ/cụm từ tiếng Anh: "${wordInput}".\nCHỈ TRẢ VỀ DUY NHẤT 1 OBJECT JSON, KHÔNG giải thích thêm:\n{"word": "Từ chuẩn (kèm loại từ)", "phonetic": "Phiên âm IPA", "noun_meaning": "Nghĩa (n) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "verb_meaning": "Nghĩa (v) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "adj_meaning": "Nghĩa (adj/adv) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "meaning": "Nghĩa chung TỐI ĐA 5 TỪ nếu không chia loại từ được", "synonym": "tối thiểu 3 từ đồng nghĩa và tối đa là 7 từ đồng nghĩa", "usage": "1 câu ví dụ ngắn"}`;
+        ? `Phân tích collocation (cụm từ cố định) tiếng Anh dùng trong TOEIC: "${wordInput}".\nCHỈ TRẢ VỀ DUY NHẤT 1 OBJECT JSON, KHÔNG giải thích thêm:\n{"word": "Collocation đầy đủ (VD: make a decision)", "phonetic": "Phiên âm IPA của từ khóa chính", "meaning": "Nghĩa tiếng Việt TỐI ĐA 6 TỪ", "usage": "1 câu ví dụ ngắn trong ngữ cảnh TOEIC", "synonym": "2-4 collocation tương đương hoặc từ đồng nghĩa", "topic": "Chủ đề/lĩnh vực 1-3 từ tiếng Việt (VD: Công việc, Tài chính...)"}`
+        : `Phân tích từ/cụm từ tiếng Anh: "${wordInput}".\nCHỈ TRẢ VỀ DUY NHẤT 1 OBJECT JSON, KHÔNG giải thích thêm:\n{"word": "Từ chuẩn (kèm loại từ)", "phonetic": "Phiên âm IPA", "noun_meaning": "Nghĩa (n) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "verb_meaning": "Nghĩa (v) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "adj_meaning": "Nghĩa (adj/adv) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "meaning": "Nghĩa chung TỐI ĐA 5 TỪ nếu không chia loại từ được", "synonym": "tối thiểu 3 từ đồng nghĩa và tối đa là 7 từ đồng nghĩa", "usage": "1 câu ví dụ ngắn", "topic": "Chủ đề/lĩnh vực 1-3 từ tiếng Việt (VD: Công việc, Du lịch, Y tế...)"}`;
       
         const requestBody = { contents: [{ parts: [{ text: prompt }] }] };
       if (window.globalCachedModel.includes("1.5")) {
@@ -6107,7 +6119,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
 
       let prompt = currentTab === "grammar"
         ? `Giải thích các cấu trúc ngữ pháp sau: "${wordsString}".\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON:\n[{"word": "cấu trúc", "phonetic": "Công thức", "meaning": "Nghĩa", "usage": "Ví dụ"}]`
-        : `Phân tích các từ/cụm từ tiếng Anh sau: "${wordsString}".\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON:\n[{"word": "Từ chuẩn (kèm loại từ)", "phonetic": "Phiên âm IPA", "noun_meaning": "Nghĩa (n) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "verb_meaning": "Nghĩa (v) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "adj_meaning": "Nghĩa (adj/adv) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "meaning": "Nghĩa chung TỐI ĐA 5 TỪ", "synonym": "tối thiểu 3 từ đồng nghĩa và tối đa là 7 từ đồng nghĩa", "usage": "1 câu ví dụ ngắn"}]`;
+        : `Phân tích các từ/cụm từ tiếng Anh sau: "${wordsString}".\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON:\n[{"word": "Từ chuẩn (kèm loại từ)", "phonetic": "Phiên âm IPA", "noun_meaning": "Nghĩa (n) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "verb_meaning": "Nghĩa (v) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "adj_meaning": "Nghĩa (adj/adv) TỐI ĐA 5 TỪ TIẾNG VIỆT, để trống nếu không có", "meaning": "Nghĩa chung TỐI ĐA 5 TỪ", "synonym": "tối thiểu 3 từ đồng nghĩa và tối đa là 7 từ đồng nghĩa", "usage": "1 câu ví dụ ngắn", "topic": "Chủ đề/lĩnh vực 1-3 từ tiếng Việt (VD: Công việc, Du lịch, Y tế...)"}]`;
 
       const requestBody = { contents: [{ parts: [{ text: prompt }] }] };
       if (window.globalCachedModel.includes("1.5")) {
@@ -6144,6 +6156,65 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
       const parsedArray = JSON.parse(rawText); 
       if (!Array.isArray(parsedArray)) throw new Error("AI không trả về mảng dữ liệu.");
       return parsedArray; 
+  };
+
+  // 🏷️ AI TỰ ĐỘNG PHÂN LOẠI CHỦ ĐỀ (chỉ hỏi topic, không hỏi lại nghĩa -> nhanh & tiết kiệm quota hơn)
+  const fetchTopicsBatch = async (wordsArray, existingTopics = []) => {
+    return retryWithNewKey(async (apiKey) => {
+      const API_KEY = getActiveKey();
+      if (!API_KEY) throw new Error("No_API");
+
+      if (!window.globalCachedModel) {
+        const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`);
+        const listData = await listRes.json();
+        if (listData.error) {
+          const msg = listData.error.message?.toLowerCase() || "";
+          if (msg.includes("quota") || msg.includes("expired") || listData.error.code === 429 || listData.error.code === 400) {
+            const hasNextKey = markKeyExhausted();
+            if (hasNextKey) { await new Promise(r => setTimeout(r, 1500)); return fetchTopicsBatch(wordsArray, existingTopics); }
+          }
+          throw new Error(listData.error.message);
+        }
+        const textModels = (listData.models || []).filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"));
+        const fastModel = textModels.find(m => m.name.includes("1.5-flash")) || textModels.find(m => m.name.includes("flash"));
+        window.globalCachedModel = fastModel ? fastModel.name : (textModels.length > 0 ? textModels[0].name : "models/gemini-1.5-flash");
+      }
+
+      const suggestHint = existingTopics.length > 0
+        ? `Ưu tiên dùng lại các chủ đề đã có nếu phù hợp: ${existingTopics.join(", ")}. Chỉ tạo chủ đề mới nếu không từ nào trong danh sách trên phù hợp.`
+        : "";
+      const prompt = `Phân loại CHỦ ĐỀ/LĨNH VỰC cho từng từ vựng tiếng Anh TOEIC sau đây, mỗi chủ đề chỉ 1-3 từ tiếng Việt ngắn gọn (VD: Công việc, Du lịch, Y tế, Tài chính, Công nghệ, Gia đình, Ẩm thực, Giáo dục, Mua sắm, Thời tiết...). ${suggestHint}\nDanh sách từ: ${wordsArray.join(", ")}\nCHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON, đúng thứ tự, đủ số lượng từ đã cho, KHÔNG giải thích thêm:\n[{"word": "từ gốc y hệt trong danh sách", "topic": "Chủ đề"}]`;
+
+      const requestBody = { contents: [{ parts: [{ text: prompt }] }] };
+      if (window.globalCachedModel.includes("1.5")) {
+        requestBody.generationConfig = { response_mime_type: "application/json" };
+      }
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${window.globalCachedModel}:generateContent?key=${API_KEY}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody)
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        const msg = data.error.message?.toLowerCase() || "";
+        window.globalCachedModel = null;
+        if (msg.includes("quota") || msg.includes("expired") || data.error.code === 429) {
+          const hasNextKey = markKeyExhausted();
+          if (hasNextKey) { await new Promise(r => setTimeout(r, 1500)); return fetchTopicsBatch(wordsArray, existingTopics); }
+          throw new Error("Hết toàn bộ Key dự phòng!");
+        }
+        throw new Error(data.error.message);
+      }
+      if (!data.candidates?.[0]?.content?.parts?.[0]?.text) throw new Error("AI không trả về nội dung.");
+
+      let rawText = data.candidates[0].content.parts[0].text;
+      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) rawText = jsonMatch[0];
+      const parsedArray = JSON.parse(rawText);
+      if (!Array.isArray(parsedArray)) throw new Error("AI không trả về mảng dữ liệu.");
+      return parsedArray;
+    });
   };
 
   const handleAddNew = async (e) => {
@@ -6281,7 +6352,8 @@ const handleSaveToFile = async () => {
         adj_meaning: wordDetailModal.detail?.adj_meaning || "",
         usage: wordDetailModal.detail?.usage || "",
         synonym: wordDetailModal.detail?.synonym || "",
-        structure: wordDetailModal.detail?.structure || ""
+        structure: wordDetailModal.detail?.structure || "",
+        topic: wordDetailModal.detail?.topic || ""
     });
     setIsEditingManual(true);
   }
@@ -6301,7 +6373,8 @@ const handleSaveToFile = async () => {
           adj_meaning: manualInputs.adj_meaning.trim(),
           usage: manualInputs.usage.trim(),
           synonym: manualInputs.synonym.trim(),
-          structure: manualInputs.structure.trim()
+          structure: manualInputs.structure.trim(),
+          topic: (manualInputs.topic || "").trim()
       };
       onSaveWord(activeTab, updatedWordObj);
       setWordDetailModal({ ...wordDetailModal, detail: updatedWordObj });
@@ -6342,6 +6415,13 @@ const handleSaveToFile = async () => {
         return wa.localeCompare(wb);
     });
     const displayWords = limit ? sorted.slice(0, limit) : sorted;
+    // 🏷️ Tra chủ đề của từng từ (nếu có) từ kho từ điển cá nhân, để hiện kèm bên cạnh từ cho dễ nhớ
+    const topicLookup = {};
+    if (activeTab !== "grammar") {
+      (globalStats[activeTab]?.addedWordsObj || []).forEach(w => {
+        if (w.word && w.topic) topicLookup[w.word.toLowerCase()] = w.topic;
+      });
+    }
     
     return (
     <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
@@ -6407,6 +6487,11 @@ const handleSaveToFile = async () => {
                                   transition: "all 0.15s"
                               }}>
                               {selectedToDelete.has(wordStr) ? "✓ " : ""}{wordStr}
+                              {topicLookup[wordStr.toLowerCase()] && (
+                                <span style={{ display: "block", fontSize: "10px", fontWeight: "bold", color: "#8e24aa", marginTop: "2px" }}>
+                                  🏷️ {topicLookup[wordStr.toLowerCase()]}
+                                </span>
+                              )}
                           </span>
                           
                           {/* 2. Cụm Nút Bấm Chức Năng (V và X) */}
@@ -6575,6 +6660,77 @@ const handleSaveToFile = async () => {
           style={{ background:"rgba(255,255,255,0.18)", border:"none", color:"white", borderRadius:"10px", padding:"6px 14px", cursor: isReloading ? "not-allowed":"pointer", fontWeight:"bold", fontSize:"13px", fontFamily:"inherit", opacity: isReloading ? 0.6 : 1 }}>
           {isReloading ? `🔄 ${reloadProgress.done}/${reloadProgress.total}` : "🔄 Reload nghĩa"}
         </button>
+
+        {/* 🏷️ AI TỰ ĐỘNG PHÂN LOẠI CHỦ ĐỀ CHO TỪ CHƯA CÓ (chỉ hiện ở Vocab/Collocation) */}
+        {activeTab !== "grammar" && (
+          <button
+            disabled={isTagging || isReloading || isAdding}
+            onClick={async () => {
+              const stats2 = globalStats[activeTab] || {};
+              const dict2 = stats2.addedWordsObj || [];
+              const normalizeW2 = (w) => (typeof w === "string" ? w : (w?.word || "")).toLowerCase().replace(/\s*\(.*?\)\s*/g, "").trim();
+
+              const allWords2 = [
+                ...(stats2.savedWords || []),
+                ...(stats2.masteredWords || []),
+                ...(stats2.wrongWords || []),
+              ];
+              const seen2 = new Set();
+              const wordsMissingTopic = [];
+              for (const w of allWords2) {
+                const wStr = normalizeW2(w);
+                if (!wStr || seen2.has(wStr)) continue;
+                seen2.add(wStr);
+                const existing = dict2.find(obj => normalizeW2(obj) === wStr);
+                if (!existing?.topic?.trim()) {
+                  wordsMissingTopic.push(typeof w === "string" ? w : (w?.word || wStr));
+                }
+              }
+
+              if (wordsMissingTopic.length === 0) return alert("✅ Tất cả từ đã có chủ đề rồi!");
+              if (!window.confirm(`Tìm thấy ${wordsMissingTopic.length} từ chưa có chủ đề.\nCho AI tự động phân loại chủ đề cho các từ này?`)) return;
+
+              setIsTagging(true);
+              setTagProgress({ done: 0, total: wordsMissingTopic.length });
+
+              const existingTopicsList = [...new Set(dict2.map(o => o.topic).filter(Boolean))];
+              let updatedObjs2 = [...dict2];
+              const BATCH_SIZE = 15;
+
+              for (let i = 0; i < wordsMissingTopic.length; i += BATCH_SIZE) {
+                const batch = wordsMissingTopic.slice(i, i + BATCH_SIZE);
+                try {
+                  const results = await fetchTopicsBatch(batch, existingTopicsList);
+                  results.forEach(r => {
+                    if (!r?.word || !r?.topic) return;
+                    const normStr = normalizeW2(r.word);
+                    const idx = updatedObjs2.findIndex(obj => normalizeW2(obj) === normStr);
+                    if (idx !== -1) {
+                      updatedObjs2[idx] = { ...updatedObjs2[idx], topic: r.topic.trim() };
+                    } else {
+                      updatedObjs2.push({ word: batch.find(b => normalizeW2(b) === normStr) || r.word, topic: r.topic.trim() });
+                    }
+                    if (!existingTopicsList.includes(r.topic.trim())) existingTopicsList.push(r.topic.trim());
+                  });
+                } catch (e) {
+                  console.warn("Lỗi phân loại chủ đề batch:", batch, e);
+                }
+                setTagProgress({ done: Math.min(i + BATCH_SIZE, wordsMissingTopic.length), total: wordsMissingTopic.length });
+                await new Promise(r => setTimeout(r, 300));
+              }
+
+              if (onUpdateWordObjs) {
+                await onUpdateWordObjs(activeTab, updatedObjs2);
+              } else {
+                await onSaveWord(activeTab, updatedObjs2);
+              }
+              setIsTagging(false);
+              alert(`✅ Đã tự động gắn chủ đề cho ${wordsMissingTopic.length} từ!`);
+            }}
+            style={{ background:"rgba(255,255,255,0.18)", border:"none", color:"white", borderRadius:"10px", padding:"6px 14px", cursor: isTagging ? "not-allowed":"pointer", fontWeight:"bold", fontSize:"13px", fontFamily:"inherit", opacity: isTagging ? 0.6 : 1, marginLeft: "6px" }}>
+            {isTagging ? `🏷️ ${tagProgress.done}/${tagProgress.total}` : "🏷️ AI phân loại chủ đề"}
+          </button>
+        )}
       </div>
 
       {/* ===== HÀNG 2: THANH NHẬP TỪ ===== */}
@@ -6833,7 +6989,14 @@ const handleSaveToFile = async () => {
                     }}>›</button>
                 </div>
 
-                <h2 style={{ fontSize: "26px", color: "#2196F3", margin: "0 0 5px 0" }}>{wordDetailModal.wordStr}</h2>
+                <h2 style={{ fontSize: "26px", color: "#2196F3", margin: "0 0 5px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", flexWrap: "wrap" }}>
+                  {wordDetailModal.wordStr}
+                  {activeTab !== "grammar" && wordDetailModal.detail?.topic && (
+                    <span style={{ fontSize: "13px", fontWeight: "bold", color: "#8e24aa", backgroundColor: "#f3e5f5", padding: "3px 10px", borderRadius: "20px", border: "1px solid #ce93d8" }}>
+                      🏷️ {wordDetailModal.detail.topic}
+                    </span>
+                  )}
+                </h2>
                 {!isEditingManual && (
                     <>
                         {wordDetailModal.detail ? (
@@ -6937,6 +7100,18 @@ const handleSaveToFile = async () => {
 
                         <label style={{ fontSize: "12px", color: "#666", fontWeight: "bold" }}>🔗 Cấu trúc liên quan:</label>
                         <input type="text" value={manualInputs.structure || ""} onChange={(e) => setManualInputs({...manualInputs, structure: e.target.value})} placeholder="VD: make an effort to V..." style={editInputStyle}/>
+
+                        {activeTab !== "grammar" && (
+                          <>
+                            <label style={{ fontSize: "12px", color: "#666", fontWeight: "bold" }}>🏷️ Chủ đề (giúp bạn nhớ từ theo nhóm, VD: Công việc, Du lịch, Y tế...):</label>
+                            <input type="text" value={manualInputs.topic || ""} onChange={(e) => setManualInputs({...manualInputs, topic: e.target.value})} placeholder="VD: Công việc" style={editInputStyle} list="topic-suggestions"/>
+                            <datalist id="topic-suggestions">
+                              {[...new Set((globalStats[activeTab]?.addedWordsObj || []).map(w => w.topic).filter(Boolean))].map(t => (
+                                <option key={t} value={t} />
+                              ))}
+                            </datalist>
+                          </>
+                        )}
 
                         <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
                             <button onClick={saveManualEdit} style={{ flex: 1, padding: "10px", fontSize: "14px", backgroundColor: "#4CAF50", color: "white", borderRadius: "8px", border: "none", cursor: "pointer", fontWeight: "bold" }}>
@@ -7301,10 +7476,25 @@ function renderListLogic(globalStats, activeTab, renderWordList) {
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
+  const [externalImport, setExternalImport] = useState(null);
   const [screen, setScreen] = useState("home"); 
   const [notebookTab, setNotebookTab] = useState("vocab"); 
   const [customGrammarNotes, setCustomGrammarNotes] = useState([]); // Danh sách file ngữ pháp đã upload
   const [selectedGrammarNoteId, setSelectedGrammarNoteId] = useState(null); // File đang chọn để luyện
+
+  useEffect(() => {
+    const rawImport = new URLSearchParams(window.location.search).get("importWord");
+    if (!rawImport) return;
+
+    try {
+      const importedWord = JSON.parse(rawImport);
+      if (importedWord?.word) setExternalImport(importedWord);
+    } catch (error) {
+      console.error("Không đọc được từ gửi từ app Dictionary:", error);
+    }
+
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, []);
 
   const [showProfileMenu, setShowProfileMenu] = useState(false); 
 
@@ -8725,6 +8915,36 @@ return (
   >
     {/* Lớp phủ mờ nếu có ảnh nền để chữ đọc dễ hơn */}
     {backgroundImage && null}
+
+    {externalImport && (
+      <div onClick={() => setExternalImport(null)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.65)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+        <div onClick={(event) => event.stopPropagation()} style={{ width: "100%", maxWidth: "420px", background: "white", borderRadius: "16px", padding: "24px", boxShadow: "0 16px 40px rgba(0,0,0,0.3)" }}>
+          <div style={{ fontSize: "13px", color: "#607d8b", fontWeight: "700", marginBottom: "8px" }}>TỪ TỪ APP DICTIONARY</div>
+          <h2 style={{ margin: "0 0 4px", color: "#1565c0", fontSize: "26px" }}>{externalImport.word}</h2>
+          {externalImport.partOfSpeech && <div style={{ display: "inline-block", color: "#283593", background: "#e8eaf6", borderRadius: "12px", padding: "3px 9px", fontSize: "12px", fontWeight: "700", marginBottom: "14px" }}>{externalImport.partOfSpeech}</div>}
+          <div style={{ background: "#f5f9ff", border: "1px solid #d7e8ff", borderRadius: "10px", padding: "13px", color: "#37474f" }}>
+            {externalImport.phonetic && <div style={{ fontStyle: "italic", color: "#78909c", marginBottom: "6px" }}>{externalImport.phonetic}</div>}
+            <div style={{ fontWeight: "700", color: "#2e7d32", marginBottom: "6px" }}>{externalImport.meaningVi || externalImport.meaning || "Chưa có nghĩa tiếng Việt"}</div>
+            {externalImport.meaningEn && <div style={{ fontSize: "13px", fontStyle: "italic", color: "#607d8b" }}>{externalImport.meaningEn}</div>}
+            {externalImport.examples?.[0] && <div style={{ marginTop: "10px", fontSize: "13px" }}>“{externalImport.examples[0]}”</div>}
+          </div>
+          <div style={{ display: "flex", gap: "10px", marginTop: "18px" }}>
+            <button onClick={() => setExternalImport(null)} style={{ flex: 1, padding: "11px", border: "none", borderRadius: "9px", background: "#eceff1", color: "#455a64", cursor: "pointer", fontWeight: "700" }}>Bỏ qua</button>
+            <button onClick={async () => {
+              const wordData = {
+                ...externalImport,
+                meaning: externalImport.meaning || externalImport.meaningVi || "",
+                usage: externalImport.usage || externalImport.examples?.[0] || "",
+                synonyms: Array.isArray(externalImport.synonyms) ? externalImport.synonyms.join(", ") : (externalImport.synonyms || ""),
+              };
+              await handleSaveDifficultWord("vocab", wordData);
+              setExternalImport(null);
+              setScreen("notebook");
+            }} style={{ flex: 1, padding: "11px", border: "none", borderRadius: "9px", background: "#ff9800", color: "white", cursor: "pointer", fontWeight: "700" }}>🔖 Lưu vào Sổ Tay</button>
+          </div>
+        </div>
+      </div>
+    )}
     
     {showTutorial && (
       <WelcomeTutorial 
