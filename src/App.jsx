@@ -54,7 +54,7 @@ const rotateToNextKey = () => {
 };
 
 // Hàm thử lại với key mới khi gặp lỗi quota - thử tất cả key có sẵn
-const retryWithNewKey = async (apiCall, maxRetries = GLOBAL_API_KEYS.length) => {
+const retryWithNewKey = async (apiCall, maxRetries = Math.max(1, GLOBAL_API_KEYS.length)) => {
     let lastError = null;
     
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -81,6 +81,45 @@ const retryWithNewKey = async (apiCall, maxRetries = GLOBAL_API_KEYS.length) => 
     throw lastError;
 };
 
+const parseGeminiResponse = async (response) => {
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`Gemini trả về dữ liệu không hợp lệ (HTTP ${response.status}).`);
+  }
+
+  if (!response.ok || data.error) {
+    const message = data.error?.message || `Gemini từ chối yêu cầu (HTTP ${response.status}).`;
+    const error = new Error(message);
+    error.status = data.error?.code || response.status;
+    error.isQuotaError = error.status === 429 || /quota|rate limit|billing|resource exhausted/i.test(message);
+    error.isModelUnavailable = error.status === 404 || /not found|no longer available|deprecated|unsupported model/i.test(message);
+    error.isTemporaryUnavailable = error.status === 500 || error.status === 503 || /high demand|temporarily unavailable|service unavailable/i.test(message);
+    throw error;
+  }
+
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("Gemini không trả về nội dung. Hãy kiểm tra API key, quyền truy cập model và quota.");
+  }
+  return text;
+};
+
+const chooseGeminiFlashModel = (models) => {
+  const available = (models || []).filter(model =>
+    model.name && model.supportedGenerationMethods?.includes("generateContent")
+  );
+  const flashModels = available.filter(model => /flash/i.test(model.name));
+  const preferred = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3-flash"];
+  const preferredModel = preferred
+    .map(version => flashModels.find(model => model.name.includes(version)))
+    .find(Boolean);
+  if (preferredModel) return preferredModel.name;
+
+  const currentFlash = flashModels.find(model => !/gemini-(1\.5|2\.5)-flash/i.test(model.name));
+  return currentFlash?.name || available[0]?.name || "models/gemini-3.6-flash";
+};
 // --- ÂM THANH HIỆU ỨNG (SFX) ---
 const playSound = (type) => {
   let url = "";
@@ -2580,7 +2619,7 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
     
     // Nếu đang ở câu Boss, game chưa kết thúc và người dùng đang bật nhạc -> Nổi nhạc lên!
     if (currentQ?.type === "crossword_boss" && !isGameOver && isMusicPlaying) {
-        globalBgm.play().catch(e => console.log("Lỗi phát nhạc Boss:", e));
+        tryPlayGlobalBgm("Lỗi phát nhạc Boss:");
     } else {
         // Tắt nhạc khi ở các câu thường, hoặc khi đã qua màn
         globalBgm.pause();
@@ -3946,6 +3985,11 @@ const handleSelection = (e) => {
           setDictModal({ word: cleanWord, status: 'found_sheet', data: foundInSheet });
           return;
       }
+
+        if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("DÁN_MÃ")) {
+          setDictModal({ word: cleanWord, status: 'error', data: null, message: 'Chưa cấu hình VITE_GEMINI_API_KEY.' });
+          return;
+        }
       
       try {
           // HỎI TÊN AI 1 LẦN DUY NHẤT RỒI LƯU VÀO TRÍ NHỚ (BẢO VỆ KHỎI LỖI 404)
@@ -3965,19 +4009,26 @@ const handleSelection = (e) => {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
           });
-          const data = await res.json();
-
-          if (data.error && (data.error.message.toLowerCase().includes("quota") || data.error.message.toLowerCase().includes("expired") || data.error.code === 429)) {
-              window.globalCachedModel = null; 
+          let rawText;
+          try {
+            rawText = await parseGeminiResponse(res);
+          } catch (error) {
+            if (error.isQuotaError) {
+              window.globalCachedModel = null;
               const hasNextKey = markKeyExhausted();
               if (hasNextKey) {
-                  await new Promise(r => setTimeout(r, 1500)); // ĐÃ FIX: Nghỉ 1.5s chống spam
-                  return handleLookup(wordToLookup);
+                await new Promise(r => setTimeout(r, 1500));
+                return handleLookup(wordToLookup);
               }
-              throw new Error("Hết toàn bộ Key!");
+            }
+            throw error;
           }
 
-          let rawText = data.candidates[0].content.parts[0].text;
+          if (!rawText) {
+              window.globalCachedModel = null; 
+              throw new Error("Gemini không trả về nội dung.");
+          }
+
           rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
           setDictModal({ word: cleanWord, status: 'found_ai', data: JSON.parse(rawText) });
       } catch (error) {
@@ -3998,6 +4049,9 @@ const handleSelection = (e) => {
 
       try {
           const GEMINI_API_KEY = getActiveKey();
+          if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("DÁN_MÃ")) {
+            throw new Error("Chưa cấu hình VITE_GEMINI_API_KEY.");
+          }
           
           if (!window.globalCachedModel) {
               const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
@@ -4021,19 +4075,21 @@ const handleSelection = (e) => {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify(requestBody)
           });
-          const data = await res.json();
-
-          if (data.error && (data.error.message.toLowerCase().includes("quota") || data.error.message.toLowerCase().includes("expired") || data.error.code === 429)) {
+          let rawText;
+          try {
+            rawText = await parseGeminiResponse(res);
+          } catch (error) {
+            if (error.isQuotaError) {
               window.globalCachedModel = null;
               const hasNextKey = markKeyExhausted();
               if (hasNextKey) {
-                  await new Promise(r => setTimeout(r, 1500)); 
-                  return handleQuickSave(type, wordToSave);
+                await new Promise(r => setTimeout(r, 1500));
+                return handleQuickSave(type, wordToSave);
               }
-              return;
+            }
+            throw error;
           }
 
-          let rawText = data.candidates[0].content.parts[0].text;
           const jsonMatch = rawText.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
           if (jsonMatch) rawText = jsonMatch[0];
 
@@ -4983,7 +5039,7 @@ return (
                 ) : dictModal.status === 'error' ? (
                     <div style={{ padding: "20px" }}>
                         <h2 style={{ fontSize: "24px", color: "#F44336", marginBottom: "10px" }}>Lỗi tra cứu</h2>
-                        <p style={{ color: "#666" }}>Không thể phân tích từ "{dictModal.word}" lúc này.</p>
+                        <p style={{ color: "#666" }}>{dictModal.message || `Không thể phân tích từ "${dictModal.word}" lúc này.`}</p>
                         <button onClick={() => setDictModal(null)} style={{ marginTop: "15px", padding: "10px 20px", backgroundColor: "#e0e0e0", borderRadius: "8px", border: "none", cursor: "pointer", fontWeight: "bold" }}>Đóng</button>
                     </div>
                 ) : (
@@ -5146,6 +5202,14 @@ const BGM_NAMES = [
 
 const globalBgm = new Audio();
 globalBgm.loop = false;
+
+const tryPlayGlobalBgm = (message) => {
+  globalBgm.play().catch(error => {
+    if (error.name !== "NotAllowedError") {
+      console.warn(message, error);
+    }
+  });
+};
 
 // --- KHO LƯU NHẠC NGƯỜI DÙNG TỰ TẢI LÊN (IndexedDB, vì file nhạc thường nặng nên không hợp để nhét vào localStorage) ---
 const MUSIC_DB_NAME = "toeic_music_db";
@@ -6034,7 +6098,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
     }
 };
   /// HÀM LÕI 1: GỌI AI DỊCH LẺ 1 TỪ (ĐÃ ÉP BẮT BUỘC TRẢ VỀ LOẠI TỪ)
-  const fetchAI = async (wordInput, currentTab) => {
+  const fetchAI = async (wordInput, currentTab, retriedAfterModelRefresh = false, temporaryRetryCount = 0) => {
     return retryWithNewKey(async (apiKey) => {
       const API_KEY = getActiveKey();
       if (!API_KEY) throw new Error("No_API");
@@ -6053,9 +6117,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
               }
               throw new Error(listData.error.message);
           }
-          const textModels = (listData.models || []).filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"));
-          const fastModel = textModels.find(m => m.name.includes("1.5-flash")) || textModels.find(m => m.name.includes("flash"));
-          window.globalCachedModel = fastModel ? fastModel.name : (textModels.length > 0 ? textModels[0].name : "models/gemini-1.5-flash");
+          window.globalCachedModel = chooseGeminiFlashModel(listData.models);
       }
 
       let prompt = currentTab === "grammar"
@@ -6073,20 +6135,30 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
       });
-      const data = await res.json();
-      
-      if (data.error && (data.error.message.toLowerCase().includes("quota") || data.error.message.toLowerCase().includes("expired") || data.error.code === 429)) {
-          window.globalCachedModel = null;
+      let rawText;
+      try {
+        rawText = await parseGeminiResponse(res);
+      } catch (error) {
+        window.globalCachedModel = null;
+        if (error.isModelUnavailable && !retriedAfterModelRefresh) {
+          return fetchAI(wordInput, currentTab, true);
+        }
+        if (error.isTemporaryUnavailable && temporaryRetryCount < 3) {
+          const delayMs = 1500 * (temporaryRetryCount + 1);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          return fetchAI(wordInput, currentTab, retriedAfterModelRefresh, temporaryRetryCount + 1);
+        }
+        if (error.isQuotaError) {
           const hasNextKey = markKeyExhausted();
-              if (hasNextKey) {
-              await new Promise(r => setTimeout(r, 1500)); 
-              return fetchAI(wordInput, currentTab);
+          if (hasNextKey) {
+            await new Promise(r => setTimeout(r, 1500));
+            return fetchAI(wordInput, currentTab);
           }
           throw new Error("Hết toàn bộ Key dự phòng!");
+        }
+        throw error;
       }
 
-      if (!data.candidates?.[0]?.content?.parts?.[0]?.text) throw new Error("AI không trả về nội dung.");
-      let rawText = data.candidates[0].content.parts[0].text;
       const jsonMatch = rawText.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
       if (jsonMatch) rawText = jsonMatch[0];
       return JSON.parse(rawText);
@@ -6338,7 +6410,10 @@ const handleSaveToFile = async () => {
           
           onSaveWord(activeTab, aiWordObj);
           setWordDetailModal({ wordStr, listType: wordDetailModal.listType, detail: aiWordObj });
-      } catch (error) { alert("Lỗi khi cập nhật AI, vui lòng thử lại sau."); }
+        } catch (error) {
+          console.error("Lỗi cập nhật AI:", error);
+          alert(`Lỗi khi cập nhật AI: ${error.message || "Không rõ nguyên nhân"}`);
+        }
       setIsAdding(false);
   }
 
@@ -7738,7 +7813,7 @@ function App() {
         globalBgm.src = currentTrack.src;
         lastLoadedTrackIdRef.current = currentTrack.id;
       }
-      globalBgm.play().catch(e => console.log("Trình duyệt đợi tương tác:", e));
+      tryPlayGlobalBgm("Trình duyệt đợi tương tác:");
     }
   };
 
@@ -7855,7 +7930,7 @@ function App() {
       } else {
         // ĐÃ FIX: Bật lại nhạc cho cả Sổ tay khi mở lại web
         if (isMusicPlaying && (screen === "home" || screen === "notebook") && !showTutorial && currentUser) {
-          globalBgm.play().catch(e => console.log("Lỗi bật lại nhạc:", e));
+          tryPlayGlobalBgm("Lỗi bật lại nhạc:");
         }
       }
     };
@@ -7883,14 +7958,14 @@ function App() {
     }
     // ĐÃ FIX: Đổi bài hát thì phát nhạc cho cả Sổ tay
     if (isMusicPlaying && (screen === "home" || screen === "notebook") && !showTutorial) {
-      globalBgm.play().catch(e => console.log("Đợi tương tác..."));
+      tryPlayGlobalBgm("Đợi tương tác...");
     }
   }, [currentTrackId, currentTrack, isMusicPlaying, screen, showTutorial]);
 
   useEffect(() => {
     // ĐÃ FIX: Cho phép nhạc phát khi đang ở Trang chủ HOẶC Sổ tay
     if ((screen === "home" || screen === "notebook") && isMusicPlaying && !showTutorial && currentUser) {
-      globalBgm.play().catch(e => console.log("Đợi tương tác..."));
+      tryPlayGlobalBgm("Đợi tương tác...");
     } else {
       globalBgm.pause();
     }
