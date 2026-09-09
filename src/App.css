@@ -285,21 +285,16 @@ h1, h2, h3, p, span, div {
 
   /* Mode buttons: 4 cột → 2×2 */
   .mode-grid-4col {
-    grid-template-columns: repeat(2, 1fr) !important;
-    gap: 8px !important;
-    height: auto !important;
-  }
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(120px, 22vw, 220px), 1fr));
+  gap: clamp(8px, 1.2vw, 14px);
+  width: 100%;
+  flex: 1;              /* 👈 chiếm hết phần chiều cao còn thừa trong .home-main */
+  min-height: 0;        /* 👈 bắt buộc phải có để flex-grow hoạt động đúng trong flex column */
+}
 
   /* Home main: cuộn được, gap nhỏ hơn */
-  .home-main {
-    padding: 8px 10px !important;
-    gap: 7px !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    -webkit-overflow-scrolling: touch !important;
-    /* Không dùng height cứng — để nội dung tự co */
-    height: 100% !important;
-  }
+  .home-main { flex: 1; min-width: 0; padding: clamp(16px, 2.5vh, 28px) clamp(16px, 2.5vw, 28px); display: flex; flex-direction: column; gap: clamp(10px, 1.8vh, 14px); height: 100vh; overflow: hidden; box-sizing: border-box; }
 
   /* Topbar mobile - nhỏ gọn */
   .home-topbar {
@@ -321,10 +316,21 @@ h1, h2, h3, p, span, div {
 
   /* Mode buttons - to, dễ bấm */
   .mode-btn {
-    padding: 14px 8px !important;
-    border-radius: 14px !important;
-    min-height: 85px !important;
-  }
+  height: 100%;          /* 👈 cao bằng đúng hàng grid (đã giãn theo flex ở trên) */
+  min-height: 90px;      /* 👈 chặn dưới, tránh quá thấp trên màn nhỏ */
+  max-height: 260px;     /* 👈 chặn trên, tránh quá cao trên màn siêu lớn (4K, ultrawide) */
+  border-radius: 16px;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: clamp(10px, 2vw, 18px) 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  user-select: none;
+  overflow: hidden;
+}
   .mode-btn .mode-title { font-size: 12px !important; margin-bottom: 4px !important; }
   .mode-btn .mode-count { font-size: 10px !important; padding: 2px 8px !important; }
 }
@@ -437,4 +443,80 @@ h1, h2, h3, p, span, div {
 .tree-fruit.waiting {
   background: radial-gradient(circle at 35% 35%, #88aa88, #446644);
   filter: grayscale(0.5);
+}
+
+/* Icon lớn, đổ bóng nhiều lớp tạo cảm giác 3D nổi khối */
+.mode-icon-3d {
+  font-size: 30px;
+  margin-bottom: 8px;
+  display: block;
+  filter: drop-shadow(0 6px 3px rgba(0,0,0,0.25)) drop-shadow(0 2px 2px rgba(0,0,0,0.15));
+  transform: perspective(300px) rotateX(8deg);
+  transition: transform 0.25s ease;
+  position: relative;
+  z-index: 1;
+}
+.mode-btn:hover .mode-icon-3d {
+  transform: perspective(300px) rotateX(0deg) scale(1.12);
+}
+
+/* Lớp trang trí nền — vòng sáng mờ phía sau icon, tạo chiều sâu */
+.mode-btn-deco {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.mode-btn-deco::before {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 120px; height: 120px;
+  background: radial-gradient(circle, rgba(255,255,255,0.35), rgba(255,255,255,0) 70%);
+  border-radius: 50%;
+  transform: translate(-50%, -60%);
+}
+
+/* Hoạ tiết riêng theo từng chế độ, vẽ bằng CSS thuần */
+
+/* 0: Ôn Từ Vựng — vệt sao bay kiểu tên lửa */
+.mode-btn-0 .mode-btn-deco::after {
+  content: "";
+  position: absolute;
+  bottom: -10px; right: -10px;
+  width: 70px; height: 70px;
+  background: repeating-linear-gradient(45deg, rgba(255,255,255,0.15) 0 6px, transparent 6px 14px);
+  border-radius: 50%;
+}
+
+/* 1: Ôn Collocation — chồng sách */
+.mode-btn-1 .mode-btn-deco::after {
+  content: "";
+  position: absolute;
+  bottom: 8px; left: 8px;
+  width: 46px; height: 10px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 3px;
+  box-shadow: 0 -12px 0 -1px rgba(255,255,255,0.18), 0 -22px 0 -2px rgba(255,255,255,0.12);
+}
+
+/* 2: Ôn Ngữ Pháp — lưới ô vuông kiểu giấy kẻ */
+.mode-btn-2 .mode-btn-deco::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+/* 3: Nông Trại — vệt đồi cỏ phía dưới */
+.mode-btn-3 .mode-btn-deco::after {
+  content: "";
+  position: absolute;
+  bottom: -20px; left: -10%;
+  width: 120%; height: 50px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
 }

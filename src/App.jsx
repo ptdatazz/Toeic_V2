@@ -422,9 +422,16 @@ function AuthScreen() {
         if (!resolvedEmail) { setLoading(false); return setError("Đăng nhập bằng SĐT: dùng nút 'Nhận mã OTP' bên dưới."); }
         const userCredential = await signInWithEmailAndPassword(auth, resolvedEmail, password);
         if (!userCredential.user.emailVerified) {
-          await signOut(auth);
+          window.__skipAuthGuard = true;
+          setEmail(resolvedEmail);
+          setPendingUser(userCredential.user);
+          setPendingIsLogin(true);
+          setStep("waiting");
+          try {
+            await sendEmailVerification(userCredential.user);
+          } catch (e) { /* để người dùng tự bấm nút gửi lại */ }
           setLoading(false);
-          return setError("Email chưa được xác thực. Hãy mở hộp thư và bấm link xác thực.");
+          return;
         }
       } else {
         // Đăng ký bằng email — giữ nguyên logic cũ, sau khi tạo xong chuyển sang bước đặt username
@@ -440,6 +447,7 @@ function AuthScreen() {
         const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
         await sendEmailVerification(userCredential.user);
         setPendingUser(userCredential.user);
+        setPendingIsLogin(false); 
         setStep("waiting"); // 👈 chờ người dùng bấm link trong Gmail, chưa cho vào bước username
       }
     } catch (err) {
@@ -453,6 +461,7 @@ function AuthScreen() {
   };
 
     const [checkingVerify, setCheckingVerify] = useState(false);
+    const [pendingIsLogin, setPendingIsLogin] = useState(false); 
 
   const checkEmailVerified = async () => {
     if (!pendingUser) return;
@@ -460,7 +469,18 @@ function AuthScreen() {
     try {
       await pendingUser.reload(); // bắt buộc phải reload() thì SDK mới cập nhật emailVerified mới nhất
       if (pendingUser.emailVerified) {
-        setStep("username");
+        if (pendingIsLogin) {
+          window.__skipAuthGuard = false;
+          setPendingUser(null);
+          setPendingIsLogin(false);
+          setStep("form");
+          setIsLoginMode(true);
+          setPassword("");
+          await signOut(auth);
+          setError("✅ Email đã xác thực thành công! Hãy đăng nhập lại.");
+        } else {
+          setStep("username");
+        }
       } else {
         setError("Chưa xác nhận. Hãy mở Gmail và bấm vào link xác thực trước.");
       }
@@ -490,7 +510,18 @@ function AuthScreen() {
         await pendingUser.reload();
         if (pendingUser.emailVerified) {
           clearInterval(interval);
-          setStep("username");
+          if (pendingIsLogin) {
+            window.__skipAuthGuard = false;
+            setPendingUser(null);
+            setPendingIsLogin(false);
+            setStep("form");
+            setIsLoginMode(true);
+            setPassword("");
+            await signOut(auth);
+            setError("✅ Email đã xác thực thành công! Hãy đăng nhập lại.");
+          } else {
+            setStep("username");
+          }
         }
       } catch { /* bỏ qua lỗi mạng tạm thời, thử lại lần sau */ }
     }, 3000);
@@ -3682,7 +3713,14 @@ return (
         <div style={{ textAlign: "center" }}>
           <div style={{ marginBottom: "24px" }}>
             <span style={{ fontSize: "14px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", fontWeight: "600" }}>🎧 Nghe và chọn nghĩa</span>
-            <div 
+              {currentQ.topic && (
+                <div>
+                  <span style={{ display: "inline-block", fontSize: "12px", fontWeight: "bold", color: "#8e24aa", backgroundColor: "#f3e5f5", padding: "3px 12px", borderRadius: "20px", border: "1px solid #ce93d8", marginTop: "6px" }}>
+                    🏷️ {currentQ.topic}
+                  </span>
+                </div>
+              )}
+              <div
               onClick={() => speakWord(currentQ.word, 'en-US')}
               style={{ fontSize: "56px", margin: "20px 0", cursor: "pointer", display: "inline-block", padding: "15px 25px", backgroundColor: "#e3f2fd", borderRadius: "20px", transition: "transform 0.2s" }}
               onMouseEnter={e => e.currentTarget.style.transform = "scale(1.05)"}
@@ -3705,6 +3743,11 @@ return (
           <div style={{ marginBottom: "24px" }}>
             <span style={{ fontSize: "14px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", fontWeight: "600" }}>Chọn từ có nghĩa là</span>
             <h2 style={{ fontSize: "clamp(20px, 5vw, 28px)", color: mode==="collocation" ? "#9C27B0" : "#2196F3", margin: "16px 0 8px 0", fontWeight: "700" }}>"{currentQ.meaning}"</h2>
+            {currentQ.topic && (
+              <span style={{ display: "inline-block", fontSize: "12px", fontWeight: "bold", color: "#8e24aa", backgroundColor: "#f3e5f5", padding: "3px 12px", borderRadius: "20px", border: "1px solid #ce93d8", marginBottom: "6px" }}>
+                🏷️ {currentQ.topic}
+              </span>
+            )}          
           </div>
           <div className="options" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {currentQ.options.map((opt, idx) => (
@@ -3720,6 +3763,11 @@ return (
           <div style={{ marginBottom: "24px" }}>
             <span style={{ fontSize: "14px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", fontWeight: "600" }}>Gõ từ có nghĩa là</span>
             <h2 style={{ fontSize: "clamp(20px, 5vw, 28px)", color: "#9C27B0", margin: "16px 0 8px 0", fontWeight: "700" }}>"{currentQ.meaning}"</h2>
+            {currentQ.topic && (
+              <span style={{ display: "inline-block", fontSize: "12px", fontWeight: "bold", color: "#8e24aa", backgroundColor: "#f3e5f5", padding: "3px 12px", borderRadius: "20px", border: "1px solid #ce93d8", marginBottom: "6px" }}>
+                🏷️ {currentQ.topic}
+              </span>
+            )}
           </div>
           <form onSubmit={handleTypingSubmit} noValidate>
             <input 
@@ -3745,6 +3793,11 @@ return (
           <div style={{ marginBottom: "24px" }}>
             <span style={{ fontSize: "14px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", fontWeight: "600" }}>Xếp chữ có nghĩa là</span>
             <h2 style={{ fontSize: "clamp(20px, 5vw, 28px)", color: "#E91E63", margin: "16px 0 8px 0", fontWeight: "700" }}>"{currentQ.meaning}"</h2>
+            {currentQ.topic && (
+              <span style={{ display: "inline-block", fontSize: "12px", fontWeight: "bold", color: "#8e24aa", backgroundColor: "#f3e5f5", padding: "3px 12px", borderRadius: "20px", border: "1px solid #ce93d8", marginBottom: "6px" }}>
+                🏷️ {currentQ.topic}
+              </span>
+            )}
           </div>
           
           <div style={{ minHeight: "60px", display: "flex", flexWrap: "wrap", gap: "10px", justifyContent: "center", padding: "16px 0", borderBottom: "2px solid #f0f0f0", marginBottom: "20px", backgroundColor: "#f8f9fa", borderRadius: "12px" }}>
@@ -5544,13 +5597,13 @@ async function idbDeleteTrack(id) {
 function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }) {
     const modes = [
         {
-            title: "Ôn Từ Vựng", icon: "🚀", bg: "linear-gradient(135deg,#43a047,#66bb6a)",
+            title: "Ôn Từ Vựng", icon: "📚", bg: "linear-gradient(135deg,#43a047,#66bb6a)",
             screen: "vocab_settings",
             count: (globalStats.vocab?.learnedWords?.length || 0),
             label: "từ đã học"
         },
         {
-            title: "Ôn Colloc.", icon: "📚", bg: "linear-gradient(135deg,#8e24aa,#ba68c8)",
+            title: "Ôn Colloc.", icon: "🔗", bg: "linear-gradient(135deg,#8e24aa,#ba68c8)",
             screen: "collocation_settings",
             count: (globalStats.collocation?.learnedWords?.length || 0),
             label: "cụm đã học"
@@ -5563,7 +5616,7 @@ function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }
         },
         // ===== THÊM NÔNG TRẠI VÀO MENU CHÍNH =====
         {
-            title: "Nông Trại", icon: "🌾", bg: "linear-gradient(135deg,#16a34a,#22c55e)",
+            title: "Nông Trại", icon: "🏡", bg: "linear-gradient(135deg,#16a34a,#22c55e)",
             screen: "farm",
             count: 0,
             label: "trồng từ vựng"
@@ -5573,18 +5626,19 @@ function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }
     // ĐỔI grid từ 3 cột thành 4 cột
     return (
         <div style={{ width: "100%", height: "100%" }}>
-            <div className="mode-grid-4col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", height: "100%", minHeight: "90px" }}>
-                {modes.map(m => (
+                       <div className="mode-grid-4col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", height: "auto" }}>
+                                {modes.map((m, idx) => (
                     <div key={m.screen}
                         onClick={() => onModeSelect(m.screen)}
-                        className="mode-btn"
-                        style={{ background: m.bg, borderRadius: "18px", color: "white", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: "12px 10px", boxShadow: "0 6px 18px rgba(0,0,0,0.15)", userSelect: "none" }}
+                        className={`mode-btn mode-btn-${idx}`}
+                         style={{ background: m.bg, borderRadius: "16px", color: "white", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: "16px 8px", aspectRatio: "1.7 / 1", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", userSelect: "none", position: "relative", overflow: "hidden" }}
                         onMouseEnter={e => e.currentTarget.style.transform="scale(1.05)"}
                         onMouseLeave={e => e.currentTarget.style.transform="scale(1)"}
                     >
-                        <span style={{ fontSize: "32px", marginBottom: "8px", filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.2))" }}>{m.icon}</span>
-                        <span className="mode-title" style={{ fontSize: "14px", fontWeight: "bold", textAlign: "center", textShadow: "0 1px 2px rgba(0,0,0,0.3)", marginBottom: "6px" }}>{m.title}</span>
-                        <span className="mode-count" style={{ fontSize: "11px", backgroundColor: "rgba(0,0,0,0.18)", padding: "2px 10px", borderRadius: "20px", fontWeight: "bold" }}>{m.count} {m.label}</span>
+                        <div className="mode-btn-deco" />
+                        {m.illustration}
+                        <span className="mode-icon-3d" style={{ position: "relative", zIndex: 1 }}>{m.icon}</span>
+                        <span className="mode-title" style={{ fontSize: "14px", fontWeight: "bold", textAlign: "center", textShadow: "0 1px 2px rgba(0,0,0,0.3)", position: "relative", zIndex: 1 }}>{m.title}</span>
                     </div>
                 ))}
             </div>
@@ -6248,6 +6302,7 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
   const [newWord, setNewWord] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [selectedToDelete, setSelectedToDelete] = useState(new Set());
+  const [selectedListType, setSelectedListType] = useState(null); 
   const [isReloading, setIsReloading] = useState(false);
   const [reloadProgress, setReloadProgress] = useState({ done: 0, total: 0 }); 
   const [isTagging, setIsTagging] = useState(false);
@@ -6255,7 +6310,29 @@ function NotebookScreen({ globalStats, onBack, onSaveWord, onRemoveWord, onMoveW
 
   const [viewAllModal, setViewAllModal] = useState(null); 
   const [wordDetailModal, setWordDetailModal] = useState(null); 
-  const [greenSearchTerm, setGreenSearchTerm] = useState(""); // 🔍 Tìm kiếm trong Ô xanh (Đã thuộc)
+  const [greenSearchTerm, setGreenSearchTerm] = useState("");
+
+  const greenViewStorageKey = `notebook_green_view_${currentUser?.uid || "guest"}`;
+
+  const [greenViewMode, setGreenViewMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem(greenViewStorageKey);
+      return saved ? (JSON.parse(saved).viewMode || "list") : "list";
+    } catch (e) { return "list"; }
+  });
+  const [activeGreenTopic, setActiveGreenTopic] = useState(() => {
+    try {
+      const saved = localStorage.getItem(greenViewStorageKey);
+      return saved ? (JSON.parse(saved).topic || null) : null;
+    } catch (e) { return null; }
+  });
+
+  // Mỗi khi đổi chế độ xem hoặc chủ đề đang mở, lưu lại để lần sau vào web hiện đúng chỗ cũ
+  useEffect(() => {
+    try {
+      localStorage.setItem(greenViewStorageKey, JSON.stringify({ viewMode: greenViewMode, topic: activeGreenTopic }));
+    } catch (e) { /* bỏ qua nếu trình duyệt chặn localStorage */ }
+  }, [greenViewMode, activeGreenTopic, greenViewStorageKey]);
 
   useEffect(() => {
     if (!wordDetailModal) return;
@@ -6783,10 +6860,22 @@ const handleSaveToFile = async () => {
     });
     const displayWords = limit ? sorted.slice(0, limit) : sorted;
     // 🏷️ Tra chủ đề của từng từ (nếu có) từ kho từ điển cá nhân, để hiện kèm bên cạnh từ cho dễ nhớ
+    const normalizeTopicKey = (w) => (w || "").toLowerCase().replace(/\s*\(.*?\)\s*/g, "").trim();
+
     const topicLookup = {};
     if (activeTab !== "grammar") {
+      // Ưu tiên lấy topic ngay trên chính item của danh sách hiện tại
+      wordsArray.forEach(w => {
+        if (typeof w === "object" && w?.word && w?.topic) {
+          topicLookup[normalizeTopicKey(w.word)] = w.topic;
+        }
+      });
+      // Fallback: tra thêm ở addedWordsObj (ô vàng) cho từ chưa có topic gắn trực tiếp trên item
       (globalStats[activeTab]?.addedWordsObj || []).forEach(w => {
-        if (w.word && w.topic) topicLookup[w.word.toLowerCase()] = w.topic;
+        const key = normalizeTopicKey(w.word);
+        if (w.word && w.topic && !topicLookup[key]) {
+          topicLookup[key] = w.topic;
+        }
       });
     }
     
@@ -6794,6 +6883,20 @@ const handleSaveToFile = async () => {
     <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
               {displayWords.map(word => {
                   const wordStr = getWordStr(word);
+                  const isSelected = selectedToDelete.has(wordStr) && selectedListType === listType; // 👈 thêm dòng này
+                  const toggleSelect = () => {
+                    setSelectedToDelete(prev => {
+                      const next = new Set(prev);
+                      if (next.has(wordStr)) {
+                        next.delete(wordStr);
+                        if (next.size === 0) setSelectedListType(null);
+                      } else {
+                        next.add(wordStr);
+                        setSelectedListType(listType);
+                      }
+                      return next;
+                    });
+                  };
                   return (
                       <div key={wordStr} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", textTransform: "none", width: "100%", boxSizing: "border-box" }}>
                           
@@ -6825,38 +6928,30 @@ const handleSaveToFile = async () => {
                                 // Nếu đang ở chế độ chọn nhiều và chỉ tap nhẹ -> toggle từ đó
                                 if (selectedToDelete.size > 0) {
                                     e.preventDefault();
-                                    setSelectedToDelete(prev => {
-                                        const next = new Set(prev);
-                                        next.has(wordStr) ? next.delete(wordStr) : next.add(wordStr);
-                                        return next;
-                                    });
+                                    toggleSelect();
                                 }
                             }}
                             onClick={(e) => {
                                   if (isModal && (e.ctrlKey || e.metaKey)) {
                                       e.stopPropagation();
-                                      setSelectedToDelete(prev => {
-                                          const next = new Set(prev);
-                                          next.has(wordStr) ? next.delete(wordStr) : next.add(wordStr);
-                                          return next;
-                                      });
+                                      toggleSelect();
                                   } else if (selectedToDelete.size === 0) {
                                       openDetail(wordStr, listType);
                                   }
                               }}
                               style={{
                                   padding: "6px 12px", borderRadius: "20px", fontSize: "14px", wordBreak: "break-word", textAlign: "center", flex: "0 1 70%", minWidth: 0,
-                                  backgroundColor: selectedToDelete.has(wordStr) ? "#ffebee" : bgColor,
-                                  color: selectedToDelete.has(wordStr) ? "#f44336" : color,
+                                  backgroundColor: isSelected ? "#ffebee" : bgColor,
+                                  color: isSelected ? "#f44336" : color,
                                   fontWeight: "500", cursor: "pointer",
-                                  border: selectedToDelete.has(wordStr) ? "2px solid #f44336" : `1px solid ${color}80`,
-                                  boxShadow: selectedToDelete.has(wordStr) ? "0 0 0 2px #ffcdd2" : "0 2px 4px rgba(0,0,0,0.05)",
+                                  border: isSelected ? "2px solid #f44336" : `1px solid ${color}80`,
+                                  boxShadow: isSelected ? "0 0 0 2px #ffcdd2" : "0 2px 4px rgba(0,0,0,0.05)",
                                   transition: "all 0.15s"
-                              }}>
-                              {selectedToDelete.has(wordStr) ? "✓ " : ""}{wordStr}
-                              {topicLookup[wordStr.toLowerCase()] && (
+                                  }}>
+                                  {isSelected ? "✓ " : ""}{wordStr}
+                              {topicLookup[normalizeTopicKey(wordStr)] && (
                                 <span style={{ display: "block", fontSize: "10px", fontWeight: "bold", color: "#8e24aa", marginTop: "2px" }}>
-                                  🏷️ {topicLookup[wordStr.toLowerCase()]}
+                                  🏷️ {topicLookup[normalizeTopicKey(wordStr)]}
                                 </span>
                               )}
                           </span>
@@ -7146,7 +7241,20 @@ ${wordsMissingFields.map((entry, index) => `${index + 1}. ${entry.word} (thiếu
             <span style={{ color:"white", fontWeight:"900", fontSize:"13px" }}>
               {activeTab === "grammar" ? "Cấu trúc đã lưu" : "Đang học / Khó nhớ"}
             </span>
-            <span style={{ marginLeft:"auto", background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.savedWords||[]).length}</span>
+            <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:"6px" }}>
+              {selectedListType === "savedWords" && selectedToDelete.size > 0 ? (
+                <>
+                  <span style={{ fontSize:"11px", color:"white", whiteSpace:"nowrap" }}>{selectedToDelete.size} đã chọn</span>
+                  <button title="Xóa vĩnh viễn" onClick={() => {
+                      if (!window.confirm(`Xóa vĩnh viễn ${selectedToDelete.size} từ đã chọn?`)) return;
+                      onRemoveManyWords(activeTab, "savedWords", [...selectedToDelete]);
+                      setSelectedToDelete(new Set()); setSelectedListType(null);
+                    }} style={{ width:"26px", height:"26px", borderRadius:"50%", backgroundColor:"#f44336", color:"white", border:"1px solid white", fontSize:"13px", cursor:"pointer" }}>❌</button>
+                </>
+              ) : (
+                <span style={{ background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.savedWords||[]).length}</span>
+              )}
+            </div>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
             {renderTags(stats.savedWords, "#FF9800", "#fff3e0", "savedWords", null, true)}
@@ -7158,7 +7266,25 @@ ${wordsMissingFields.map((entry, index) => `${index + 1}. ${entry.word} (thiếu
           <div style={{ background:"linear-gradient(135deg,#c62828,#e53935)", padding:"10px 14px", display:"flex", alignItems:"center", gap:"8px", flexShrink:0 }}>
             <span style={{ fontSize:"16px" }}>❌</span>
             <span style={{ color:"white", fontWeight:"900", fontSize:"13px" }}>Làm sai / Cần khắc phục</span>
-            <span style={{ marginLeft:"auto", background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.wrongWords||[]).length}</span>
+            <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:"6px" }}>
+              {selectedListType === "wrongWords" && selectedToDelete.size > 0 ? (
+                <>
+                  <span style={{ fontSize:"11px", color:"white", whiteSpace:"nowrap" }}>{selectedToDelete.size} đã chọn</span>
+                  <button title="Chuyển lên Ô Vàng" onClick={() => {
+                      if (!window.confirm(`Đánh dấu ${selectedToDelete.size} từ là ĐÃ THUỘC?`)) return;
+                      onMoveManyWords(activeTab, "wrongWords", "savedWords", [...selectedToDelete]);
+                      setSelectedToDelete(new Set()); setSelectedListType(null);
+                    }} style={{ width:"26px", height:"26px", borderRadius:"50%", backgroundColor:"#4CAF50", color:"white", border:"1px solid white", fontSize:"13px", cursor:"pointer" }}>✅</button>
+                  <button title="Xóa vĩnh viễn" onClick={() => {
+                      if (!window.confirm(`Xóa vĩnh viễn ${selectedToDelete.size} từ đã chọn?`)) return;
+                      onRemoveManyWords(activeTab, "wrongWords", [...selectedToDelete]);
+                      setSelectedToDelete(new Set()); setSelectedListType(null);
+                    }} style={{ width:"26px", height:"26px", borderRadius:"50%", backgroundColor:"#f44336", color:"white", border:"1px solid white", fontSize:"13px", cursor:"pointer" }}>❌</button>
+                </>
+              ) : (
+                <span style={{ background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.wrongWords||[]).length}</span>
+              )}
+            </div>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
             {renderTags(stats.wrongWords, "#F44336", "#ffebee", "wrongWords", null, true)}
@@ -7170,37 +7296,106 @@ ${wordsMissingFields.map((entry, index) => `${index + 1}. ${entry.word} (thiếu
           <div style={{ background:"linear-gradient(135deg,#2e7d32,#43a047)", padding:"10px 14px", display:"flex", alignItems:"center", gap:"8px", flexShrink:0 }}>
             <span style={{ fontSize:"16px" }}>✅</span>
             <span style={{ color:"white", fontWeight:"900", fontSize:"13px" }}>Đã thuộc / Ôn ở Lv Cao</span>
-            <span style={{ marginLeft:"auto", background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.masteredWords||[]).length}</span>
+            <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:"6px" }}>
+              {selectedListType === "masteredWords" && selectedToDelete.size > 0 ? (
+                <>
+                  <span style={{ fontSize:"11px", color:"white", whiteSpace:"nowrap" }}>{selectedToDelete.size} đã chọn</span>
+                  <button title="Xóa vĩnh viễn" onClick={() => {
+                      if (!window.confirm(`Xóa vĩnh viễn ${selectedToDelete.size} từ đã chọn?`)) return;
+                      onRemoveManyWords(activeTab, "masteredWords", [...selectedToDelete]);
+                      setSelectedToDelete(new Set()); setSelectedListType(null);
+                    }} style={{ width:"26px", height:"26px", borderRadius:"50%", backgroundColor:"#f44336", color:"white", border:"1px solid white", fontSize:"13px", cursor:"pointer" }}>❌</button>
+                </>
+              ) : (
+                <span style={{ background:"rgba(255,255,255,0.25)", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"bold" }}>{(stats.masteredWords||[]).length}</span>
+              )}
+            </div>
           </div>
           {/* 🔍 Ô TÌM KIẾM RIÊNG CHO Ô XANH */}
-          <div style={{ padding:"8px 12px 4px 12px", flexShrink:0, position:"relative" }}>
-            <input
-              type="text"
-              value={greenSearchTerm}
-              onChange={(e) => setGreenSearchTerm(e.target.value)}
-              placeholder="🔍 Tìm từ đã thuộc..."
-              style={{ width:"100%", padding:"8px 30px 8px 10px", borderRadius:"8px", border:"1px solid #c8e6c9", fontSize:"13px", boxSizing:"border-box", outline:"none", backgroundColor:"#f1f8f1", color:"#2e7d32" }}
-            />
-            {greenSearchTerm && (
-              <button
-                onClick={() => setGreenSearchTerm("")}
-                title="Xóa tìm kiếm"
-                style={{ position:"absolute", right:"18px", top:"50%", transform:"translateY(-50%)", width:"20px", height:"20px", borderRadius:"50%", border:"none", backgroundColor:"#c8e6c9", color:"#2e7d32", fontSize:"12px", fontWeight:"bold", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0 }}
-              >×</button>
-            )}
+          <div style={{ padding: "8px 12px 4px 12px", flexShrink: 0, display: "flex", gap: "6px" }}>
+            <div style={{ flex: 1, position: "relative" }}>
+              <input
+                type="text"
+                value={greenSearchTerm}
+                onChange={(e) => setGreenSearchTerm(e.target.value)}
+                placeholder="🔍 Tìm từ đã thuộc..."
+                style={{ width:"100%", padding:"8px 30px 8px 10px", borderRadius:"8px", border:"1px solid #c8e6c9", fontSize:"13px", boxSizing:"border-box", outline:"none", backgroundColor:"#f1f8f1", color:"#2e7d32" }}
+              />
+              {greenSearchTerm && (
+                <button
+                  onClick={() => setGreenSearchTerm("")}
+                  title="Xóa tìm kiếm"
+                  style={{ position:"absolute", right:"18px", top:"50%", transform:"translateY(-50%)", width:"20px", height:"20px", borderRadius:"50%", border:"none", backgroundColor:"#c8e6c9", color:"#2e7d32", fontSize:"12px", fontWeight:"bold", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0 }}
+                >×</button>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                setGreenViewMode(prev => prev === "topics" ? "list" : "topics");
+                setActiveGreenTopic(null);
+                setGreenSearchTerm("");
+              }}
+              title="Lọc theo chủ đề"
+              style={{ flexShrink:0, padding:"0 12px", borderRadius:"8px", border: greenViewMode === "topics" ? "1px solid #2e7d32" : "1px solid #c8e6c9", backgroundColor: greenViewMode === "topics" ? "#2e7d32" : "#f1f8f1", color: greenViewMode === "topics" ? "white" : "#2e7d32", fontSize:"12px", fontWeight:"bold", cursor:"pointer", whiteSpace:"nowrap" }}
+            >🏷️ Chủ đề</button>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"6px 12px 10px 12px", display:"flex", flexDirection:"column", gap:"6px", scrollbarWidth:"none", msOverflowStyle:"none" }}>
-            {(() => {
-              const term = greenSearchTerm.trim().toLowerCase();
-              const filteredMastered = term
-                ? (stats.masteredWords || []).filter(w => getWordStr(w).toLowerCase().includes(term))
-                : (stats.masteredWords || []);
-              if (term && filteredMastered.length === 0) {
-                return <p style={{ color:"#aaa", fontSize:"14px", fontStyle:"italic", margin:0 }}>Không tìm thấy từ nào khớp "{greenSearchTerm}".</p>;
-              }
-              return renderTags(filteredMastered, "#4CAF50", "#e8f5e9", "masteredWords", null, true);
-            })()}
-          </div>
+          {greenViewMode === "topics" ? (() => {
+            // Chuẩn hóa từ để tra topic khớp cả khi có/không có "(adv)/(n)..."
+            const normKey = (w) => (w || "").toLowerCase().replace(/\s*\(.*?\)\s*/g, "").trim();
+            const addedDict = globalStats[activeTab]?.addedWordsObj || [];
+            const getTopicOf = (word) => {
+              if (typeof word === "object" && word !== null && word.topic) return word.topic;
+              const key = normKey(getWordStr(word));
+              const found = addedDict.find(w => normKey(w.word) === key && w.topic);
+              return found?.topic || "";
+            };
+
+            // Gom nhóm theo chủ đề
+            const groups = {};
+            (stats.masteredWords || []).forEach(w => {
+              const t = getTopicOf(w) || "Chưa phân loại";
+              if (!groups[t]) groups[t] = [];
+              groups[t].push(w);
+            });
+
+            // ĐANG XEM 1 CHỦ ĐỀ CỤ THỂ → hiện danh sách từ của chủ đề đó (như 1 cửa sổ mini)
+            if (activeGreenTopic) {
+              return (
+                <>
+                  <button onClick={() => setActiveGreenTopic(null)}
+                    style={{ alignSelf:"flex-start", marginBottom:"4px", padding:"6px 12px", borderRadius:"8px", border:"none", background:"#c8e6c9", color:"#2e7d32", fontWeight:"bold", cursor:"pointer", fontSize:"12px" }}>
+                    ← Quay lại danh sách chủ đề
+                  </button>
+                  {renderTags(groups[activeGreenTopic] || [], "#4CAF50", "#e8f5e9", "masteredWords", null, true)}
+                </>
+              );
+            }
+
+            // CHƯA CHỌN CHỦ ĐỀ → hiện danh sách các chủ đề kèm số từ
+            const entries = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+            if (entries.length === 0) {
+              return <p style={{ color:"#aaa", fontSize:"14px", fontStyle:"italic", margin:0 }}>Chưa có từ nào.</p>;
+            }
+            return entries.map(([topic, words]) => (
+              <button key={topic} onClick={() => setActiveGreenTopic(topic)}
+                style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", borderRadius:"10px", border:"1px solid #a5d6a7", backgroundColor:"#e8f5e9", color:"#2e7d32", fontWeight:"bold", cursor:"pointer", fontSize:"14px" }}>
+                <span>🏷️ {topic}</span>
+                <span style={{ background:"#4CAF50", color:"white", borderRadius:"20px", padding:"2px 10px", fontSize:"12px" }}>{words.length}</span>
+              </button>
+            ));
+          })() : (() => {
+            // CHẾ ĐỘ CŨ: danh sách thường + tìm kiếm
+            const term = greenSearchTerm.trim().toLowerCase();
+            const filteredMastered = term
+              ? (stats.masteredWords || []).filter(w => getWordStr(w).toLowerCase().includes(term))
+              : (stats.masteredWords || []);
+            if (term && filteredMastered.length === 0) {
+              return <p style={{ color:"#aaa", fontSize:"14px", fontStyle:"italic", margin:0 }}>Không tìm thấy từ nào khớp "{greenSearchTerm}".</p>;
+            }
+            return renderTags(filteredMastered, "#4CAF50", "#e8f5e9", "masteredWords", null, true);
+          })()}
+        </div>
         </div>
       </div>
 
