@@ -8882,11 +8882,16 @@ const handleRemoveManyWords = async (type, listType, wordsArray) => {
   
   const notebookVocab = [];
   const seen = new Set();
+  const normalizeFarmWord = (value) => (value || "")
+    .toLowerCase()
+    .replace(/\s*\(.*?\)\s*/g, "")
+    .trim();
   
   // 🔥 ƯU TIÊN LẤY TỪ addedWordsObj (có đầy đủ meaning)
   addedWordsObj.forEach(item => {
-    if (item.word && !seen.has(item.word.toLowerCase())) {
-      seen.add(item.word.toLowerCase());
+    const key = normalizeFarmWord(item.word);
+    if (key && !seen.has(key)) {
+      seen.add(key);
       notebookVocab.push(item);
     }
   });
@@ -8894,10 +8899,10 @@ const handleRemoveManyWords = async (type, listType, wordsArray) => {
   // Sau đó mới lấy từ savedWords và wrongWords (nếu chưa có)
   [...savedWords, ...wrongWords].forEach(word => {
     const wordStr = typeof word === 'string' ? word : word.word;
-    if (wordStr && !seen.has(wordStr.toLowerCase())) {
-      seen.add(wordStr.toLowerCase());
-      // Tạo object tối thiểu
-      notebookVocab.push({ word: wordStr, meaning: "???" });
+    const key = normalizeFarmWord(wordStr);
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      notebookVocab.push(typeof word === "object" ? word : { word: wordStr });
     }
   });
   

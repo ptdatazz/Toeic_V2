@@ -292,6 +292,11 @@ const getMeaning = (item) => {
   return "???";
 };
 
+const normalizeFarmWord = (value) => (value || "")
+  .toLowerCase()
+  .replace(/\s*\(.*?\)\s*/g, "")
+  .trim();
+
 const genQuestionForWord = (wordObj) => {
   if (!wordObj) return null;
   const answer = getMeaning(wordObj);
@@ -809,7 +814,7 @@ const tradeSeedsForCoins = (option) => {
           if (masteredSet.has(key)) return; // đã mastered, không cho vào ô vàng
           seenYellow.add(key);
           // Tìm metadata đầy đủ từ addedWordsObj
-          const meta = addedWordsObj.find(w => w?.word?.toLowerCase() === key);
+          const meta = addedWordsObj.find(w => normalizeFarmWord(w?.word) === normalizeFarmWord(wordStr));
           if (meta) {
             yellowList.push(meta);
           } else {
@@ -827,7 +832,7 @@ const tradeSeedsForCoins = (option) => {
           if (wordStr && !seenGreen.has(wordStr.toLowerCase())) {
             seenGreen.add(wordStr.toLowerCase());
             // Tìm metadata từ addedWordsObj nếu có
-            const meta = addedWordsObj.find(w => w.word?.toLowerCase() === wordStr.toLowerCase());
+            const meta = addedWordsObj.find(w => normalizeFarmWord(w?.word) === normalizeFarmWord(wordStr));
             greenList.push(meta || (typeof word === 'object' ? word : { word: wordStr, meaning: "???" }));
           }
         });
