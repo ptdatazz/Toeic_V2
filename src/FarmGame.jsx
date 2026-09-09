@@ -281,7 +281,7 @@ const shuffleArray = (arr) => {
 
 const getMeaning = (item) => {
   if (typeof item === 'string') return "???";
-  if (item.meaning && item.meaning.trim()) return item.meaning.trim();
+  if (item.meaning && item.meaning.trim() && item.meaning.trim() !== "???") return item.meaning.trim();
   const parts = [
     item.noun_meaning && `(n) ${item.noun_meaning}`,
     item.verb_meaning && `(v) ${item.verb_meaning}`,
@@ -789,6 +789,10 @@ const tradeSeedsForCoins = (option) => {
         const masteredWordsRaw = userData?.vocab?.masteredWords || [];
         // addedWordsObj chứa metadata đầy đủ cho tất cả từ
         const addedWordsObj = userData?.vocab?.addedWordsObj || [];
+        const mergeWordData = (word, meta) => {
+          if (typeof word !== "object" || !word) return meta || { word };
+          return { ...(meta || {}), ...word, word: word.word || meta?.word };
+        };
 
         // Build tập từ đã mastered để loại trừ khỏi ô vàng
         const masteredSet = new Set(
@@ -809,17 +813,13 @@ const tradeSeedsForCoins = (option) => {
         savedWords.forEach(word => {
           const wordStr = typeof word === 'string' ? word : word?.word;
           if (!wordStr) return;
-          const key = wordStr.toLowerCase();
+          const key = normalizeFarmWord(wordStr);
           if (seenYellow.has(key)) return; // bỏ lặp
           if (masteredSet.has(key)) return; // đã mastered, không cho vào ô vàng
           seenYellow.add(key);
           // Tìm metadata đầy đủ từ addedWordsObj
           const meta = addedWordsObj.find(w => normalizeFarmWord(w?.word) === normalizeFarmWord(wordStr));
-          if (meta) {
-            yellowList.push(meta);
-          } else {
-            yellowList.push(typeof word === 'object' ? word : { word: wordStr, meaning: "???" });
-          }
+          yellowList.push(mergeWordData(word, meta));
         });
 
         setAvailableWords(yellowList);
@@ -829,11 +829,11 @@ const tradeSeedsForCoins = (option) => {
         const seenGreen = new Set();
         masteredWordsRaw.forEach(word => {
           const wordStr = typeof word === 'string' ? word : word.word;
-          if (wordStr && !seenGreen.has(wordStr.toLowerCase())) {
-            seenGreen.add(wordStr.toLowerCase());
+          if (wordStr && !seenGreen.has(normalizeFarmWord(wordStr))) {
+            seenGreen.add(normalizeFarmWord(wordStr));
             // Tìm metadata từ addedWordsObj nếu có
             const meta = addedWordsObj.find(w => normalizeFarmWord(w?.word) === normalizeFarmWord(wordStr));
-            greenList.push(meta || (typeof word === 'object' ? word : { word: wordStr, meaning: "???" }));
+            greenList.push(mergeWordData(word, meta));
           }
         });
         setMasteredWords(greenList);
@@ -4568,7 +4568,7 @@ const killPest = (plotId) => {
 
             {/* Danh sách từ Ô vàng để trồng */}
             {!ancientSapling && (() => {
-              const plantableWords = availableWords.filter(w => w && w.word && w.meaning && w.meaning !== "???");
+              const plantableWords = availableWords.filter(w => w && w.word && getMeaning(w) !== "???");
               const allWords = availableWords.filter(w => w && w.word);
               const displayWords = plantableWords.length > 0 ? plantableWords : allWords;
 

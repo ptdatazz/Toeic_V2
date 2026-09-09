@@ -10,7 +10,10 @@ import {
   signInWithEmailAndPassword, 
   signOut, 
   onAuthStateChanged,
-  updateProfile
+  updateProfile,
+  sendEmailVerification,
+  RecaptchaVerifier,
+  signInWithPhoneNumber
 } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 
@@ -342,79 +345,357 @@ function WelcomeTutorial({ onDismiss }) {
 // --- COMPONENT: ĐĂNG NHẬP / ĐĂNG KÝ ---
 function AuthScreen() {
   const [isLoginMode, setIsLoginMode] = useState(true);
+  const [authMethod, setAuthMethod] = useState("email"); // "email" | "phone"
+  const [step, setStep] = useState("form"); // "form" -> "otp" -> "username"
+  const [loginId, setLoginId] = useState(""); // dùng khi đăng nhập: email hoặc username hoặc sđt
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [username, setUsername] = useState("");
+  const [pendingUser, setPendingUser] = useState(null); // user vừa tạo, chờ đặt username
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const confirmationResultRef = useRef(null);
+  const recaptchaRef = useRef(null);
 
-  const handleSubmit = async (e) => {
+  const normalizeGmail = (value) => {
+    const input = value.trim().toLowerCase();
+    if (/^\d{9,15}$/.test(input)) return `${input}@gmail.com`;
+    if (!input.includes("@")) return `${input}@gmail.com`;
+    return input;
+  };
+
+    const getPasswordChecks = (value) => ({
+    length: value.length >= 8,
+    lower: /[a-z]/.test(value),
+    upper: /[A-Z]/.test(value),
+    digit: /\d/.test(value),
+    special: /[^A-Za-z0-9]/.test(value),
+  });
+
+  const isStrongPassword = (value) => {
+    const c = getPasswordChecks(value);
+    return c.length && c.lower && c.upper && c.digit && c.special;
+  };
+
+  const getPasswordStrength = (value) => {
+    if (!value) return { score: 0, label: "", color: "" };
+    const c = getPasswordChecks(value);
+    const score = [c.length, c.lower, c.upper, c.digit, c.special].filter(Boolean).length;
+    if (score <= 2) return { score, label: "Yếu", color: "#e53935" };
+    if (score <= 4) return { score, label: "Trung bình", color: "#fb8c00" };
+    return { score, label: "Mạnh", color: "#43a047" };
+  };
+
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+
+  const isUsernameTaken = async (name) => {
+    const snap = await getDoc(doc(db, "usernames", name.toLowerCase()));
+    return snap.exists();
+  };
+
+  const saveUsername = async (user, name) => {
+    await setDoc(doc(db, "usernames", name.toLowerCase()), { uid: user.uid, email: user.email || null });
+    await updateProfile(user, { displayName: name });
+  };
+
+  const resolveLoginEmail = async (id) => {
+    const trimmed = id.trim();
+    if (trimmed.includes("@")) return normalizeGmail(trimmed);
+    if (/^\d{9,15}$/.test(trimmed)) return null; // đăng nhập bằng SĐT xử lý riêng, không quy về email
+    const snap = await getDoc(doc(db, "usernames", trimmed.toLowerCase()));
+    if (!snap.exists()) throw { code: "auth/invalid-credential" };
+    return snap.data().email;
+  };
+
+    const handleSubmit = async (e) => {
     e.preventDefault();
     playSound("click");
     setError("");
     setLoading(true);
 
-    if (!email.trim() || !password.trim()) {
-      setLoading(false);
-      return setError("Vui lòng nhập đầy đủ Email và Mật khẩu!");
-    }
-
     try {
       if (isLoginMode) {
-        await signInWithEmailAndPassword(auth, email, password);
+        const resolvedEmail = await resolveLoginEmail(loginId);
+        if (!resolvedEmail) { setLoading(false); return setError("Đăng nhập bằng SĐT: dùng nút 'Nhận mã OTP' bên dưới."); }
+        const userCredential = await signInWithEmailAndPassword(auth, resolvedEmail, password);
+        if (!userCredential.user.emailVerified) {
+          await signOut(auth);
+          setLoading(false);
+          return setError("Email chưa được xác thực. Hãy mở hộp thư và bấm link xác thực.");
+        }
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-        
-        await setDoc(doc(db, "users", user.uid), {
-          vocab: { correct: 0, total: 0, learnedWords: [] },
-          collocation: { correct: 0, total: 0, learnedWords: [] },
-          grammar: { correct: 0, total: 0, learnedWords: [] }
-        });
-        alert("Đăng ký thành công!");
+        // Đăng ký bằng email — giữ nguyên logic cũ, sau khi tạo xong chuyển sang bước đặt username
+        const normalizedEmail = normalizeGmail(email);
+        if (!/^[a-z0-9][a-z0-9.\-_]{2,63}@gmail\.com$/.test(normalizedEmail)) {
+          setLoading(false);
+          return setError("Vui lòng nhập Gmail hợp lệ.");
+        }
+        if (!isStrongPassword(password)) { setLoading(false); return setError("Mật khẩu chưa đủ mạnh."); }
+        if (password !== confirmPassword) { setLoading(false); return setError("Mật khẩu xác nhận không khớp."); }
+
+        window.__skipAuthGuard = true;
+        const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+        await sendEmailVerification(userCredential.user);
+        setPendingUser(userCredential.user);
+        setStep("waiting"); // 👈 chờ người dùng bấm link trong Gmail, chưa cho vào bước username
       }
     } catch (err) {
       console.error(err);
       if (err.code === 'auth/email-already-in-use') setError("Email này đã được sử dụng!");
-      else if (err.code === 'auth/invalid-credential') setError("Sai email hoặc mật khẩu!");
-      else if (err.code === 'auth/weak-password') setError("Mật khẩu phải có ít nhất 6 ký tự!");
-      else setError("Có lỗi xảy ra, vui lòng thử lại!");
+      else if (err.code === 'auth/invalid-credential') setError("Sai thông tin đăng nhập!");
+      else setError(err.message || "Có lỗi xảy ra, vui lòng thử lại!");
     } finally {
       setLoading(false);
     }
   };
 
+    const [checkingVerify, setCheckingVerify] = useState(false);
+
+  const checkEmailVerified = async () => {
+    if (!pendingUser) return;
+    setCheckingVerify(true);
+    try {
+      await pendingUser.reload(); // bắt buộc phải reload() thì SDK mới cập nhật emailVerified mới nhất
+      if (pendingUser.emailVerified) {
+        setStep("username");
+      } else {
+        setError("Chưa xác nhận. Hãy mở Gmail và bấm vào link xác thực trước.");
+      }
+    } catch (err) {
+      setError("Không kiểm tra được trạng thái, thử lại.");
+    } finally {
+      setCheckingVerify(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!pendingUser) return;
+    setError("");
+    try {
+      await sendEmailVerification(pendingUser);
+      setError("Đã gửi lại link xác thực. Kiểm tra hộp thư (kể cả mục Spam).");
+    } catch (err) {
+      setError("Gửi lại link thất bại, thử lại sau.");
+    }
+  };
+
+  // Tự động dò mỗi 3 giây trong lúc đang ở bước "waiting", không cần người dùng tự bấm
+  useEffect(() => {
+    if (step !== "waiting" || !pendingUser) return;
+    const interval = setInterval(async () => {
+      try {
+        await pendingUser.reload();
+        if (pendingUser.emailVerified) {
+          clearInterval(interval);
+          setStep("username");
+        }
+      } catch { /* bỏ qua lỗi mạng tạm thời, thử lại lần sau */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [step, pendingUser]);
+
+    const setupRecaptcha = () => {
+    if (!window.recaptchaVerifier) {
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaRef.current, { size: "invisible" });
+    }
+    return window.recaptchaVerifier;
+  };
+
+    const handleSendOtp = async () => {
+    setError(""); setLoading(true);
+    try {
+      const phoneE164 = phone.startsWith("+") ? phone.trim() : `+84${phone.replace(/^0/, "").trim()}`;
+      const verifier = setupRecaptcha();
+      await verifier.render(); // 👈 đảm bảo recaptcha render xong trước khi gửi OTP
+      confirmationResultRef.current = await signInWithPhoneNumber(auth, phoneE164, verifier);
+      setStep("otp");
+    } catch (err) {
+      console.error("OTP ERROR:", err.code, err.message);
+      setError(`Lỗi: ${err.code || err.message}`); // 👈 hiện mã lỗi thật lên UI luôn
+    } finally { setLoading(false); }
+  };
+
+  const handleVerifyOtp = async () => {
+    setError(""); setLoading(true);
+    try {
+      const result = await confirmationResultRef.current.confirm(otp);
+      setPendingUser(result.user);
+      setStep("username"); // đăng ký mới -> bắt đặt username
+    } catch (err) {
+      setError("Mã OTP không đúng hoặc đã hết hạn.");
+    } finally { setLoading(false); }
+  };
+
+  const handleConfirmUsername = async () => {
+    setError(""); setLoading(true);
+    try {
+      const name = username.trim();
+      if (!usernameRegex.test(name)) { setLoading(false); return setError("Username 3-20 ký tự, chỉ gồm chữ, số, gạch dưới."); }
+      if (await isUsernameTaken(name)) { setLoading(false); return setError("Username đã có người dùng."); }
+
+      await saveUsername(pendingUser, name);
+      await setDoc(doc(db, "users", pendingUser.uid), {
+        username: name,
+        vocab: { correct: 0, total: 0, learnedWords: [] },
+        collocation: { correct: 0, total: 0, learnedWords: [] },
+        grammar: { correct: 0, total: 0, learnedWords: [] }
+      });
+
+      window.__skipAuthGuard = false;
+      if (authMethod === "email") {
+        await signOut(auth);
+        setError("Đã tạo tài khoản. Hãy mở Gmail và bấm link xác thực trước khi đăng nhập.");
+        setIsLoginMode(true);
+        setStep("form");
+      }
+      // Với SĐT: đã signInWithPhoneNumber xác thực xong nên user đã đăng nhập luôn, không cần làm gì thêm.
+    }catch (err) {
+      window.__skipAuthGuard = false;
+      console.error("USERNAME SAVE ERROR:", err.code, err.message);
+      setError(`Lỗi: ${err.code || err.message}`);
+    } finally { setLoading(false); }
+  };
+
   return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1a237e 0%,#283593 50%,#1565c0 100%)", display:"flex", alignItems:"center", justifyContent:"center", padding:"20px", boxSizing:"border-box" }}>
-      <div style={{ width:"100%", maxWidth:"400px" }}>
-        <div style={{ textAlign:"center", marginBottom:"28px" }}>
-          <div style={{ fontSize:"56px", marginBottom:"8px" }}><img src="/logo_4.png" alt="Logo" style={{ width:"100%", maxWidth:"100px" }} /></div>
-          <h1 style={{ fontSize:"2rem", fontWeight:"900", color:"white", margin:"0 0 6px 0" }}>TOEIC Master</h1>
-          <p style={{ color:"rgba(255,255,255,0.6)", margin:0, fontSize:"14px" }}>Luyện thi thông minh — Chinh phục điểm cao</p>
-        </div>
-        <div style={{ backgroundColor:"white", borderRadius:"24px", padding:"32px 28px", boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
-          <h2 style={{ margin:"0 0 20px 0", color:"#1a237e", fontWeight:"800", fontSize:"20px", textAlign:"center" }}>
-            {isLoginMode ? "👋 Đăng nhập" : "✨ Tạo tài khoản"}
-          </h2>
-          {error && <div style={{ color:"#d32f2f", backgroundColor:"#ffebee", padding:"10px 14px", borderRadius:"10px", fontSize:"14px", marginBottom:"16px", border:"1px solid #ffcdd2" }}>{error}</div>}
-          <form onSubmit={handleSubmit} style={{ display:"flex", flexDirection:"column", gap:"14px" }}>
-            <input type="text" placeholder="Email của bạn" value={email} onChange={(e) => setEmail(e.target.value)}
-              style={{ padding:"13px 16px", borderRadius:"12px", border:"2px solid #e0e0e0", fontSize:"15px", outline:"none", fontFamily:"inherit" }}
-              onFocus={e=>e.target.style.borderColor="#1565c0"} onBlur={e=>e.target.style.borderColor="#e0e0e0"} />
-            <input type="password" placeholder="Mật khẩu (ít nhất 6 ký tự)" value={password} onChange={(e) => setPassword(e.target.value)}
-              style={{ padding:"13px 16px", borderRadius:"12px", border:"2px solid #e0e0e0", fontSize:"15px", outline:"none", fontFamily:"inherit" }}
-              onFocus={e=>e.target.style.borderColor="#1565c0"} onBlur={e=>e.target.style.borderColor="#e0e0e0"} />
-            <button type="submit" disabled={loading}
-              style={{ padding:"14px", fontSize:"16px", background:loading?"#9e9e9e":"linear-gradient(135deg,#1565c0,#1976d2)", color:"white", borderRadius:"12px", border:"none", cursor:loading?"not-allowed":"pointer", fontWeight:"bold", marginTop:"4px", fontFamily:"inherit", boxShadow:loading?"none":"0 4px 14px rgba(21,101,192,0.4)" }}>
-              {loading ? "⏳ Đang xử lý..." : (isLoginMode ? "🚀 Vào Học Ngay" : "✅ Đăng Ký")}
+    <div className="auth-shell">
+      <div className="auth-panel">
+        <section className="auth-intro">
+          <div className="auth-brand-mark"><img src="/logo_4.png" alt="TOEIC Master" /></div>
+          <div className="auth-kicker">YOUR DAILY SCOREBOARD</div>
+          <h1>Vocab Master</h1>
+          <p>Luyện thi thông minh, từng từ vựng và từng điểm số đều có dấu ấn của bạn.</p>
+          <div className="auth-promise">
+            <span>01</span><div><strong>Học có chiến lược</strong><small>Từ vựng, collocation và ngữ pháp trong một nơi.</small></div>
+          </div>
+          <div className="auth-promise">
+            <span>02</span><div><strong>Tiến bộ có thể nhìn thấy</strong><small>Lưu lại hành trình và chinh phục mục tiêu mỗi ngày.</small></div>
+          </div>
+        </section>
+
+                <section className="auth-form-wrap">
+          <div className="auth-form-heading">
+            <div className="auth-eyebrow">WELCOME BACK</div>
+            <h2>{isLoginMode ? "Chào mừng bạn trở lại" : "Bắt đầu hành trình mới"}</h2>
+          </div>
+          {error && <div className="auth-error" role="alert">{error}</div>}
+
+          {!isLoginMode && step === "form" && (
+            <div className="auth-method-tabs">
+              <button type="button" className={authMethod === "email" ? "active" : ""} onClick={() => setAuthMethod("email")}>Email</button>
+              <button type="button" className={authMethod === "phone" ? "active" : ""} onClick={() => setAuthMethod("phone")}>Số điện thoại</button>
+            </div>
+          )}
+
+          {step === "form" && (isLoginMode || authMethod === "email") && (
+            <form onSubmit={handleSubmit} className="auth-form">
+              <label>{isLoginMode ? "Email / Username" : "Gmail"}
+                <input type="text" value={isLoginMode ? loginId : email}
+                  onChange={(e) => isLoginMode ? setLoginId(e.target.value) : setEmail(e.target.value)} />
+              </label>
+                            <label>Mật khẩu
+                <input type="password" placeholder={isLoginMode ? "Mật khẩu của bạn" : "8 ký tự, gồm hoa, thường, số và ký tự đặc biệt"} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={isLoginMode ? "current-password" : "new-password"} key={isLoginMode ? "login-pass" : "register-pass"} />
+              </label>
+              {!isLoginMode && password && (() => {
+                const checks = getPasswordChecks(password);
+                const strength = getPasswordStrength(password);
+                return (
+                  <div className="password-strength">
+                    <div className="strength-bar">
+                      <div className="strength-fill" style={{ width: `${(strength.score / 5) * 100}%`, background: strength.color }} />
+                    </div>
+                    <div className="strength-label" style={{ color: strength.color }}>{strength.label}</div>
+                    <ul className="strength-checklist">
+                      <li className={checks.length ? "ok" : ""}>{checks.length ? "✅" : "⬜"} Tối thiểu 8 ký tự</li>
+                      <li className={checks.upper ? "ok" : ""}>{checks.upper ? "✅" : "⬜"} Có chữ hoa</li>
+                      <li className={checks.lower ? "ok" : ""}>{checks.lower ? "✅" : "⬜"} Có chữ thường</li>
+                      <li className={checks.digit ? "ok" : ""}>{checks.digit ? "✅" : "⬜"} Có chữ số</li>
+                      <li className={checks.special ? "ok" : ""}>{checks.special ? "✅" : "⬜"} Có ký tự đặc biệt</li>
+                    </ul>
+                  </div>
+                );
+              })()}
+              {!isLoginMode && <label>Nhập lại mật khẩu
+                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+              </label>}
+              <button type="submit" disabled={loading} className="auth-submit">
+                {loading ? "⏳ Đang xử lý..." : (isLoginMode ? "🚀 Vào học ngay" : "✅ Tạo tài khoản")}
+              </button>
+            </form>
+          )}
+
+          {!isLoginMode && step === "form" && authMethod === "phone" && (
+            <div className="auth-form">
+              <label>Số điện thoại
+                <input type="tel" placeholder="0987654321" value={phone} onChange={(e) => setPhone(e.target.value)} />
+              </label>
+              <div ref={recaptchaRef} />
+              <button type="button" disabled={loading} className="auth-submit" onClick={handleSendOtp}>
+                {loading ? "⏳ Đang gửi..." : "📩 Nhận mã OTP"}
+              </button>
+            </div>
+          )}
+
+          {step === "otp" && (
+            <div className="auth-form">
+              <label>Nhập mã OTP
+                <input type="text" value={otp} onChange={(e) => setOtp(e.target.value)} />
+              </label>
+              <button type="button" disabled={loading} className="auth-submit" onClick={handleVerifyOtp}>
+                {loading ? "⏳ Đang xác minh..." : "Xác nhận mã"}
+              </button>
+            </div>
+          )}
+
+                    {step === "waiting" && (
+            <div className="auth-form">
+              <div className="waiting-box">
+                <div className="waiting-spinner" />
+                <p>Đã gửi link xác thực đến <strong>{email}</strong>.</p>
+                <p>Mở Gmail và bấm vào link để tiếp tục.</p>
+              </div>
+              <button type="button" disabled={checkingVerify} className="auth-submit" onClick={checkEmailVerified}>
+                {checkingVerify ? "⏳ Đang kiểm tra..." : "🔄 Tôi đã xác nhận, kiểm tra lại"}
+              </button>
+              <button type="button" className="auth-resend" onClick={handleResendVerification}>
+                Gửi lại email xác thực
+              </button>
+            </div>
+          )}
+
+          {step === "username" && (
+            <div className="auth-form">
+              <label>Chọn username (dùng để đăng nhập & hiển thị hồ sơ)
+                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} />
+              </label>
+              <button type="button" disabled={loading} className="auth-submit" onClick={handleConfirmUsername}>
+                {loading ? "⏳ Đang lưu..." : "Hoàn tất"}
+              </button>
+            </div>
+          )}
+
+          <div className="auth-divider"><span>TOEIC MASTER</span></div>
+          <p className="auth-switch">
+            {isLoginMode ? "Chưa có tài khoản?" : "Đã có tài khoản?"}
+                        <button type="button" onClick={() => {
+              setIsLoginMode(!isLoginMode);
+              setStep("form");
+              setAuthMethod("email");
+              setError("");
+              setEmail("");
+              setPassword("");
+              setConfirmPassword("");
+              setLoginId("");
+              setPhone("");
+              setOtp("");
+              setUsername("");
+            }}>
+              {isLoginMode ? <span>Đăng ký ngay</span> : <span>Đăng nhập</span>}
             </button>
-          </form>
-          <p style={{ margin:"18px 0 0 0", fontSize:"14px", color:"#888", textAlign:"center" }}>
-            {isLoginMode ? "Chưa có tài khoản? " : "Đã có tài khoản? "}
-            <span onClick={() => { playSound("click"); setIsLoginMode(!isLoginMode); setError(""); }} style={{ color:"#1565c0", cursor:"pointer", fontWeight:"bold" }}>
-              {isLoginMode ? "Đăng ký ngay →" : "Đăng nhập →"}
-            </span>
           </p>
-        </div>
+        </section>
       </div>
     </div>
   );
@@ -8115,9 +8396,16 @@ useEffect(() => {
   useEffect(() => {
     const timeout = setTimeout(() => setAuthChecking(false), 8000);
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
       clearTimeout(timeout);
+      if (window.__skipAuthGuard) return; // 👈 bỏ qua khi đang trong luồng đặt username
       if (user) {
+        if (!user.emailVerified) {
+          setCurrentUser(null);
+          setAuthChecking(false);
+          await signOut(auth);
+          return;
+        }
         setCurrentUser(user);
         const docRef = doc(db, "users", user.uid);
         const docSnap = await getDoc(docRef);
