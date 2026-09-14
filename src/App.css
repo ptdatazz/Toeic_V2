@@ -274,6 +274,43 @@ h1, h2, h3, p, span, div {
 
 @media screen and (max-width: 899px) {
 
+  html, body, #root {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    padding: 0;
+    display: block;
+    background: #eef2f7;
+  }
+
+  .home-layout {
+    width: 100%;
+    min-height: 100dvh;
+    height: auto;
+    overflow: visible;
+  }
+
+  .quiz-settings-body {
+    display: flex !important;
+    flex-direction: column;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 10px !important;
+  }
+
+  .quiz-settings-column {
+    display: flex !important;
+    flex: none !important;
+    width: 100%;
+    overflow: visible !important;
+  }
+
   /* Ẩn desktop version, hiện mobile row */
   .greeting-desktop { display: none !important; }
   .kpi-bar-desktop { display: none !important; }
@@ -286,15 +323,18 @@ h1, h2, h3, p, span, div {
   /* Mode buttons: 4 cột → 2×2 */
   .mode-grid-4col {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(clamp(120px, 22vw, 220px), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-rows: repeat(2, minmax(150px, 1fr));
   gap: clamp(8px, 1.2vw, 14px);
   width: 100%;
-  flex: 1;              /* 👈 chiếm hết phần chiều cao còn thừa trong .home-main */
-  min-height: 0;        /* 👈 bắt buộc phải có để flex-grow hoạt động đúng trong flex column */
+  height: 100% !important;
+  flex: 1 !important;
+  min-height: 320px;
 }
 
   /* Home main: cuộn được, gap nhỏ hơn */
-  .home-main { flex: 1; min-width: 0; padding: clamp(16px, 2.5vh, 28px) clamp(16px, 2.5vw, 28px); display: flex; flex-direction: column; gap: clamp(10px, 1.8vh, 14px); height: 100vh; overflow: hidden; box-sizing: border-box; }
+  .home-main { flex: 1; width: 100%; min-width: 0; padding: 10px; display: flex; flex-direction: column; gap: 10px; height: auto; min-height: 100dvh; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; }
+  .home-main > div:last-child { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
   /* Topbar mobile - nhỏ gọn */
   .home-topbar {
@@ -316,9 +356,9 @@ h1, h2, h3, p, span, div {
 
   /* Mode buttons - to, dễ bấm */
   .mode-btn {
-  height: 100%;          /* 👈 cao bằng đúng hàng grid (đã giãn theo flex ở trên) */
-  min-height: 90px;      /* 👈 chặn dưới, tránh quá thấp trên màn nhỏ */
-  max-height: 260px;     /* 👈 chặn trên, tránh quá cao trên màn siêu lớn (4K, ultrawide) */
+  height: 100% !important;
+  min-height: 150px;
+  max-height: none;
   border-radius: 16px;
   color: white;
   display: flex;
@@ -447,8 +487,8 @@ h1, h2, h3, p, span, div {
 
 /* Icon lớn, đổ bóng nhiều lớp tạo cảm giác 3D nổi khối */
 .mode-icon-3d {
-  font-size: 30px;
-  margin-bottom: 8px;
+  font-size: clamp(48px, 5vw, 72px);
+  margin-bottom: 14px;
   display: block;
   filter: drop-shadow(0 6px 3px rgba(0,0,0,0.25)) drop-shadow(0 2px 2px rgba(0,0,0,0.15));
   transform: perspective(300px) rotateX(8deg);
@@ -458,6 +498,10 @@ h1, h2, h3, p, span, div {
 }
 .mode-btn:hover .mode-icon-3d {
   transform: perspective(300px) rotateX(0deg) scale(1.12);
+}
+
+.mode-btn-deco {
+  display: none;
 }
 
 /* Lớp trang trí nền — vòng sáng mờ phía sau icon, tạo chiều sâu */

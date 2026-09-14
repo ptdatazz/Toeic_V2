@@ -22,7 +22,30 @@ const LEVEL_CONFIG = [
   { level: 8, expRequired: 800, plotUnlock: 10, unlockCost: 300 },     // Mở ô thứ 10
   { level: 9, expRequired: 1000, plotUnlock: 11, unlockCost: 400 },    // Mở ô thứ 11
   { level: 10, expRequired: 1300, plotUnlock: 12, unlockCost: 500 },   // Mở ô thứ 12
+  { level: 11, expRequired: 1450, plotUnlock: 12, unlockCost: 0 },
+  { level: 12, expRequired: 1600, plotUnlock: 12, unlockCost: 0 },
+  { level: 13, expRequired: 1800, plotUnlock: 12, unlockCost: 0 },
+  { level: 14, expRequired: 2000, plotUnlock: 12, unlockCost: 0 },
+  { level: 15, expRequired: 2200, plotUnlock: 12, unlockCost: 0 },
+  { level: 16, expRequired: 2450, plotUnlock: 12, unlockCost: 0 },
+  { level: 17, expRequired: 2700, plotUnlock: 12, unlockCost: 0 },
+  { level: 18, expRequired: 3000, plotUnlock: 12, unlockCost: 0 },
+  { level: 19, expRequired: 3300, plotUnlock: 12, unlockCost: 0 },
+  { level: 20, expRequired: 3600, plotUnlock: 12, unlockCost: 0 },
+  { level: 21, expRequired: 3900, plotUnlock: 12, unlockCost: 0 },
+  { level: 22, expRequired: 4250, plotUnlock: 12, unlockCost: 0 },
+  { level: 23, expRequired: 4650, plotUnlock: 12, unlockCost: 0 },
+  { level: 24, expRequired: 5100, plotUnlock: 12, unlockCost: 0 },
+  { level: 25, expRequired: 5600, plotUnlock: 12, unlockCost: 0 },
+  { level: 26, expRequired: 6150, plotUnlock: 12, unlockCost: 0 },
+  { level: 27, expRequired: 6750, plotUnlock: 12, unlockCost: 0 },
+  { level: 28, expRequired: 7400, plotUnlock: 12, unlockCost: 0 },
+  { level: 29, expRequired: 8100, plotUnlock: 12, unlockCost: 0 },
+  { level: 30, expRequired: 8900, plotUnlock: 12, unlockCost: 0 },
 ];
+
+const getNextLevelExp = (level) => LEVEL_CONFIG[level]?.expRequired || 0;
+const getFreePlotCount = (level) => LEVEL_CONFIG[Math.max(0, level - 1)]?.plotUnlock || DEFAULT_PLOT_COUNT;
 
 // Cấu hình cây cổ thụ - THỜI GIAN HỒI QUẢ GIẢM XUỐNG (phút)
 const ANCIENT_TREE_LEVELS = {
@@ -105,14 +128,34 @@ const WEATHER_TYPES = {
   cloudy:  { emoji: "⛅",  label: "Sáng tối", tip: "Cây mọc chậm hơn 20%",   growMult: 0.8,  rewardMult: 1.0,  pestChance: 0.12 },
   rainy:   { emoji: "🌧️", label: "Mưa",     tip: "Cây mọc nhanh 30%, +50% xu!", growMult: 1.3, rewardMult: 1.5, pestChance: 0.08 },
   stormy:  { emoji: "⛈️",  label: "Bão",     tip: "Cây dễ bị sâu, hái +20% xu!", growMult: 0.6, rewardMult: 1.2, pestChance: 0.35 },
+  snowy:   { emoji: "🌨️", label: "Tuyết",   tip: "Cây mọc chậm, không khí lạnh giá", growMult: 0.65, rewardMult: 1.1, pestChance: 0.04 },
 };
 
 // Thời tiết cho phép theo mùa
-const SEASON_WEATHER = {
-  spring: ["sunny", "rainy", "cloudy"],
-  summer: ["sunny", "sunny", "cloudy", "stormy"],
-  autumn: ["sunny", "rainy", "cloudy"],
-  winter: ["cloudy", "rainy", "stormy"],
+const SEASON_WEATHER_WEIGHTS = {
+  spring: [
+    ["sunny", 0.55], ["rainy", 0.28], ["cloudy", 0.17],
+  ],
+  summer: [
+    ["sunny", 0.58], ["stormy", 0.17], ["cloudy", 0.15], ["rainy", 0.10],
+  ],
+  autumn: [
+    ["sunny", 0.40], ["cloudy", 0.35], ["rainy", 0.25],
+  ],
+  winter: [
+    ["rainy", 0.50], ["stormy", 0.20], ["cloudy", 0.18], ["snowy", 0.12],
+  ],
+};
+
+const pickSeasonWeather = (seasonKey) => {
+  const weatherWeights = SEASON_WEATHER_WEIGHTS[seasonKey] || SEASON_WEATHER_WEIGHTS.spring;
+  const random = Math.random();
+  let accumulated = 0;
+  for (const [weatherKey, weight] of weatherWeights) {
+    accumulated += weight;
+    if (random < accumulated) return weatherKey;
+  }
+  return weatherWeights[weatherWeights.length - 1][0];
 };
 
 // Cây trồng theo mùa — mỗi cây chỉ trồng được trong mùa của mình
@@ -380,14 +423,8 @@ function applyOfflineTime(farmState, offlineSecs) {
   }
 
   // Đổi thời tiết ngẫu nhiên theo mùa mới (nếu mùa thay đổi)
-  const SEASON_WEATHER_OFFLINE = {
-    spring: ["sunny", "rainy", "cloudy"],
-    summer: ["sunny", "sunny", "cloudy", "stormy"],
-    autumn: ["sunny", "rainy", "cloudy"],
-    winter: ["cloudy", "rainy", "stormy"],
-  };
   const newWeather = season !== farmState.season
-    ? (() => { const pool = SEASON_WEATHER_OFFLINE[season]; return pool[Math.floor(Math.random() * pool.length)]; })()
+    ? pickSeasonWeather(season)
     : (farmState.weather ?? "sunny");
 
   return {
@@ -406,6 +443,7 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   // ===== STATE CƠ BẢN =====
   const [plots, setPlots] = useState([]);
   const [plotCount, setPlotCount] = useState(DEFAULT_PLOT_COUNT);
+  const [paidPlotCount, setPaidPlotCount] = useState(0);
   const [coins, setCoins] = useState(50);
   const [gems, setGems] = useState(0);
   const [seeds, setSeeds] = useState(3);
@@ -434,13 +472,14 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   // ===== HỆ THỐNG CẤP ĐỘ =====
   const [level, setLevel] = useState(1);
   const [exp, setExp] = useState(0);
-  const [nextLevelExp, setNextLevelExp] = useState(LEVEL_CONFIG[1]?.expRequired || 9999);
+  const [nextLevelExp, setNextLevelExp] = useState(getNextLevelExp(1));
 
   // Refs để tránh stale closure trong updateLevel / addExp
   const expRef = useRef(0);
   const levelRef = useRef(1);
   const plotsRef = useRef([]);
   const plotCountRef = useRef(DEFAULT_PLOT_COUNT);
+  const pestCooldownRef = useRef(new Map());
   
   // ===== THỐNG KÊ =====
   const [pestKilled, setPestKilled] = useState(0);
@@ -461,6 +500,7 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
   const [quizTarget, setQuizTarget] = useState(null);
   const [timeLeft, setTimeLeft] = useState(15);
   const timerRef = useRef(null);
+  const harvestSequenceTimerRef = useRef(null);
   const [quizMode, setQuizMode] = useState(null); // 👈 THÊM DÒNG NÀY
 
   const [ancientSapling, setAncientSapling] = useState(null);
@@ -520,7 +560,7 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
       const targetPlots = nextConfig.plotUnlock;
       if (targetPlots > finalPlotCount) {
         for (let i = finalPlots.length; i < targetPlots; i++) {
-          finalPlots.push({ id: i, crop: null, stage: 0, hasPest: false, linkedWord: null, wordData: null, timeLeft: 0 });
+          finalPlots.push({ id: i, crop: null, stage: 0, hasPest: false, linkedWord: null, wordData: null, timeLeft: 0, unlockSource: "level" });
         }
         finalPlotCount = targetPlots;
         notify(`🌍 Mở rộng đất lên ${targetPlots} ô!`, "#22c55e");
@@ -537,7 +577,7 @@ export default function FarmGame({ onBack, vocabData = [], updateGlobal, onSaveW
 
     setLevel(curLevel);
     setExp(curExp);
-    setNextLevelExp(LEVEL_CONFIG[curLevel]?.expRequired || 9999);
+    setNextLevelExp(getNextLevelExp(curLevel));
     // So sánh với currentPlotCount (tham số), không phải plotCount (stale closure)
     if (finalPlotCount > currentPlotCount) {
       setPlots(finalPlots);
@@ -647,7 +687,7 @@ const getGemExpandCost = () => {
     for (let i = plots.length; i < expandInfo.targetPlots; i++) {
       newPlots.push({
         id: i, crop: null, stage: 0, hasPest: false,
-        linkedWord: null, wordData: null, timeLeft: 0,
+          linkedWord: null, wordData: null, timeLeft: 0, unlockSource: "level",
       });
     }
     setPlots(newPlots);
@@ -678,9 +718,10 @@ const expandWithGems = () => {
   for (let i = plots.length; i < nextPlots; i++) {
     newPlots.push({
       id: i, crop: null, stage: 0, hasPest: false,
-      linkedWord: null, wordData: null, timeLeft: 0,
+      linkedWord: null, wordData: null, timeLeft: 0, unlockSource: "gems",
     });
   }
+  setPaidPlotCount(prev => prev + 1);
   setPlots(newPlots);
   notify(`💎 Đã mở rộng đất lên ${nextPlots} ô! -${gemCost}💎`, "#eab308");
   setShowExpandModal(false);
@@ -730,8 +771,18 @@ const tradeSeedsForCoins = (option) => {
               console.log(`[🌾 Farm] Offline ${mins} phút → đã bù thời gian cho cây & lịch`);
             }
             // ====================================
-            setPlots(fs.plots);
-            setPlotCount(fs.plotCount ?? DEFAULT_PLOT_COUNT);
+            const savedLevel = fs.level ?? 1;
+            const savedPlotCount = fs.plotCount ?? fs.plots.length ?? DEFAULT_PLOT_COUNT;
+            const savedFreePlots = getFreePlotCount(savedLevel);
+            const restoredPaidPlots = fs.paidPlotCount ?? Math.max(0, savedPlotCount - savedFreePlots);
+            const requiredPlotCount = Math.min(MAX_PLOT_COUNT, getFreePlotCount(savedLevel) + restoredPaidPlots);
+            const restoredPlots = [...fs.plots];
+            for (let i = restoredPlots.length; i < requiredPlotCount; i++) {
+              restoredPlots.push({ id: i, crop: null, stage: 0, hasPest: false, linkedWord: null, wordData: null, timeLeft: 0, unlockSource: "level" });
+            }
+            setPlots(restoredPlots);
+            setPlotCount(Math.max(savedPlotCount, requiredPlotCount));
+            setPaidPlotCount(restoredPaidPlots);
             setCoins(fs.coins ?? 50);
             setGems(fs.gems ?? 0);
             setSeeds(fs.seeds ?? 3);
@@ -759,12 +810,12 @@ const tradeSeedsForCoins = (option) => {
             setPestKilled(fs.pestKilled ?? 0);
             setWordsMastered(fs.wordsMastered ?? 0);
             setAchievements(fs.achievements ?? []);
-            setLevel(fs.level ?? 1);
+            setLevel(savedLevel);
             setExp(fs.exp ?? 0);
             // ĐÃ FIX: phải tính lại nextLevelExp theo đúng level vừa load,
             // nếu không nó sẽ giữ giá trị mặc định ban đầu (50, tương ứng cấp 1→2)
             // khiến thanh EXP hiển thị sai mẫu số sau khi tải lại trang (vd "170/50" dù đang ở cấp 3)
-            setNextLevelExp(LEVEL_CONFIG[fs.level ?? 1]?.expRequired || 9999);
+            setNextLevelExp(getNextLevelExp(fs.level ?? 1));
             setAncientTrees(fs.ancientTrees || []);
             setLivestock(fs.livestock || []);
 
@@ -856,7 +907,7 @@ const tradeSeedsForCoins = (option) => {
         const farmState = {
           plots, plotCount, coins, gems, seeds, score, streak, weather, season, weatherTimer,
           farmDay, farmMonth, farmYear, farmHour, farmMinute,
-          inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements,
+          inventory, produceInventory, remainingKills, paidPlotCount, pestKilled, wordsMastered, achievements,
           level, exp, ancientTrees, livestock,
           lastSaved: Date.now()
         };
@@ -868,23 +919,12 @@ const tradeSeedsForCoins = (option) => {
     }, 1000);
     
     return () => clearTimeout(saveTimeout);
-  }, [plots, plotCount, coins, gems, seeds, score, streak, weather, season, weatherTimer,
+  }, [plots, plotCount, paidPlotCount, coins, gems, seeds, score, streak, weather, season, weatherTimer,
       farmDay, farmMonth, farmYear, farmHour, farmMinute,
       inventory, produceInventory, remainingKills, pestKilled, wordsMastered, achievements, level, exp, ancientTrees, livestock, currentUser, isLoading]);
 
   // ===== THEO DÕI STREAK =====
   useEffect(() => {
-    if (streak >= 3 && lastStreakValue < 3) {
-      const hasAnyPest = plots.some(plot => plot.hasPest);
-      if (hasAnyPest) {
-        setPlots(prev => prev.map(plot => ({ ...plot, hasPest: false })));
-        notify(`✨ Đạt Streak x${streak}! Toàn bộ sâu đã bị tiêu diệt! ✨`, "#8b5cf6");
-      }
-      setRemainingKills(2);
-    } else if (streak >= 3 && streak > lastStreakValue) {
-      setRemainingKills(2);
-      notify(`🔥 Streak tăng lên x${streak}! Bạn có 2 lượt diệt sâu!`, "#f59e0b");
-    }
     setLastStreakValue(streak);
     checkAchievements({ streak });
   }, [streak]);
@@ -916,12 +956,18 @@ const tradeSeedsForCoins = (option) => {
 
   useEffect(() => {
     const pestInterval = setInterval(() => {
-      setPlots(prev => prev.map(plot => {
-        if ((plot.stage === 1 || plot.stage === 2) && !plot.hasPest && Math.random() < 0.15) {
-          return { ...plot, hasPest: true };
-        }
-        return plot;
-      }));
+      setPlots(prev => {
+        const now = Date.now();
+        const eligiblePlots = prev.filter(plot => {
+          const cooldownUntil = pestCooldownRef.current.get(plot.id) || 0;
+          return (plot.stage === 1 || plot.stage === 2) && !plot.hasPest && now >= cooldownUntil;
+        });
+        const pestChance = (WEATHER_TYPES[weatherRef.current]?.pestChance ?? 0.1) * 0.35;
+        if (eligiblePlots.length === 0 || Math.random() >= pestChance) return prev;
+
+        const selectedPlot = eligiblePlots[Math.floor(Math.random() * eligiblePlots.length)];
+        return prev.map(plot => plot.id === selectedPlot.id ? { ...plot, hasPest: true } : plot);
+      });
     }, 5000);
     return () => clearInterval(pestInterval);
   }, []);
@@ -990,8 +1036,7 @@ const tradeSeedsForCoins = (option) => {
                   setDailyGemCrop(gemCropId);
 
                   // Đổi thời tiết theo mùa mới
-                  const pool = SEASON_WEATHER[newSeason];
-                  setWeather(pool[Math.floor(Math.random() * pool.length)]);
+                  setWeather(pickSeasonWeather(newSeason));
 
                   notify(
                     `🌿 Mùa ${SEASONS[newSeason].name} bắt đầu! ${SEASONS[newSeason].emoji}  ` +
@@ -1006,8 +1051,7 @@ const tradeSeedsForCoins = (option) => {
                   setDailyGemCrop(newGemCropId);
 
                   // Thay đổi thời tiết ngẫu nhiên theo mùa
-                  const pool = SEASON_WEATHER[newSeason];
-                  setWeather(pool[Math.floor(Math.random() * pool.length)]);
+                  setWeather(pickSeasonWeather(newSeason));
 
                   notify(
                     `📅 ${String(realNextDay).padStart(2,"0")}/${String(nextMonth).padStart(2,"0")}/${nextYear} — ${gemCropEmoji} ${gemCropName} bán được 💎 hôm nay!`,
@@ -1381,6 +1425,7 @@ const startHarvestFruit = (tree, fruitId) => {
     // Từ không có đủ dữ liệu quiz → hái luôn không cần trả lời
     const overrideSt = { treeId: tree.id, fruitId: fruit.id, targetWord: fruit.word, question: null };
     completeHarvestFruit(overrideSt);
+    continueHarvestSequence(tree.id, fruit.id);
     return;
   }
   
@@ -1446,6 +1491,25 @@ const completeHarvestFruit = (overrideState) => {
   try { confetti({ particleCount: 100, spread: 70, origin: { y: 0.5 }, zIndex: 9999 }); } catch(e) {}
 };
 
+const continueHarvestSequence = (treeId, currentFruitId) => {
+  if (harvestSequenceTimerRef.current) clearTimeout(harvestSequenceTimerRef.current);
+  const tree = ancientTrees.find(t => t.id === treeId);
+  const nextFruit = tree?.fruits.find(fruit => fruit.id !== currentFruitId && fruit.isReady);
+  if (nextFruit) {
+    harvestSequenceTimerRef.current = setTimeout(() => startHarvestFruit(tree, nextFruit.id), 850);
+    return;
+  }
+
+  harvestSequenceTimerRef.current = setTimeout(() => {
+    setHarvestQuizState(null);
+    setQuizMode(null);
+    setActivePanel("ancient");
+    setAnswered(false);
+    setChosenOpt(null);
+    setTimeLeft(15);
+  }, 850);
+};
+
 // Xử lý quiz hái quả (1 câu duy nhất)
 const handleAncientQuizAnswer = (selectedOpt) => {
   if (!harvestQuizState) return;
@@ -1456,17 +1520,19 @@ const handleAncientQuizAnswer = (selectedOpt) => {
     timerRef.current = null;
   }
   
-  const isCorrect = selectedOpt === harvestQuizState.question.answer;
+  const activeHarvest = harvestQuizState;
+  const isCorrect = selectedOpt === activeHarvest.question.answer;
   
   setAnswered(true);
   setChosenOpt(selectedOpt);
   
   if (isCorrect) {
     completeHarvestFruit();
+    continueHarvestSequence(activeHarvest.treeId, activeHarvest.fruitId);
   } else {
-    notify(`❌ Sai rồi! Đáp án đúng là "${harvestQuizState.question.answer}". Mất lượt hái quả này!`, "#ef4444");
+    notify(`❌ Sai rồi! Đáp án đúng là "${activeHarvest.question.answer}". Mất lượt hái quả này!`, "#ef4444");
     playSound("wrong");
-    // Người dùng tự bấm nút "Tiếp tục" để thoát
+    continueHarvestSequence(activeHarvest.treeId, activeHarvest.fruitId);
   }
 };
 
@@ -2156,6 +2222,11 @@ const startLearningForTree = (tree) => {
       return;
     }
 
+    if (quizMode === "pest_hunt") {
+      handlePestQuizAnswer(opt);
+      return;
+    }
+
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
@@ -2190,39 +2261,60 @@ const startLearningForTree = (tree) => {
     if (quizTarget !== null) setQuizTarget(null);
   };
 
-const killPest = (plotId) => {
-  if (streak < 3) {
-    notify(`🔒 Cần đạt Streak x3 mới được diệt sâu! Hiện tại: x${streak}`, "#ef4444");
-    startQuiz(plotId);
-    return;
-  }
-  if (remainingKills <= 0) {
-    notify(`⚠️ Hết lượt diệt sâu! Hãy tăng streak lên để nhận thêm lượt.`, "#ef4444");
-    return;
-  }
-  
-  const plot = plots.find(p => p.id === plotId);
-  
-  // Nếu là mầm cây cổ thụ, quiz sẽ hỏi về chính từ đó
-  if (plot?.isAncientSapling && plot.wordData) {
-    const q = genQuestionForWord(plot.wordData);
-    if (q) {
-      setQuestion(q);
-      setAnswered(false);
-      setChosenOpt(null);
-      setQuizTarget(plotId);
-      setQuizMode("ancient_sapling_pest"); // Chế độ diệt sâu cho mầm cây
-      setActivePanel("quiz");
-      return;
+const handlePestQuizAnswer = (opt) => {
+  const targetPlotId = quizTarget;
+  const isCorrect = opt === question?.answer;
+  setAnswered(true);
+  setChosenOpt(opt);
+
+  if (isCorrect) {
+    const newStreak = streak + 1;
+    setStreak(newStreak);
+    const pestCountBeforeClear = plots.filter(plot => plot.hasPest).length;
+
+    if (newStreak >= 3) {
+      plots.filter(plot => plot.hasPest).forEach(plot => {
+        pestCooldownRef.current.set(plot.id, Date.now() + 15000);
+      });
+      setPlots(prev => prev.map(plot => ({ ...plot, hasPest: false })));
+      setPestKilled(prev => prev + pestCountBeforeClear);
+      notify(`🔥 Streak x${newStreak}! Đã diệt toàn bộ ${pestCountBeforeClear} con sâu!`, "#22c55e");
+    } else if (targetPlotId !== null) {
+      pestCooldownRef.current.set(targetPlotId, Date.now() + 15000);
+      setPlots(prev => prev.map(plot =>
+        plot.id === targetPlotId ? { ...plot, hasPest: false } : plot
+      ));
+      setPestKilled(prev => prev + 1);
+      notify(`✅ Đã diệt sâu ở ô này! Streak x${newStreak}. Đúng thêm ${3 - newStreak} câu để diệt toàn bộ!`, "#22c55e");
     }
+    if (updateGlobal && question?.word) updateGlobal("vocab", true, question.word);
+  } else {
+    setStreak(0);
+    if (updateGlobal && question?.word) updateGlobal("vocab", false, question.word);
+    notify("❌ Sai rồi! Streak diệt sâu đã về 0.", "#ef4444");
   }
-  
-  // Logic cũ cho cây thường
-  setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, hasPest: false } : p)));
-  setRemainingKills(prev => prev - 1);
-  setPestKilled(prev => prev + 1);
-  notify(`✅ Đã diệt sâu! Còn ${remainingKills - 1} lượt`, "#22c55e");
-  checkAchievements({ pestKilled: pestKilled + 1 });
+};
+
+const killPest = (plotId) => {
+  const plot = plots.find(p => p.id === plotId);
+
+  if (!plot?.wordData) {
+    notify("❌ Ô này chưa có dữ liệu từ để tạo quiz.", "#ef4444");
+    return;
+  }
+
+  const q = genQuestionForWord(plot.wordData);
+  if (!q) {
+    notify("❌ Không thể tạo quiz diệt sâu cho ô này.", "#ef4444");
+    return;
+  }
+
+  setQuestion(q);
+  setAnswered(false);
+  setChosenOpt(null);
+  setQuizTarget(plotId);
+  setQuizMode("pest_hunt");
+  setActivePanel("quiz");
 };
 
   const buyItem = (itemId) => {
@@ -2349,6 +2441,7 @@ const killPest = (plotId) => {
     }));
     setPlots(newPlots);
     setPlotCount(DEFAULT_PLOT_COUNT);
+    setPaidPlotCount(0);
     
     // Reset tài nguyên
     setCoins(50);
@@ -2373,7 +2466,7 @@ const killPest = (plotId) => {
     // Reset cấp độ người chơi
     setLevel(1);
     setExp(0);
-    setNextLevelExp(LEVEL_CONFIG[1]?.expRequired || 9999);
+    setNextLevelExp(getNextLevelExp(1));
     
     // ===== RESET CÂY CỔ THỤ =====
     setAncientTrees([]);           // Xóa tất cả cây cổ thụ
@@ -2413,7 +2506,7 @@ const killPest = (plotId) => {
   const totalPlanted    = plots.filter((p) => p.stage >= 1).length;
   const readyToHarvest  = plots.filter((p) => p.stage === 3).length;
   const pestCount       = plots.filter((p) => p.hasPest).length;
-  const expProgress = (exp / nextLevelExp) * 100;
+  const expProgress = nextLevelExp > 0 ? Math.min(100, (exp / nextLevelExp) * 100) : 100;
 
   const formatTime = (seconds) => {
     if (!seconds || seconds <= 0) return "0s";
@@ -2482,11 +2575,11 @@ const killPest = (plotId) => {
 
   const S = {
     wrap: {
-      height: "calc(100vh / 0.75)", width: "calc(100vw / 0.75)", display: "flex", flexDirection: "column",
+      height: "calc(100vh / 0.85)", width: "calc(100vw / 0.85)", display: "flex", flexDirection: "column",
       fontFamily: "'Nunito', 'Segoe UI', system-ui, sans-serif",
       background: s.bg, transition: "background 2s ease", boxSizing: "border-box",
       overflow: "hidden", position: "fixed", top: 0, left: 0,
-      zoom: "0.75",
+      zoom: "0.85",
     },
     topbar: {
       background: "rgba(255,255,255,0.88)", backdropFilter: "blur(14px)",
@@ -2627,7 +2720,7 @@ const killPest = (plotId) => {
   return (
     <div style={S.wrap}>
       {/* ===== NGÀY / ĐÊM OVERLAY — hệ thống arc mặt trời/trăng ===== */}
-      {(() => {
+      {activePanel === "farm" && (() => {
         // ── Thời gian dạng số thực (giờ + phút/60) ──
         const timeH = farmHour + farmMinute / 60;
 
@@ -3003,8 +3096,21 @@ const killPest = (plotId) => {
         </div>
       )}
 
+      {/* SNOWY — mưa tuyết nhẹ, chỉ xuất hiện ngẫu nhiên vào mùa đông */}
+      {weather === "snowy" && (
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,overflow:"hidden"}}>
+          <div style={{position:"absolute",inset:0,background:"rgba(180,205,230,0.24)"}} />
+          {snowflakes.map((f,i) => (
+            <div key={i} style={{
+              position:"absolute",left:f.left,top:"-30px",fontSize:f.size,
+              opacity:f.opacity,animation:`flakefall ${f.dur} linear ${f.delay} infinite`,
+            }}>❄️</div>
+          ))}
+        </div>
+      )}
+
       {/* MÙA — hoa/lá/tuyết rơi (layer riêng, không bị thời tiết che) */}
-      {season === "winter" && (
+      {season === "winter" && weather !== "snowy" && (
         <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:51,overflow:"hidden"}}>
           {snowflakes.map((f,i)=>(
             <div key={i} style={{
@@ -3183,29 +3289,56 @@ const killPest = (plotId) => {
         .tree-world { position:relative; width:220px; height:240px; margin:0 auto; cursor:default; }
         .tree-trunk-epic {
           position:absolute; bottom:0; left:50%; transform:translateX(-50%);
-          border-radius:8px 8px 4px 4px;
-          background: linear-gradient(180deg, #5d3a1a 0%, #3b2008 50%, #2a1505 100%);
-          box-shadow: inset -6px 0 12px rgba(0,0,0,0.5), inset 4px 0 8px rgba(255,200,100,0.08);
+          border-radius:12px 12px 5px 5px;
+          background: linear-gradient(90deg, #321708 0%, #70401b 25%, #9a5b27 48%, #5a2c10 72%, #241006 100%);
+          box-shadow: inset -7px 0 12px rgba(0,0,0,0.55), inset 5px 0 9px rgba(255,200,100,0.12), 0 10px 16px rgba(0,0,0,0.28);
+          z-index:1;
+        }
+        .tree-trunk-epic::before,
+        .tree-trunk-epic::after {
+          content:""; position:absolute; height:9px; width:54px; bottom:62%;
+          background:#4b2510; border-radius:12px;
+          box-shadow: inset 0 2px 3px rgba(255,190,100,0.12);
+        }
+        .tree-trunk-epic::before { right:52%; transform:rotate(-25deg); transform-origin:right center; }
+        .tree-trunk-epic::after { left:52%; transform:rotate(25deg); transform-origin:left center; }
+        .tree-canopy-wrapper::before {
+          content:""; position:absolute; left:50%; bottom:-2px; width:12px; height:82px;
+          background:linear-gradient(90deg,#321708,#77431b,#3a1a09);
+          border-radius:8px; transform:translateX(-50%); z-index:0;
         }
         .tree-canopy-wrapper {
           position:absolute; left:50%; transform:translateX(-50%);
         }
         .tree-canopy-epic {
-          border-radius:50% 48% 46% 46% / 55% 55% 45% 45%;
-          overflow:hidden;
+          position:relative; border-radius:0; overflow:visible; background:transparent !important; box-shadow:none !important;
           animation: treeBreath 4s ease-in-out infinite;
           transform-origin: center bottom;
+          z-index:2;
+        }
+        .tree-canopy-epic::before {
+          content:""; position:absolute; inset:18% 14% 3%;
+          border-radius:50% 50% 46% 46%;
+          background:radial-gradient(circle at 35% 22%,#bbf7d0 0%,#4ade80 18%,#16a34a 58%,#166534 100%);
+          box-shadow:-48px 26px 0 -4px #15803d, 48px 24px 0 -3px #15803d, -27px -18px 0 -9px #22c55e, 27px -21px 0 -8px #22c55e, inset 0 -16px 22px rgba(0,0,0,0.24);
+          z-index:0;
+          pointer-events:none;
+        }
+        .tree-canopy-epic::after {
+          content:""; position:absolute; left:27%; right:25%; bottom:4%; height:20%;
+          border-radius:50%; background:rgba(4,70,45,0.35); filter:blur(5px); z-index:0; pointer-events:none;
         }
         .tree-fruit-epic {
           position:absolute; border-radius:50%;
           display:flex; align-items:center; justify-content:center;
           font-size:16px; cursor:pointer; transition:transform 0.2s;
-          user-select:none;
+          user-select:none; z-index:3;
         }
         .tree-fruit-epic.ready {
           animation: fruitBob 2s ease-in-out infinite, fruitGlow 2s ease-in-out infinite;
           background: radial-gradient(circle at 35% 35%, #fff3, transparent 60%), #ff8c00;
           border: 2px solid #ffd700;
+          box-shadow: 0 0 10px 2px rgba(255,180,0,0.55);
           width:32px; height:32px;
         }
         .tree-fruit-epic.ready:hover { transform:translate(-50%,-50%) scale(1.2) !important; }
@@ -3353,7 +3486,6 @@ const killPest = (plotId) => {
           <span style={S.statChip("#eab308", "#fef3c7")}>💎 {gems}</span>
           <span style={S.statChip("#16a34a")}>🌱 {seeds}</span>
           <span style={S.statChip("#ef4444")}>🔥 {streak}</span>
-          {remainingKills > 0 && <span style={S.statChip("#8b5cf6")}>⚔️ {remainingKills}</span>}
         </div>
       </div>
 
@@ -3459,7 +3591,7 @@ const killPest = (plotId) => {
             <div style={S.levelBar}>
               <div style={{ ...S.levelFill, width: `${expProgress}%` }} />
             </div>
-            <span style={{ fontSize: "11px" }}>{exp}/{nextLevelExp}</span>
+            <span style={{ fontSize: "11px" }}>{nextLevelExp > 0 ? `${exp}/${nextLevelExp}` : "MAX"}</span>
           </span>
         </span>
         <div style={{ display: "flex", gap: "10px", alignItems: "center", position:"relative",zIndex:1 }}>
@@ -3870,6 +4002,61 @@ const killPest = (plotId) => {
               );
             })()}
 
+            {/* ===== QUIZ DIỆT SÂU - dùng cùng giao diện dark như quiz Cổ thụ ===== */}
+            {quizMode === "pest_hunt" && question && (
+              <div className="quiz-ancient-overlay">
+                <div style={{ width:"100%", maxWidth:"460px", marginBottom:"18px", display:"flex", flexDirection:"column", alignItems:"center", gap:"10px" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:"10px", padding:"8px 20px", borderRadius:"20px", background:"rgba(239,68,68,0.12)", border:"1px solid rgba(248,113,113,0.35)" }}>
+                    <span style={{fontSize:"22px"}}>🐛</span>
+                    <span style={{fontWeight:"900", color:"#f87171", fontSize:"15px"}}>
+                      Diệt sâu — <span style={{color:"#ffd700"}}>{question.word}</span>
+                    </span>
+                  </div>
+                  <div style={{position:"relative", width:"72px", height:"72px"}}>
+                    <svg width="72" height="72" style={{transform:"rotate(-90deg)"}}>
+                      <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="5"/>
+                      <circle className="timer-ring" cx="36" cy="36" r="30" fill="none" stroke={timeLeft <= 5 ? "#ef4444" : "#f87171"} strokeWidth="5" strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 30}`} strokeDashoffset={`${2 * Math.PI * 30 * (1 - timeLeft / 15)}`}/>
+                    </svg>
+                    <div style={{position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"20px", fontWeight:"900", color:timeLeft <= 5 ? "#ef4444" : "#f87171"}}>{timeLeft}</div>
+                  </div>
+                  <div style={{color:"rgba(255,255,255,0.6)", fontSize:"12px"}}>Đúng 1 câu để diệt ô này — Streak x3 để diệt toàn bộ</div>
+                </div>
+
+                <div className="quiz-word-card" style={{width:"100%", maxWidth:"460px"}}>
+                  <div style={{fontSize:"11px", color:"rgba(248,113,113,0.7)", textTransform:"uppercase", letterSpacing:"2px", marginBottom:"8px"}}>Nghĩa của từ này là gì?</div>
+                  <div style={{fontSize:"34px", fontWeight:"900", color:"#fff", letterSpacing:"-1px", textShadow:"0 0 30px rgba(248,113,113,0.3)"}}>{question.word}</div>
+                </div>
+
+                <div style={{display:"flex", flexDirection:"column", gap:"10px", width:"100%", maxWidth:"460px"}}>
+                  {question.options.map((opt, i) => {
+                    const isSelected = chosenOpt === opt;
+                    const isCorrect = opt === question.answer;
+                    const cls = answered ? (isCorrect ? "correct" : isSelected ? "wrong" : "") : "";
+                    return (
+                      <button key={i} disabled={answered} onClick={() => handleAnswer(opt)} className={`quiz-option-ancient ${cls}`}>
+                        <div style={{width:"28px", height:"28px", borderRadius:"8px", flexShrink:0, background: cls ? "rgba(255,255,255,0.2)" : "rgba(248,113,113,0.1)", border:"1px solid rgba(248,113,113,0.3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"13px", fontWeight:"900", color:"#f87171"}}>{["A","B","C","D"][i]}</div>
+                        <span>{opt}</span>
+                        {answered && isCorrect && <span style={{marginLeft:"auto"}}>✅</span>}
+                        {answered && isSelected && !isCorrect && <span style={{marginLeft:"auto"}}>❌</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {answered && (
+                  <div style={{marginTop:"16px", width:"100%", maxWidth:"460px", padding:"14px 20px", borderRadius:"16px", textAlign:"center", background:chosenOpt === question.answer ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)", border:`1px solid ${chosenOpt === question.answer ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`}}>
+                    {chosenOpt === question.answer ? <div style={{color:"#4ade80", fontWeight:"900", fontSize:"16px"}}>🎉 Chính xác! Streak x{streak}</div> : <div><div style={{color:"#f87171", fontWeight:"900", fontSize:"15px"}}>❌ Sai rồi! Streak về 0</div><div style={{color:"rgba(255,255,255,0.6)", fontSize:"12px", marginTop:"4px"}}>Đáp án: <strong style={{color:"#ffd700"}}>{question.answer}</strong></div></div>}
+                  </div>
+                )}
+
+                {answered ? (
+                  <button className="harvest-btn-epic" onClick={() => { setQuestion(null); setQuizTarget(null); setQuizMode(null); setAnswered(false); setChosenOpt(null); setActivePanel("farm"); }} style={{marginTop:"14px", padding:"12px 40px", fontSize:"15px", borderRadius:"16px"}}>✓ Tiếp tục</button>
+                ) : (
+                  <button onClick={() => { setQuestion(null); setQuizTarget(null); setQuizMode(null); setAnswered(false); setChosenOpt(null); setActivePanel("farm"); }} style={{marginTop:"14px", background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:"12px", color:"rgba(255,255,255,0.45)", padding:"8px 24px", fontSize:"12px", cursor:"pointer", fontFamily:"inherit"}}>✕ Huỷ và quay lại</button>
+                )}
+              </div>
+            )}
+
             {/* ===== QUIZ HÁI QUẢ CÂY CỔ THỤ - EPIC DARK UI ===== */}
             {quizMode === "ancient_harvest" && harvestQuizState && (
               <div className="quiz-ancient-overlay">
@@ -3980,11 +4167,12 @@ const killPest = (plotId) => {
                   </div>
                 )}
 
-                {/* Nút Tiếp tục (chỉ hiện sau khi đã trả lời) */}
+                {/* Chuỗi tự chuyển quả; nút này dùng để dừng chuỗi */}
                 {answered && (
                   <button
                     className="harvest-btn-epic"
                     onClick={() => {
+                      if (harvestSequenceTimerRef.current) clearTimeout(harvestSequenceTimerRef.current);
                       setHarvestQuizState(null);
                       setTreeLearningState(null);
                       setQuizMode(null);
@@ -3998,7 +4186,7 @@ const killPest = (plotId) => {
                       fontSize:"15px", borderRadius:"16px",
                     }}
                   >
-                    ✓ Tiếp tục
+                    ■ Dừng hái
                   </button>
                 )}
 
@@ -4026,7 +4214,7 @@ const killPest = (plotId) => {
             )}
 
             {/* Quiz thông thường (cây trồng, boss, v.v) */}
-            {quizMode !== "tree_learning" && question && (
+            {quizMode !== "tree_learning" && quizMode !== "pest_hunt" && question && (
               <>
                 <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "18px", padding: "18px", textAlign: "center", marginBottom: "14px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
@@ -4398,14 +4586,8 @@ const killPest = (plotId) => {
           }}>
           <div className="tree-canopy-epic" style={{
             width:`${canopySize}px`, height:`${Math.round(canopySize*0.85)}px`,
-            background:tree.level<=3
-              ? `radial-gradient(ellipse at 40% 35%, rgba(255,255,255,0.15), transparent 55%), linear-gradient(180deg, #22c55e, #15803d)`
-              : tree.level<=6
-              ? `radial-gradient(ellipse at 40% 35%, rgba(255,255,255,0.15), transparent 55%), linear-gradient(180deg, #d97706, #92400e)`
-              : tree.level<=8
-              ? `radial-gradient(ellipse at 40% 35%, rgba(255,255,255,0.2), transparent 55%), linear-gradient(180deg, #60a5fa, #1d4ed8)`
-              : `radial-gradient(ellipse at 40% 35%, rgba(255,255,255,0.25), transparent 55%), linear-gradient(180deg, #a855f7, #7c3aed)`,
-            boxShadow:`0 0 40px ${treeGlow},0.3), inset 0 -10px 30px rgba(0,0,0,0.3)`,
+            background:"transparent",
+            boxShadow:"none",
           }}>
             {/* Quả trên tán */}
             {tree.fruits.map((fruit, idx) => {

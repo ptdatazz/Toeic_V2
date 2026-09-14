@@ -177,6 +177,22 @@ const getMeaning = (item) => {
   return parts.join(" / ") || "";
 };
 
+const getVocabularyWordKey = (item) =>
+  (item?.word || '').replace(/\s*\([^)]*\)\s*/g, '').trim().toLowerCase();
+
+const uniqueVocabularyWords = (words) => {
+  const seen = new Set();
+  return words.filter((item) => {
+    const key = getVocabularyWordKey(item);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const normalizeStoryWord = (value) =>
+  String(value || '').replace(/\s*\([^)]*\)\s*/g, '').trim().toUpperCase();
+
 // --- TÁCH 1 TỪ NHIỀU NGHĨA THÀNH TỪNG NGHĨA RIÊNG (để ôn từng nghĩa 1) ---
 // Trả về mảng [{ tag: "n"|"v"|"adj"|null, meaning: "..." }, ...]
 const getMeaningParts = (item) => {
@@ -801,10 +817,10 @@ function QuizSettings({ mode, onStart, onBack, customWordsCount = 0, customGramm
       </div>
 
       {/* BODY — 2 CỘT */}
-      <div style={{ flex: 1, overflow: "hidden", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", padding: "14px 16px", minHeight: 0 }}>
+      <div className="quiz-settings-body" style={{ flex: 1, overflow: "hidden", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", padding: "14px 16px", minHeight: 0 }}>
         
         {/* CỘT TRÁI */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px", overflow: "hidden" }}>
+        <div className="quiz-settings-column" style={{ display: "flex", flexDirection: "column", gap: "12px", overflow: "hidden" }}>
 
           {/* NGUỒN DỮ LIỆU */}
           {mode === "vocab" && (
@@ -878,7 +894,7 @@ function QuizSettings({ mode, onStart, onBack, customWordsCount = 0, customGramm
         </div>
 
         {/* CỘT PHẢI */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px", overflow: "hidden" }}>
+        <div className="quiz-settings-column" style={{ display: "flex", flexDirection: "column", gap: "12px", overflow: "hidden" }}>
 
           {/* LEVEL 3 — SINH TỒN */}
           {settings.difficultyLevel === 3 && (
@@ -955,6 +971,7 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
   const [blastStreak, setBlastStreak] = useState(0);
   const [showResult, setShowResult] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 50, y: 50 });
+  const [questionTimeLeft, setQuestionTimeLeft] = useState(9);
   
   const areaRef = useRef(null);
   const animFrameRef = useRef(null);
@@ -967,7 +984,8 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
   const streakRef = useRef(0);
   const spawnIntervalRef = useRef(null);
   const correctWordSpawnedRef = useRef(false);
-  const questionTimeoutRef = useRef(null); // ⏱️ Hết giờ cho câu hiện tại (thay cho việc "chạm đất là trượt" khi từ rơi dọc)
+  const questionTimeoutRef = useRef(null); // ⏱️ Hết giờ cho câu hiện tại
+  const questionTimerIntervalRef = useRef(null);
 
   // Tốc độ cơ bản tăng theo streak (chậm vừa phải)
   const getBaseSpeed = () => {
@@ -1020,14 +1038,11 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     }
     
     const baseSpeed = getBaseSpeed();
-    const rowSlots = [18, 34, 50, 66, 82]; // 5 hàng cố định, dàn đều từ trên xuống dưới
-    const shuffledRows = [...rowSlots].sort(() => Math.random() - 0.5);
-
     return pool.map((opt, idx) => {
-      // Mỗi từ 1 hàng cố định (không đè lên nhau), bay ngang qua lại trên hàng đó
-      const y = shuffledRows[idx % shuffledRows.length];
-      const x = 10 + Math.random() * 80; // vị trí ngang khởi điểm ngẫu nhiên
-      const dir = Math.random() > 0.5 ? 1 : -1; // hướng bay ban đầu: trái hoặc phải
+      // Mỗi từ có vận tốc riêng theo cả hai trục và bật lại ở bốn mép.
+      const x = 15 + Math.random() * 70;
+      const y = 15 + Math.random() * 62;
+      const angle = Math.random() * Math.PI * 2;
       const speedVariation = (Math.random() - 0.5) * 0.08;
       let finalSpeed = baseSpeed + speedVariation;
       finalSpeed = Math.min(Math.max(finalSpeed, 0.35), 0.9);
@@ -1037,8 +1052,8 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
         id: Date.now() + idx + Math.random(),
         x: x, 
         y: y,
-        dir: dir,
-        speed: finalSpeed,
+        vx: Math.cos(angle) * finalSpeed,
+        vy: Math.sin(angle) * finalSpeed,
         word: opt.word,
         cleanWord: opt.cleanWord || opt.word,
         isCorrect: opt.isCorrect || false
@@ -1138,6 +1153,10 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
       clearTimeout(questionTimeoutRef.current);
       questionTimeoutRef.current = null;
     }
+    if (questionTimerIntervalRef.current) {
+      clearInterval(questionTimerIntervalRef.current);
+      questionTimerIntervalRef.current = null;
+    }
     
     // Reset targets
     targetsRef.current = [];
@@ -1155,6 +1174,11 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
         // ⏱️ Bắt đầu đếm giờ bay cho câu này - hết giờ mà chưa bắn trúng thì tính trượt
         const baseSpeed = getBaseSpeed();
         const flyDurationMs = Math.round(9000 / (baseSpeed / 0.45)); // streak càng cao, tốc độ càng nhanh -> thời gian càng ngắn
+        const countdownSeconds = Math.max(4, Math.ceil(flyDurationMs / 1000));
+        setQuestionTimeLeft(countdownSeconds);
+        questionTimerIntervalRef.current = setInterval(() => {
+          setQuestionTimeLeft(prev => Math.max(0, prev - 1));
+        }, 1000);
         questionTimeoutRef.current = setTimeout(() => {
           triggerMiss();
         }, flyDurationMs);
@@ -1170,10 +1194,11 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
     return () => {
       if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
       if (questionTimeoutRef.current) clearTimeout(questionTimeoutRef.current);
+      if (questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current);
     };
   }, [qIdx, questions]);
 
-  // Animation loop — từ giờ BAY NGANG QUA LẠI trên hàng cố định, không rơi dọc xuống đất nữa
+  // Animation loop — mục tiêu di chuyển tự do theo cả bốn hướng.
   useEffect(() => {
     if (questions.length === 0) return;
     if (gameOver) {
@@ -1194,12 +1219,13 @@ function BlastGame({ words, onWin, onBack, initialLives = 3 }) {
         lastTime = currentTime;
         
         const updatedTargets = targetsRef.current.map(t => {
-          let newX = t.x + t.speed * t.dir;
-          let newDir = t.dir;
-          // Chạm mép trái/phải thì bật ngược hướng bay lại (bay qua bay lại)
-          if (newX <= 6) { newX = 6; newDir = 1; }
-          else if (newX >= 94) { newX = 94; newDir = -1; }
-          return { ...t, x: newX, dir: newDir };
+          let newX = t.x + t.vx;
+          let newY = t.y + t.vy;
+          let vx = t.vx;
+          let vy = t.vy;
+          if (newX <= 8 || newX >= 92) { newX = Math.min(92, Math.max(8, newX)); vx *= -1; }
+          if (newY <= 8 || newY >= 78) { newY = Math.min(78, Math.max(8, newY)); vy *= -1; }
+          return { ...t, x: newX, y: newY, vx, vy };
         });
         
         targetsRef.current = updatedTargets;
@@ -1334,6 +1360,7 @@ const handleShoot = (opt, idx) => {
     if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     if (questionTimeoutRef.current) clearTimeout(questionTimeoutRef.current);
+    if (questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current);
     
     isGameOverRef.current = false;
     isProcessingRef.current = false;
@@ -1488,6 +1515,13 @@ const handleShoot = (opt, idx) => {
         </div>
         <span style={{ fontSize: "10px", color: "#FF9800", fontFamily: "monospace" }}>
           x{(currentSpeed / 0.45).toFixed(1)}
+        </span>
+        <span style={{
+          minWidth: "54px", textAlign: "center", fontSize: "12px", fontWeight: "900",
+          color: questionTimeLeft <= 3 ? "#ff5252" : "#80d8ff",
+          background: "rgba(0,0,0,0.3)", padding: "3px 7px", borderRadius: "10px"
+        }}>
+          ⏱ {questionTimeLeft}s
         </span>
       </div>
 
@@ -1846,7 +1880,8 @@ function StoryMode({ words, onComplete, onBack, updateGlobal, onSaveWord, settin
   const [showVietnamese, setShowVietnamese] = useState(false); // hiện bản dịch so sánh 
 
   // Lấy số lượng từ cần học từ settings
-  const targetWordCount = settings?.quizLimit || words.length;
+  const uniqueWords = useMemo(() => uniqueVocabularyWords(words || []), [words]);
+  const targetWordCount = Math.min(settings?.quizLimit || uniqueWords.length, uniqueWords.length);
   const STORIES_PER_BATCH = 1; // Số lượng truyện cần tạo (mỗi truyện chứa TẤT CẢ từ)
 
   const getMeaning = (item) => {
@@ -1905,6 +1940,7 @@ YÊU CẦU BẮT BUỘC:
 3. **TUYỆT ĐỐI KHÔNG ĐƯỢC viết nghĩa tiếng Việt bên cạnh từ tiếng Anh**
 4. Viết thêm 1 bản dịch tiếng Việt HOÀN TOÀN (thay tất cả từ tiếng Anh bằng nghĩa tiếng Việt tương ứng)
 5. Độ dài nội dung: khoảng ${minWords}–${maxWords} từ, KHÔNG được dài hơn ${maxWords} từ
+6. Nếu là đối thoại hoặc phỏng vấn, MỖI LƯỢT LỜI PHẢI BẮT ĐẦU Ở DÒNG MỚI theo dạng "Tên người nói: nội dung"
 
 
 Trả về DUY NHẤT 1 OBJECT JSON:
@@ -1921,9 +1957,7 @@ KHÔNG giải thích gì thêm, CHỈ trả về JSON.`;
         if (!window.globalCachedModel) {
           const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
           const listData = await listRes.json();
-          const textModels = (listData.models || []).filter(m => m.supportedGenerationMethods?.includes("generateContent"));
-          const flashModel = textModels.find(m => m.name.includes("1.5-flash")) || textModels.find(m => m.name.includes("flash"));
-          window.globalCachedModel = flashModel ? flashModel.name : (textModels[0]?.name || "models/gemini-1.5-flash");
+          window.globalCachedModel = chooseGeminiFlashModel(listData.models);
         }
 
         const requestBody = { contents: [{ parts: [{ text: prompt }] }] };
@@ -1954,7 +1988,7 @@ KHÔNG giải thích gì thêm, CHỈ trả về JSON.`;
         learnedWords: []
       };
     } catch (error) {
-      console.error("Lỗi sinh truyện:", error);
+      console.error("Lỗi sinh truyện bằng AI, dùng nội dung dự phòng:", error);
       // Fallback: tạo truyện đơn giản với tất cả từ
       const fallbackStory = wordDetails.map(w => `Hãy học từ [${w.word.replace(/\s*\([^)]*\)/g, '').trim().toUpperCase()}] có nghĩa là ${w.meaning}. `).join(' ') + 
   "Đây là câu chuyện luyện tập từ vựng. Hãy cố gắng ghi nhớ và chạm vào từ để học nghĩa nhé!";
@@ -1970,16 +2004,16 @@ KHÔNG giải thích gì thêm, CHỈ trả về JSON.`;
 
   // Lấy đúng số lượng từ theo setting và tạo NHIỀU TRUYỆN, mỗi truyện chứa TẤT CẢ từ
   useEffect(() => {
-    if (!words || words.length === 0) return;
+    if (uniqueWords.length === 0) return;
     
-    const currentHash = words.map(w => w.word).sort().join(',');
+    const currentHash = uniqueWords.map(w => getVocabularyWordKey(w)).sort().join(',');
     if (hasGeneratedRef.current && wordsHashRef.current === currentHash) return;
     if (isGeneratingRef.current) return;
     
     // Lấy đúng số lượng từ cần học (theo settings)
-    let selectedWords = [...words];
-    if (targetWordCount > 0 && targetWordCount < words.length) {
-      selectedWords = shuffleArray(words).slice(0, targetWordCount);
+    let selectedWords = [...uniqueWords];
+    if (targetWordCount > 0 && targetWordCount < uniqueWords.length) {
+      selectedWords = shuffleArray(uniqueWords).slice(0, targetWordCount);
     }
     
     wordsHashRef.current = selectedWords.map(w => w.word).sort().join(',');
@@ -2004,18 +2038,19 @@ KHÔNG giải thích gì thêm, CHỈ trả về JSON.`;
     };
 
     generateAllStories();
-  }, [words, targetWordCount, STORIES_PER_BATCH]);
+  }, [uniqueWords, targetWordCount, STORIES_PER_BATCH]);
 
   // Render truyện với các từ có thể chạm
   const renderStoryWithTouchWords = (storyText, learnedSet) => {
+    const formattedStoryText = storyText.replace(/\s+(?=[A-ZÀ-Ỹ][\p{L}]{1,24}:)/gu, "\n");
     const regex = /\[([A-Za-z][A-Za-z0-9_ -]*)(?:\s*\([^)]*\))?\]/g;
     const parts = [];
     let lastIndex = 0;
     let match;
 
-    while ((match = regex.exec(storyText)) !== null) {
+    while ((match = regex.exec(formattedStoryText)) !== null) {
       if (match.index > lastIndex) {
-        parts.push({ type: 'text', content: storyText.slice(lastIndex, match.index) });
+        parts.push({ type: 'text', content: formattedStoryText.slice(lastIndex, match.index) });
       }
       
       const word = match[1].trim().toUpperCase();
@@ -2041,8 +2076,8 @@ KHÔNG giải thích gì thêm, CHỈ trả về JSON.`;
       lastIndex = match.index + match[0].length;
     }
     
-    if (lastIndex < storyText.length) {
-      parts.push({ type: 'text', content: storyText.slice(lastIndex) });
+    if (lastIndex < formattedStoryText.length) {
+      parts.push({ type: 'text', content: formattedStoryText.slice(lastIndex) });
     }
     
     return parts;
@@ -2050,8 +2085,8 @@ KHÔNG giải thích gì thêm, CHỈ trả về JSON.`;
 
 // Xóa hàm toggleWordLearned cũ, thay bằng:
 const openWordInput = (word, meaning) => {
-  const currentLearnedSet = new Set(stories[currentStoryIndex]?.learnedWords || []);
-  if (currentLearnedSet.has(word)) return;
+  const currentLearnedSet = new Set((stories[currentStoryIndex]?.learnedWords || []).map(normalizeStoryWord));
+  if (currentLearnedSet.has(normalizeStoryWord(word))) return;
   setActiveWord({ word, meaning });
   setInputMeaning("");
   setInputResult(null);
@@ -2088,7 +2123,7 @@ const submitMeaning = () => {
     setStories(prev => {
       const updated = prev.map((s, i) => {
         if (i !== currentStoryIndex) return s;
-        const wordUpper = activeWord.word.toUpperCase();
+        const wordUpper = normalizeStoryWord(activeWord.word);
         if (s.learnedWords.includes(wordUpper)) return s;
         return { ...s, learnedWords: [...s.learnedWords, wordUpper] };
       });
@@ -2105,12 +2140,14 @@ const submitMeaning = () => {
 
   const completeCurrentStory = () => {
     const currentStory = stories[currentStoryIndex];
-    const totalWords = currentStory.words.length;
-    const learnedCount = currentStory.learnedWords.length;
+    const storyWords = uniqueVocabularyWords(currentStory.words);
+    const learnedSet = new Set(currentStory.learnedWords.map(normalizeStoryWord));
+    const totalWords = storyWords.length;
+    const learnedCount = storyWords.filter((word) => learnedSet.has(normalizeStoryWord(word.word))).length;
     
     if (learnedCount < totalWords) {
       const notif = document.createElement('div');
-      notif.textContent = `🔔 Cần học ${totalWords - learnedCount} từ nữa! Chạm vào từ [${currentStory.words.filter(w => !currentStory.learnedWords.includes(w.word.toUpperCase())).map(w => w.word).join(', ')}]`;
+      notif.textContent = `🔔 Cần học ${totalWords - learnedCount} từ nữa! Chạm vào từ [${storyWords.filter(w => !learnedSet.has(normalizeStoryWord(w.word))).map(w => w.word).join(', ')}]`;
       notif.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:#f59e0b; color:white; padding:8px 20px; border-radius:30px; font-weight:bold; z-index:10000; animation:fadeUp 0.3s;`;
       document.body.appendChild(notif);
       setTimeout(() => notif.remove(), 3000);
@@ -2196,17 +2233,18 @@ const submitMeaning = () => {
   const currentStory = stories[currentStoryIndex];
   if (!currentStory) return null;
 
-  const learnedSet = new Set(currentStory.learnedWords);
+  const learnedSet = new Set(currentStory.learnedWords.map(normalizeStoryWord));
   const storyParts = renderStoryWithTouchWords(currentStory.story, learnedSet);
   // XÓA 2 dòng này:
 console.log("🔄 Re-render | learnedSet:", [...learnedSet]);
 console.log("🔄 storyParts isLearned:", storyParts.filter(p => p.type === 'word').map(p => `${p.word}:${p.isLearned}`));
-  const totalWordsInStory = currentStory.words.length;
-  const learnedCount = currentStory.learnedWords.length;
+  const uniqueStoryWords = uniqueVocabularyWords(currentStory.words);
+  const totalWordsInStory = uniqueStoryWords.length;
+  const learnedCount = uniqueStoryWords.filter(word => learnedSet.has(normalizeStoryWord(word.word))).length;
   const progressPercent = (learnedCount / totalWordsInStory) * 100;
 
   // Danh sách từ chưa học để hiển thị nhắc nhở
-  const unlearnedWords = currentStory.words.filter(w => !learnedSet.has(w.word.toUpperCase()));
+  const unlearnedWords = uniqueStoryWords.filter(w => !learnedSet.has(normalizeStoryWord(w.word)));
 
   return (
     <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "linear-gradient(135deg, #f5f0e8, #e8e0d0)", overflow: "hidden" }}>
@@ -2241,12 +2279,12 @@ console.log("🔄 storyParts isLearned:", storyParts.filter(p => p.type === 'wor
       </div>
 
       {/* Story content */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px", maxWidth: "700px", margin: "0 auto", width: "100%" }}>
-        <div style={{ background: "rgba(255,255,255,0.95)", borderRadius: "20px", padding: "25px", boxShadow: "0 8px 30px rgba(0,0,0,0.1)" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px", maxWidth: "780px", margin: "0 auto", width: "100%" }}>
+        <div style={{ background: "rgba(255,255,255,0.95)", borderRadius: "20px", padding: "28px clamp(22px, 4vw, 42px)", boxShadow: "0 8px 30px rgba(0,0,0,0.1)" }}>
           <div style={{ fontSize: "13px", color: "#888", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "16px", textAlign: "center" }}>
             🎯 CHẠM VÀO TỪ TIẾNG ANH ĐỂ HỌC NGHĨA
           </div>
-          <div style={{ fontSize: "16px", lineHeight: "1.8", color: "#333", textAlign: "justify" }}>
+          <div style={{ fontSize: "16px", lineHeight: "1.85", color: "#333", textAlign: "left", whiteSpace: "pre-line", overflowWrap: "break-word" }}>
             {storyParts.map((part, idx) => {
               if (part.type === 'text') {
                 return <span key={idx}>{part.content}</span>;
@@ -2392,7 +2430,7 @@ console.log("🔄 storyParts isLearned:", storyParts.filter(p => p.type === 'wor
 
       {/* SO SÁNH BẢN DỊCH - hiện khi học xong tất cả từ */}
       {learnedCount >= totalWordsInStory && currentStory.vietnamese && (
-        <div style={{ margin:"0 20px 16px", background:"#e8f5e9", borderRadius:"16px", padding:"16px",
+        <div style={{ width:"calc(100% - 40px)", maxWidth:"780px", margin:"0 auto 16px", background:"#e8f5e9", borderRadius:"16px", padding:"16px",
                       border:"2px solid #4CAF50" }}>
           <div style={{ fontWeight:"bold", color:"#2e7d32", marginBottom:"10px", textAlign:"center" }}>
             🌟 Bản dịch tiếng Việt hoàn chỉnh
@@ -2621,6 +2659,8 @@ function WordQuiz({ mode, onBack, updateGlobal, onSaveWord, onMoveWord, settings
                  return;
             }
         }
+
+            sourceData = uniqueVocabularyWords(sourceData);
 
         const learnedSet = new Set(stats?.learnedWords || []);
         const newWords = [];
@@ -3911,7 +3951,7 @@ return (
                             }}
                             disabled={isCorrect} maxLength={item.cleanWord.length}
                             placeholder={`${item.cleanWord.length} CHỮ CÁI...`}
-                            style={{ flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", textTransform: "uppercase", outline: "none", backgroundColor: isCorrect ? "#c8e6c9" : "#f9f9f9", fontWeight: "bold", fontSize: "15px", letterSpacing: "1px", minWidth: "0" }}
+                            style={{ flex: 1, padding: "10px", borderRadius: "8px", border: isCorrect ? "2px solid #4CAF50" : "1px solid #90caf9", textTransform: "uppercase", outline: "none", backgroundColor: isCorrect ? "#c8e6c9" : "#e8f1ff", color: isCorrect ? "#1b5e20" : "#102a43", caretColor: "#1565c0", fontWeight: "bold", fontSize: "15px", letterSpacing: "1px", minWidth: "0", boxShadow: "inset 0 1px 3px rgba(21,101,192,0.12)" }}
                           />
                           {!isCorrect ? (
                             <button onClick={() => handleBossHint(idx, item.cleanWord)} style={{ padding: "10px", backgroundColor: "#FF9800", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", flexShrink: 0 }} title="Nhận gợi ý">💡</button>
@@ -3945,7 +3985,7 @@ return (
                       }
                     }}
                     disabled={isKeywordSolved} placeholder={`${currentQ.keyword.length} CHỮ CÁI...`}
-                    style={{ width: "100%", maxWidth: "300px", padding: "12px", fontSize: "24px", textAlign: "center", textTransform: "uppercase", letterSpacing: "5px", borderRadius: "8px", border: isKeywordSolved ? "2px solid #4CAF50" : "2px solid #FF9800", outline: "none", backgroundColor: isKeywordSolved ? "#e8f5e9" : "#fff", fontWeight: "bold", color: isKeywordSolved ? "#2e7d32" : "#e65100", transition: "0.3s" }}
+                    style={{ width: "100%", maxWidth: "300px", padding: "12px", fontSize: "24px", textAlign: "center", textTransform: "uppercase", letterSpacing: "5px", borderRadius: "8px", border: isKeywordSolved ? "2px solid #4CAF50" : "2px solid #FF9800", outline: "none", backgroundColor: isKeywordSolved ? "#e8f5e9" : "#fff8e1", color: isKeywordSolved ? "#2e7d32" : "#7a3e00", caretColor: "#e65100", fontWeight: "bold", transition: "0.3s" }}
                   />
                   {isKeywordSolved && (
                     <div style={{ marginTop: "20px", animation: "popIn 0.5s" }}>
@@ -5626,19 +5666,17 @@ function ModeSelectionScreen({ onModeSelect, onNotebookClick, globalStats = {} }
     // ĐỔI grid từ 3 cột thành 4 cột
     return (
         <div style={{ width: "100%", height: "100%" }}>
-                       <div className="mode-grid-4col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", height: "auto" }}>
+                       <div className="mode-grid-4col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", height: "100%", minHeight: 0 }}>
                                 {modes.map((m, idx) => (
                     <div key={m.screen}
                         onClick={() => onModeSelect(m.screen)}
                         className={`mode-btn mode-btn-${idx}`}
-                         style={{ background: m.bg, borderRadius: "16px", color: "white", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: "16px 8px", aspectRatio: "1.7 / 1", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", userSelect: "none", position: "relative", overflow: "hidden" }}
-                        onMouseEnter={e => e.currentTarget.style.transform="scale(1.05)"}
-                        onMouseLeave={e => e.currentTarget.style.transform="scale(1)"}
+                         style={{ background: "transparent", border: "none", borderRadius: "16px", color: "white", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: "16px 8px", height: "100%", boxShadow: "none", userSelect: "none", position: "relative", overflow: "hidden" }}
                     >
                         <div className="mode-btn-deco" />
                         {m.illustration}
                         <span className="mode-icon-3d" style={{ position: "relative", zIndex: 1 }}>{m.icon}</span>
-                        <span className="mode-title" style={{ fontSize: "14px", fontWeight: "bold", textAlign: "center", textShadow: "0 1px 2px rgba(0,0,0,0.3)", position: "relative", zIndex: 1 }}>{m.title}</span>
+                        <span className="mode-title" style={{ fontSize: "14px", fontWeight: "bold", textAlign: "center", color: "white", mixBlendMode: "difference", position: "relative", zIndex: 1 }}>{m.title}</span>
                     </div>
                 ))}
             </div>
@@ -9582,7 +9620,7 @@ return (
         .home-card { transition: transform 0.18s, box-shadow 0.18s; }
         .home-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important; }
         .mode-btn { transition: transform 0.15s, box-shadow 0.15s; }
-        .mode-btn:hover { transform: translateY(-4px) scale(1.03); }
+        .mode-btn:hover { transform: none; }
         .options button { border-radius:12px !important; padding:14px !important; font-size:15px !important; transition:all 0.15s !important; font-weight:600 !important; }
         .options button:not(:disabled):hover { border-color:#1565c0 !important; background:#e3f2fd !important; transform:translateY(-2px); }
         .options button.correct { background:linear-gradient(135deg,#2e7d32,#43a047) !important; color:white !important; border-color:transparent !important; }
@@ -9593,8 +9631,24 @@ return (
         ::-webkit-scrollbar { display: none; }
         .home-layout { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
         @media (min-width: 900px) {
-          .home-sidebar { width: 240px; flex-shrink: 0; background: linear-gradient(180deg,#1a237e 0%,#283593 60%,#1565c0 100%); padding: 20px 16px; display:flex; flex-direction:column; height: 100vh; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; }
-          .home-main { flex: 1; min-width: 0; padding: 20px 28px; display: flex; flex-direction: column; gap: 14px; height: 100vh; overflow: hidden; box-sizing: border-box; }
+          .home-sidebar { width: clamp(300px, 18vw, 340px); flex-shrink: 0; background: linear-gradient(180deg,#1a237e 0%,#283593 60%,#1565c0 100%); padding: clamp(22px, 1.5vw, 30px) clamp(20px, 1.1vw, 26px); display:flex; flex-direction:column; justify-content: space-evenly; height: 100vh; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; }
+          .sidebar-brand { margin-bottom: 16px !important; }
+          .sidebar-brand > div:first-child { font-size: clamp(38px, 3vw, 48px) !important; }
+          .sidebar-brand > div:nth-child(2) { font-size: clamp(24px, 1.7vw, 30px) !important; }
+          .sidebar-brand > div:nth-child(3) { font-size: clamp(13px, 1vw, 15px) !important; }
+          .sidebar-account { margin-bottom: 16px !important; padding: clamp(15px, 1.2vw, 20px) !important; }
+          .sidebar-account img, .sidebar-account > div:first-child { width: 52px !important; height: 52px !important; }
+          .sidebar-account > div:nth-child(2) > div:first-child { font-size: 16px !important; }
+          .sidebar-account > div:nth-child(2) > div:nth-child(2) { font-size: 12px !important; }
+          .sidebar-clock { margin-bottom: 16px !important; padding: clamp(18px, 1.4vw, 24px) !important; }
+          .sidebar-clock > div:first-child { font-size: clamp(32px, 2.2vw, 40px) !important; }
+          .sidebar-clock > div:nth-child(2) { font-size: 13px !important; }
+          .sidebar-music { margin-bottom: 16px !important; padding: clamp(15px, 1.2vw, 20px) !important; }
+          .sidebar-music > div:first-child { font-size: 14px !important; }
+          .sidebar-music button { width: 38px !important; height: 38px !important; font-size: 16px !important; }
+          .sidebar-music select, .sidebar-music label { font-size: 13px !important; padding: 9px 10px !important; }
+          .home-main { flex: 1; min-width: 0; padding: clamp(24px, 1.7vw, 36px) clamp(28px, 2vw, 48px); display: flex; flex-direction: column; gap: clamp(16px, 1.2vw, 24px); height: 100vh; overflow: hidden; box-sizing: border-box; }
+          .home-main > * { width: 100%; max-width: 1700px; margin-left: auto; margin-right: auto; }
           .home-topbar { display: none !important; }
           .sidebar-only { display: flex !important; }
           .main-only-header { display: none !important; }
@@ -9614,14 +9668,14 @@ return (
         {/* ===== SIDEBAR (desktop only) ===== */}
         <div className="home-sidebar">
           {/* Logo */}
-          <div style={{ marginBottom: "28px", textAlign: "center" }}>
+          <div className="sidebar-brand" style={{ marginBottom: "28px", textAlign: "center" }}>
             <div style={{ fontSize: "34px", marginBottom: "6px" }}>🚀</div>
             <div style={{ color: "white", fontWeight: "900", fontSize: "22px", letterSpacing: "1px" }}>TOEIC Master</div>
             <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "12px", marginTop: "3px" }}>Luyện thi thông minh</div>
           </div>
 
           {/* Avatar + tên */}
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "28px", padding: "12px 14px", backgroundColor: "rgba(255,255,255,0.1)", borderRadius: "14px", cursor: "pointer" }}
+          <div className="sidebar-account" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "28px", padding: "12px 14px", backgroundColor: "rgba(255,255,255,0.1)", borderRadius: "14px", cursor: "pointer" }}
             onClick={() => { playSound("click"); setShowProfileMenu(!showProfileMenu); }}>
             {currentUser.photoURL
               ? <img src={currentUser.photoURL} alt="Avatar" style={{ width: "42px", height: "42px", borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,255,255,0.4)" }} />
@@ -9817,13 +9871,13 @@ return (
           </div>
 
           {/* Đồng hồ sidebar */}
-          <div style={{ padding: "16px 14px", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: "14px", marginBottom: "20px" }}>
+          <div className="sidebar-clock" style={{ padding: "16px 14px", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: "14px", marginBottom: "20px" }}>
             <div style={{ color: "white", fontWeight: "900", fontSize: "28px", letterSpacing: "2px", lineHeight: 1 }}>{currentFormattedTime}</div>
             <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "12px", marginTop: "5px" }}>{currentFormattedDate}</div>
           </div>
 
           {/* Nhạc sidebar */}
-          <div style={{ padding: "12px 14px", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: "14px", marginBottom: "20px" }}>
+          <div className="sidebar-music" style={{ padding: "12px 14px", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: "14px", marginBottom: "20px" }}>
             <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px", fontWeight: "bold", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "1px" }}>🎵 Âm nhạc</div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
               <button onClick={toggleMusic} style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: isMusicPlaying ? "#FF9800" : "rgba(255,255,255,0.15)", color: "white", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>
@@ -9875,32 +9929,6 @@ return (
           </div>
 
 
-          {/* Stats sidebar */}
-          <div style={{ flex: 1 }}>
-            <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px", fontWeight: "bold", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "1px" }}>📊 Tiến độ</div>
-            {[
-              { label: "Từ vựng", count: uniqueVocabCount, total: totalDbWords, pct: vocabPercentage, color: "#4CAF50" },
-              { label: "Collocation", count: uniqueCollocCount, total: totalCollocDbWords, pct: collocPercentage, color: "#CE93D8" },
-            ].map(s => (
-              <div key={s.label} style={{ marginBottom: "12px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ color: "rgba(255,255,255,0.8)", fontSize: "13px" }}>{s.label}</span>
-                  <span style={{ color: s.color, fontSize: "12px", fontWeight: "bold" }}>{s.pct}%</span>
-                </div>
-                <div style={{ height: "5px", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: "3px" }}>
-                  <div style={{ width: `${s.pct}%`, height: "100%", backgroundColor: s.color, borderRadius: "3px", transition: "width 0.5s" }}/>
-                </div>
-                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", marginTop: "2px" }}>{s.count} / {s.total || "..."}</div>
-              </div>
-            ))}
-            <div style={{ marginBottom: "12px" }}>
-              <div style={{ color: "rgba(255,255,255,0.8)", fontSize: "13px", marginBottom: "4px" }}>Ngữ pháp AI</div>
-              <div style={{ height: "5px", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: "3px", overflow: "hidden" }}>
-                <div style={{ width: "100%", height: "100%", background: "linear-gradient(90deg,#4facfe,#00f2fe,#4facfe)", backgroundSize: "200% 100%", animation: "gradientMove 2s infinite linear", borderRadius: "3px" }}/>
-              </div>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", marginTop: "2px" }}>{uniqueGrammarCount} câu — Vô hạn đề</div>
-            </div>
-          </div>
         </div>
 
         {/* ===== MAIN CONTENT ===== */}
